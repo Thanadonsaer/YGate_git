@@ -1,0 +1,36 @@
+--- a/cmd/middleware/service_menu_windows.go
++++ b/cmd/middleware/service_menu_windows.go
+@@ -116,7 +116,10 @@
+ func readMenuLine(reader *bufio.Reader) (string, error) {
+ 	value, err := reader.ReadString('\n')
++	if err == io.EOF && value == "" {
++		return "", io.EOF
++	}
+ 	if err != nil && err != io.EOF {
+ 		return "", err
+ 	}
+ 	return strings.TrimSpace(value), nil
+ }
+--- a/cmd/middleware/service_menu_windows_test.go
++++ b/cmd/middleware/service_menu_windows_test.go
+@@ -5,6 +5,8 @@
+ import (
+ 	"bufio"
+ 	"bytes"
++	"errors"
++	"io"
+ 	"strings"
+ 	"testing"
+ )
+@@ -29,4 +31,11 @@
+ 	if !strings.Contains(output.String(), "Invalid selection.") {
+ 		t.Fatalf("invalid selection not reported: %s", output.String())
+ 	}
+ }
++
++func TestServiceMenuExitsOnClosedInput(t *testing.T) {
++	err := serviceMenu(bufio.NewReader(strings.NewReader("")), &bytes.Buffer{}, serviceConfig{}, "")
++	if !errors.Is(err, io.EOF) {
++		t.Fatalf("expected EOF, got %v", err)
++	}
++}

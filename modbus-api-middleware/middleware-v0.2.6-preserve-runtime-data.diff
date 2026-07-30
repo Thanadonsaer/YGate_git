@@ -1,0 +1,21 @@
+--- a/build-all.bat
++++ b/build-all.bat
+@@ -3,7 +3,7 @@
+ cd /d "%~dp0"
+ 
+ if not exist "build" mkdir "build"
+-del /q "build\*.exe" "build\*.exe~" "build\*.db" "build\license.json" "build\patches\*.zip" >nul 2>nul
++del /q "build\*.exe" "build\*.exe~" "build\patches\*.zip" >nul 2>nul
+ for /d %%D in ("build\*") do rmdir /s /q "%%D" >nul 2>nul
+ if exist ".gocache" rmdir /s /q ".gocache"
+ if not exist ".cache" mkdir ".cache"
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -5,6 +5,7 @@
+ - Restored the required Device Model selector in the add/edit Device dialog.
+ - Kept Device Model creation in Register Metadata instead of nesting it in the Device dialog.
+ - Added an embedded-page regression test for active dialog fields hidden by HTML comments.
++- Preserved runtime `middleware.db` and `license.json` files during release builds.
+ 
+ ## v0.2.5
+ 

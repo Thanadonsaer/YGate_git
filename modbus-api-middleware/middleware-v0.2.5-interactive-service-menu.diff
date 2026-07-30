@@ -1,0 +1,66 @@
+--- a/cmd/middleware/main.go
++++ b/cmd/middleware/main.go
+@@ -19,7 +19,7 @@
+ )
+ 
+ var (
+-	version          = "0.2.4"
++	version          = "0.2.5"
+ 	commit           = "dev"
+ 	licensePublicKey = ""
+ 	serviceMode      bool
+@@ -33,6 +33,16 @@
+ 	if service {
+ 		return
+ 	}
++	if len(os.Args) == 1 {
++		publicKey := firstNonEmpty(licensePublicKey, os.Getenv("CHPP_LICENSE_PUBLIC_KEY"))
++		handled, err := runInteractiveServiceMenu(publicKey)
++		if err != nil {
++			log.Fatal(err)
++		}
++		if handled {
++			return
++		}
++	}
+ 	if err := run(context.Background()); err != nil {
+ 		log.Fatal(err)
+ 	}
+--- a/build-all.bat
++++ b/build-all.bat
+@@ -21,7 +21,7 @@
+ set "GOOS="
+ set "GOARCH="
+ set "GOARM="
+-set "VERSION=0.2.4"
++set "VERSION=0.2.5"
+ set "KEYS_FILE=%CD%\license-keys.env"
+ 
+ if exist "%KEYS_FILE%" (
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,5 +1,12 @@
+ # Changelog
+ 
++## v0.2.5
++
++- Opened an interactive Windows Service Manager when launching the EXE without arguments.
++- Added menu actions for install/update, status, start, stop, restart and uninstall.
++- Added menu actions for opening the Web UI, showing the machine ID and activating a license.
++- Kept port 8081 closed until the user installs/starts the Service or explicitly uses `-run`.
++
+ ## v0.2.4
+ 
+ - Added `-service install|status|start|stop|restart|uninstall` to the Middleware EXE.
+--- a/README.md
++++ b/README.md
+@@ -206,7 +206,9 @@
+ ## License + Windows Service ผ่าน EXE CLI
+ 
+-การรัน EXE โดยไม่มี argument จะพิมพ์ help แล้วจบ โดยไม่เปิด SQLite, polling หรือ port `8081` ให้เปิด PowerShell แบบ Run as Administrator สำหรับคำสั่งจัดการ Windows Service
++ดับเบิลคลิก EXE หรือเปิด EXE โดยไม่มี argument เพื่อแสดงเมนู Service Manager สำหรับ Install/Update, Status, Start, Stop, Restart, Uninstall, เปิด Web UI และจัดการ license โดยไม่ต้องพิมพ์ command เอง
++
++เมนูจะไม่เปิด SQLite, polling หรือ port `8081` จนกว่าจะเลือก Install/Start Service ให้เปิด EXE แบบ Run as Administrator เมื่อต้องการเปลี่ยนสถานะ Windows Service
+ 
+ ```powershell
+ $exe = (Resolve-Path ".\build\middleware-v0.2.4-windows-amd64.exe").Path

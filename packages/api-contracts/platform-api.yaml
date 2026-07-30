@@ -1,0 +1,3928 @@
+openapi: 3.1.0
+info:
+  title: Solar SCADA Platform API
+  version: 0.5.0
+  description: |
+    Versioned contract for the read-only Solar SCADA Platform. Browser APIs use
+    secure session cookies and CSRF protection. Middleware pushes telemetry with
+    a scoped X-Api-Key; the Platform never initiates connections into Site OT.
+x-compatibility-notes:
+  - SCADA designs add resizable shape, section, LED, clock, image, table, alarm-list and ticker node types; existing version 1 designs remain valid.
+  - Destructive browser actions now accept the literal DELETE confirmation; legacy resource-specific phrases remain accepted by the backend.
+  - Phase 3B adds Plant-scoped SCADA screen draft, immutable publication history, rollback and hard-delete APIs.
+  - Self-profile management, privileged hard delete, and explicit clear operations are additive browser APIs.
+  - The v1 dataItemMap request remains unchanged for deployed Middleware.
+  - Ingestion response property names now document the backend's existing acceptedCount/duplicateCount/rejectedCount JSON fields.
+  - X-Correlation-ID, gzip documentation and examples are additive.
+  - Raw register ingestion remains opt-in v2 with schemaVersion 2.0.
+servers:
+  - url: http://localhost:44440
+    description: Local API Gateway
+tags:
+  - name: Middleware Ingestion
+    description: Idempotent outbound telemetry ingestion from Site Middleware
+paths:
+  /healthz:
+    get:
+      operationId: getHealth
+      summary: Report process liveness
+      responses:
+        "200":
+          description: Process is alive
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+  /readyz:
+    get:
+      operationId: getReadiness
+      summary: Report process and PostgreSQL readiness
+      responses:
+        "200":
+          description: Process and database are ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+        "503":
+          description: PostgreSQL is unavailable
+  /api/v1/auth/login:
+    post:
+      operationId: login
+      summary: Create a browser session with an email or username and password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Authenticated; session and CSRF tokens are returned only in cookies
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "400":
+          description: Invalid request
+        "401":
+          description: Invalid credentials, disabled account, or locked account
+        "415":
+          description: Content type is not application/json
+        "429":
+          description: Too many recent failed attempts
+        "500":
+          description: Internal error
+  /api/v1/auth/me:
+    get:
+      operationId: getCurrentUser
+      summary: Return the authenticated user
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginUser"
+        "401":
+          description: Session is missing, expired, or revoked
+  /api/v1/auth/profile:
+    get:
+      operationId: getOwnProfile
+      summary: Return editable profile fields for the authenticated user
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Current user's editable profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SelfProfile"
+        "401":
+          description: Session is missing, expired, or revoked
+    put:
+      operationId: updateOwnProfile
+      summary: Update the authenticated user's email, username and display name
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSelfProfileRequest"
+      responses:
+        "200":
+          description: Profile updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SelfProfile"
+        "400":
+          description: Invalid profile data
+        "401":
+          description: Session is missing, expired, or revoked
+        "403":
+          description: CSRF token is missing or invalid
+        "409":
+          description: Email or username is already in use
+  /api/v1/auth/logout:
+    post:
+      operationId: logout
+      summary: Revoke the current session
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      responses:
+        "204":
+          description: Current session revoked and cookies expired
+        "401":
+          description: Session is missing, expired, or revoked
+        "403":
+          description: CSRF token is missing or invalid
+  /api/v1/auth/logout-all:
+    post:
+      operationId: logoutAll
+      summary: Revoke every session for the authenticated user
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      responses:
+        "204":
+          description: All user sessions revoked and cookies expired
+        "401":
+          description: Session is missing, expired, or revoked
+        "403":
+          description: CSRF token is missing or invalid
+  /api/v1/auth/change-password:
+    post:
+      operationId: changePassword
+      summary: Change the authenticated user's password and revoke other sessions
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangePasswordRequest"
+      responses:
+        "204":
+          description: Password changed; current session remains active
+        "400":
+          description: Current password is invalid or the new password fails policy
+        "401":
+          description: Session is missing, expired, or revoked
+        "403":
+          description: CSRF token is missing or invalid
+        "415":
+          description: Content type is not application/json
+  /api/v1/auth/forgot-password:
+    post:
+      operationId: forgotPassword
+      summary: Request a one-time password reset link without revealing account existence
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ForgotPasswordRequest"
+      responses:
+        "202":
+          description: Request accepted for both known and unknown accounts
+        "400":
+          description: Invalid request
+        "415":
+          description: Content type is not application/json
+  /api/v1/auth/reset-password:
+    post:
+      operationId: resetPassword
+      summary: Consume a one-time reset token, change the password, and revoke all sessions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResetPasswordRequest"
+      responses:
+        "204":
+          description: Password changed and all sessions revoked
+        "400":
+          description: Token is invalid or expired, or the password fails policy
+        "415":
+          description: Content type is not application/json
+        "429":
+          description: Too many recent reset attempts
+  /api/v1/auth/sessions:
+    get:
+      operationId: listSessions
+      summary: List up to 100 sessions owned by the authenticated user
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: User sessions, including expired and revoked history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/UserSession"
+        "401":
+          description: Session is missing, expired, or revoked
+    delete:
+      operationId: clearOwnSessions
+      summary: Permanently delete every session record owned by the authenticated user
+      description: The current session is deleted too, so the caller is logged out. Requires the exact confirmation header.
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - $ref: "#/components/parameters/HardDeleteConfirmation"
+      responses:
+        "204":
+          description: All owned session records deleted and cookies expired
+        "400":
+          description: Confirmation header does not equal DELETE
+        "401":
+          description: Session is missing, expired, or revoked
+        "403":
+          description: CSRF token is missing or invalid
+  /api/v1/auth/sessions/{sessionId}:
+    delete:
+      operationId: revokeSession
+      summary: Revoke a session owned by the authenticated user
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Session revoked; cookies expire when revoking the current session
+        "401":
+          description: Session is missing, expired, or revoked
+        "403":
+          description: CSRF token is missing or invalid
+        "404":
+          description: Session is not owned by the authenticated user
+  /api/v1/admin/users:
+    get:
+      operationId: listAdminUsers
+      summary: List users in organizations where the caller has user-read permission
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Permission-scoped users
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 200
+                items:
+                  $ref: "#/components/schemas/ManagedUser"
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing user read permission
+    post:
+      operationId: createAdminUser
+      summary: Create a user and assign one baseline role within an authorized organization
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUserRequest"
+      responses:
+        "201":
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManagedUser"
+        "400":
+          description: Invalid user data
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing user create or role assign permission
+        "409":
+          description: Email or username already exists
+  /api/v1/admin/users/{userId}:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    put:
+      operationId: updateAdminUser
+      summary: Update a user's profile, baseline role and active status
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAdminUserRequest"
+      responses:
+        "200":
+          description: User updated and active sessions revoked when disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManagedUser"
+        "400":
+          description: Invalid user data or unsafe self/last-admin change
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing user update/disable or role assign permission
+        "404":
+          description: User is missing or outside scope
+        "409":
+          description: Email or username already exists
+    delete:
+      operationId: hardDeleteAdminUser
+      summary: Permanently delete a User and owned dependent records
+      description: Platform Admin only. Audit rows and actor UUIDs remain append-only. The current user and final active Platform Admin cannot be deleted.
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - name: X-Hard-Delete-Confirm
+          in: header
+          required: true
+          description: Exact text `DELETE`.
+          schema:
+            type: string
+            enum: [DELETE]
+      responses:
+        "204":
+          description: User permanently deleted
+        "400":
+          description: Confirmation mismatch, self-delete, or final Platform Admin
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing global hard_delete user permission
+        "404":
+          description: User does not exist
+  /api/v1/admin/roles:
+    get:
+      operationId: listAdminRoles
+      summary: List baseline roles available for user assignment
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Roles visible to the caller
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Role"
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing role read permission
+    post:
+      operationId: createAdminRole
+      summary: Create a custom, non-system role with an initial permission set
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRoleRequest"
+      responses:
+        "201":
+          description: Role created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoleDetail"
+        "400":
+          description: Invalid role data
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing role create permission for the requested scope
+        "409":
+          description: Role name already exists in scope
+  /api/v1/admin/roles/{roleId}:
+    parameters:
+      - name: roleId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getAdminRole
+      summary: Get a role's org scope and granted permission ids
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Role detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoleDetail"
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing role read permission for the role's scope
+        "404":
+          description: Role does not exist
+    put:
+      operationId: updateAdminRole
+      summary: Rename a custom role and replace its permission set
+      description: System roles are immutable and always return 403.
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateRoleRequest"
+      responses:
+        "200":
+          description: Role updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoleDetail"
+        "400":
+          description: Invalid role data
+        "401":
+          description: Authentication required
+        "403":
+          description: Role is a system role, or missing role update permission for its scope
+        "404":
+          description: Role does not exist
+        "409":
+          description: Role name already exists in scope
+    delete:
+      operationId: deleteAdminRole
+      summary: Delete a custom role that is not assigned to any user
+      description: System roles are immutable and always return 403.
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      responses:
+        "204":
+          description: Role deleted
+        "401":
+          description: Authentication required
+        "403":
+          description: Role is a system role, or missing role delete permission for its scope
+        "404":
+          description: Role does not exist
+        "409":
+          description: Role is still assigned to one or more users
+  /api/v1/admin/permissions:
+    get:
+      operationId: listAdminPermissions
+      summary: List the full permission catalog for building a role's permission picker
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Permission catalog
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Permission"
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing role read permission
+  /api/v1/admin/users/{userId}/status:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: updateAdminUserStatus
+      summary: Enable or disable a user and revoke sessions when disabling
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateUserStatusRequest"
+      responses:
+        "200":
+          description: User status updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManagedUser"
+        "400":
+          description: Invalid user status request
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing user update or disable permission
+        "404":
+          description: User is missing or outside scope
+  /api/v1/admin/users/{userId}/unlock:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: unlockAdminUser
+      summary: Clear login lock and failed-login count for a scoped user
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      responses:
+        "200":
+          description: User unlocked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManagedUser"
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing user unlock permission
+        "404":
+          description: User is missing or outside scope
+  /api/v1/admin/users/{userId}/reset-password:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: resetAdminUserPassword
+      summary: Administratively replace a scoped user's password and revoke every session
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminResetUserPasswordRequest"
+      responses:
+        "204":
+          description: Password changed, login lock cleared and sessions revoked
+        "400":
+          description: Password does not meet policy
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing reset_password user permission
+        "404":
+          description: User is missing or outside scope
+  /api/v1/admin/openapi:
+    get:
+      operationId: getAdminOpenAPI
+      summary: Return the current Platform API OpenAPI YAML contract
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: OpenAPI YAML document
+          content:
+            application/yaml:
+              schema:
+                type: string
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing API contract read permission
+        "503":
+          description: Contract file is unavailable
+  /api/v1/admin/audit:
+    get:
+      operationId: listAdminAuditEvents
+      summary: List permission-scoped append-only audit events
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 100
+      responses:
+        "200":
+          description: Recent audit events in the caller's authorized scope
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 200
+                items:
+                  $ref: "#/components/schemas/AuditEvent"
+        "400":
+          description: Invalid limit
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing audit read permission
+    delete:
+      operationId: clearAdminAuditEvents
+      summary: Clear the visible audit history and append one audit.cleared marker
+      description: Platform Admin only. Append-only source rows remain immutable; subsequent list calls hide rows at or before the latest global clear marker.
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - $ref: "#/components/parameters/HardDeleteConfirmation"
+      responses:
+        "200":
+          description: Previous audit events hidden from the operational view
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClearResult"
+        "400":
+          description: Confirmation header does not equal DELETE
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing global audit clear permission
+  /api/v1/admin/api-keys:
+    get:
+      operationId: listAdminAPIKeys
+      summary: List Middleware API key clients without returning secrets
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Permission-scoped Middleware API key clients
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 200
+                items:
+                  $ref: "#/components/schemas/APIKeyClient"
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing Middleware client read permission
+    post:
+      operationId: createAdminAPIKey
+      summary: Create a Middleware API key client and return the secret once
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAPIKeyRequest"
+      responses:
+        "201":
+          description: API key created; apiKey is shown only in this response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatedAPIKeyClient"
+        "400":
+          description: Invalid API key client data
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing Middleware client create permission
+        "409":
+          description: API key client name already exists
+  /api/v1/admin/api-keys/{keyId}/status:
+    parameters:
+      - name: keyId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: updateAdminAPIKeyStatus
+      summary: Enable or disable a Middleware API key client
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAPIKeyStatusRequest"
+      responses:
+        "200":
+          description: API key client status updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIKeyClient"
+        "400":
+          description: Invalid status request
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing Middleware client update permission
+        "404":
+          description: API key client is missing or outside scope
+  /api/v1/admin/api-keys/{keyId}:
+    parameters:
+      - name: keyId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    put:
+      operationId: updateAdminAPIKey
+      summary: Update a Middleware API key client without rotating or exposing its secret
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAPIKeyRequest"
+      responses:
+        "200":
+          description: API key client updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIKeyClient"
+        "400":
+          description: Invalid API key client data
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing Middleware client update permission
+        "404":
+          description: API key client is missing or outside scope
+        "409":
+          description: API key client name already exists
+    delete:
+      operationId: hardDeleteAdminAPIKey
+      summary: Permanently delete a Middleware API key client and its ingestion data
+      description: Platform Admin only. Requires the exact confirmation header `DELETE`.
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - $ref: "#/components/parameters/HardDeleteConfirmation"
+      responses:
+        "204":
+          description: API key client and dependent ingestion data deleted
+        "400":
+          description: Confirmation header is invalid
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing global Middleware client hard-delete permission
+        "404":
+          description: API key client is missing
+  /api/v1/realtime:
+    get:
+      operationId: connectRealtime
+      summary: Upgrade an authenticated browser session to the realtime WebSocket channel
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: plantId
+          in: query
+          required: false
+          description: When present, emit permission-scoped telemetry.snapshot frames for this Plant
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "101":
+          description: WebSocket connection established; emits RealtimeMessage JSON frames
+        "401":
+          description: Session is missing, expired, or revoked
+        "403":
+          description: Browser origin is not allowed
+  /api/v1/plants:
+    get:
+      operationId: listPlants
+      summary: List up to 200 plants within the caller's granted organization and plant scopes
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Permission-scoped plants
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Plant"
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing plant read permission
+    post:
+      operationId: createPlant
+      summary: Create an audited plant within an organization scope granted to the caller
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePlantRequest"
+      responses:
+        "201":
+          description: Plant created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Plant"
+        "400":
+          description: Invalid plant data
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing create permission for the requested organization scope
+        "409":
+          description: Plant code already exists in the organization
+  /api/v1/plants/{plantId}:
+    parameters:
+      - name: plantId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getPlant
+      summary: Get one plant through the caller's organization and plant scope
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Plant details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Plant"
+        "401":
+          description: Authentication required
+        "404":
+          description: Plant is missing or outside the caller's scope
+    put:
+      operationId: updatePlant
+      summary: Replace editable plant master data and append an audit event
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdatePlantRequest"
+      responses:
+        "200":
+          description: Plant updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Plant"
+        "400":
+          description: Invalid plant data
+        "401":
+          description: Authentication required
+        "404":
+          description: Plant is missing or outside the caller's update scope
+        "409":
+          description: Plant code already exists in the organization
+    delete:
+      operationId: hardDeletePlant
+      summary: Permanently delete a Plant, its Devices, metadata and normalized telemetry
+      description: Platform Admin only. Requires the exact confirmation header `DELETE`.
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - $ref: "#/components/parameters/HardDeleteConfirmation"
+      responses:
+        "204":
+          description: Plant and dependent operational data deleted
+        "400":
+          description: Confirmation header is invalid
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing global Plant hard-delete permission
+        "404":
+          description: Plant is missing
+  /api/v1/plants/{plantId}/devices:
+    parameters:
+      - name: plantId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: listPlantDevices
+      summary: List devices within an authorized Plant
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Permission-scoped devices
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Device"
+        "401":
+          description: Authentication required
+        "404":
+          description: Plant is missing or outside the caller's device-read scope
+    post:
+      operationId: createPlantDevice
+      summary: Create a Device manually within an authorized Plant
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateDeviceRequest"
+      responses:
+        "201":
+          description: Device created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Device"
+        "400":
+          description: Invalid Device data
+        "401":
+          description: Authentication required
+        "404":
+          description: Plant is missing or outside the caller's device-create scope
+        "409":
+          description: Device external ID already exists in the Plant
+  /api/v1/device-models:
+    get:
+      operationId: listDeviceModels
+      summary: List Device Models visible through the caller's Device Model read scope
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Device models in authorized organizations
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 500
+                items:
+                  $ref: "#/components/schemas/DeviceModelOption"
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing Device Model read permission
+    post:
+      operationId: createDeviceModel
+      summary: Create a reusable Device Model for register metadata templates
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceModelRequest"
+      responses:
+        "201":
+          description: Device Model created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceModelOption"
+        "400":
+          description: Invalid Device Model data
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing Device Model create permission
+        "409":
+          description: Device Model already exists
+  /api/v1/device-models/{modelId}:
+    parameters:
+      - name: modelId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    put:
+      operationId: updateDeviceModel
+      summary: Update a reusable Device Model
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceModelRequest"
+      responses:
+        "200":
+          description: Device Model updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceModelOption"
+        "400":
+          description: Invalid Device Model data
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing Device Model update permission
+        "404":
+          description: Device Model is missing or outside scope
+        "409":
+          description: Device Model already exists
+    delete:
+      operationId: hardDeleteDeviceModel
+      summary: Permanently delete a Device Model and Devices using it
+      description: Platform Admin only. Requires the exact confirmation header `DELETE`.
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - $ref: "#/components/parameters/HardDeleteConfirmation"
+      responses:
+        "204":
+          description: Device Model, dependent Devices, metadata and telemetry deleted
+        "400":
+          description: Confirmation header is invalid
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing global Device Model hard-delete permission
+        "404":
+          description: Device Model is missing
+  /api/v1/device-models/{modelId}/register-metadata:
+    parameters:
+      - name: modelId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: listDeviceModelRegisterMetadata
+      summary: List reusable register metadata template rows for a Device Model
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Model-level register metadata template rows
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 1000
+                items:
+                  $ref: "#/components/schemas/RegisterMetadata"
+        "401":
+          description: Authentication required
+        "404":
+          description: Device Model is missing or outside scope
+    put:
+      operationId: upsertDeviceModelRegisterMetadata
+      summary: Create or update one reusable register metadata template row
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateRegisterMetadataRequest"
+      responses:
+        "200":
+          description: Model-level register metadata saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisterMetadata"
+        "400":
+          description: Invalid register metadata
+        "401":
+          description: Authentication required
+        "404":
+          description: Device Model is missing or outside scope
+  /api/v1/device-models/{modelId}/register-metadata/{addressKey}:
+    parameters:
+      - name: modelId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: addressKey
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 200
+    delete:
+      operationId: deleteDeviceModelRegisterMetadata
+      summary: Delete one reusable register metadata template row
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      responses:
+        "204":
+          description: Model-level register metadata deleted
+        "400":
+          description: Invalid register metadata address
+        "401":
+          description: Authentication required
+        "404":
+          description: Device Model or metadata row is missing or outside scope
+  /api/v1/plants/{plantId}/devices/{deviceId}:
+    parameters:
+      - name: plantId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: deviceId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    put:
+      operationId: updatePlantDevice
+      summary: Update or disable a Device within an authorized Plant
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateDeviceRequest"
+      responses:
+        "200":
+          description: Device updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Device"
+        "400":
+          description: Invalid Device data
+        "401":
+          description: Authentication required
+        "404":
+          description: Device is missing or outside the caller's update scope
+    delete:
+      operationId: hardDeletePlantDevice
+      summary: Permanently delete a Device, its metadata and normalized telemetry
+      description: Platform Admin only. Requires the exact confirmation header `DELETE`.
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - $ref: "#/components/parameters/HardDeleteConfirmation"
+      responses:
+        "204":
+          description: Device and dependent operational data deleted
+        "400":
+          description: Confirmation header is invalid
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing global Device hard-delete permission
+        "404":
+          description: Device is missing
+  /api/v1/plants/{plantId}/device-register-metadata/{deviceId}:
+    parameters:
+      - name: plantId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: deviceId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: listDeviceRegisterMetadata
+      summary: List configured register/address metadata for one Device
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Permission-scoped register metadata
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 1000
+                items:
+                  $ref: "#/components/schemas/RegisterMetadata"
+        "401":
+          description: Authentication required
+        "404":
+          description: Device is missing or outside the caller's read scope
+    put:
+      operationId: upsertDeviceRegisterMetadata
+      summary: Create or update metadata for one register/address key
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateRegisterMetadataRequest"
+      responses:
+        "200":
+          description: Register metadata saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisterMetadata"
+        "400":
+          description: Invalid register metadata
+        "401":
+          description: Authentication required
+        "404":
+          description: Device is missing or outside the caller's update scope
+  /api/v1/plants/{plantId}/telemetry/latest:
+    parameters:
+      - name: plantId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: listLatestPlantTelemetry
+      summary: Return the latest committed Middleware reading for each Device in an authorized Plant
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Latest normalized dataItemMap readings, including metadata-scaled v2 raw registers keyed by addressKey, ordered by Device name
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 500
+                items:
+                  $ref: "#/components/schemas/LatestTelemetry"
+        "401":
+          description: Authentication required
+        "404":
+          description: Plant is missing or outside the caller's device-read scope
+  /api/v1/plants/{plantId}/devices/{deviceId}/telemetry/history:
+    parameters:
+      - name: plantId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: deviceId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: from
+        in: query
+        required: true
+        description: Inclusive UTC RFC 3339 lower bound; the range must not exceed 31 days
+        schema:
+          type: string
+          format: date-time
+      - name: to
+        in: query
+        required: true
+        description: Exclusive UTC RFC 3339 upper bound
+        schema:
+          type: string
+          format: date-time
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 500
+          default: 100
+      - name: cursor
+        in: query
+        required: false
+        description: Opaque keyset cursor returned by the previous page
+        schema:
+          type: string
+    get:
+      operationId: listDeviceTelemetryHistory
+      summary: Return bounded telemetry history for one Device in an authorized Plant
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Telemetry ordered newest first
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TelemetryHistoryPage"
+        "400":
+          description: Invalid range, limit, or cursor
+        "401":
+          description: Authentication required
+        "404":
+          description: Plant or Device is missing or outside the caller's device-read scope
+  /api/v1/plants/{plantId}/alarms/rules:
+    parameters:
+      - name: plantId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: listAlarmRules
+      summary: List alarm rules configured for an authorized Plant
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Alarm rules in the Plant
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AlarmRule"
+        "401":
+          description: Authentication required
+        "404":
+          description: Plant is missing or outside the caller's alarm-read scope
+    post:
+      operationId: createAlarmRule
+      summary: Create an alarm rule watching one Device point in a Plant
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAlarmRuleRequest"
+      responses:
+        "201":
+          description: Alarm rule created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlarmRule"
+        "400":
+          description: Invalid alarm rule data, or Device does not belong to the Plant
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing alarm create permission for the Plant
+        "404":
+          description: Plant is missing or outside the caller's scope
+  /api/v1/plants/{plantId}/alarms/rules/{ruleId}:
+    parameters:
+      - name: plantId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: ruleId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    put:
+      operationId: updateAlarmRule
+      summary: Update an alarm rule's label, thresholds, severity and active state
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAlarmRuleRequest"
+      responses:
+        "200":
+          description: Alarm rule updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlarmRule"
+        "400":
+          description: Invalid alarm rule data
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing alarm update permission for the Plant
+        "404":
+          description: Plant or alarm rule is missing or outside the caller's scope
+    delete:
+      operationId: deleteAlarmRule
+      summary: Delete an alarm rule
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      responses:
+        "204":
+          description: Alarm rule deleted
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing alarm delete permission for the Plant
+        "404":
+          description: Plant or alarm rule is missing or outside the caller's scope
+  /api/v1/plants/{plantId}/alarms/events:
+    parameters:
+      - name: plantId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 200
+          default: 100
+    get:
+      operationId: listAlarmEvents
+      summary: List alarm events for a Plant, most recent first
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Alarm events in the Plant
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AlarmEvent"
+        "401":
+          description: Authentication required
+        "404":
+          description: Plant is missing or outside the caller's alarm-read scope
+  /api/v1/plants/{plantId}/alarms/events/{eventId}/ack:
+    parameters:
+      - name: plantId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: eventId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: acknowledgeAlarmEvent
+      summary: Acknowledge an alarm event; idempotent once acknowledged
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AcknowledgeAlarmEventRequest"
+      responses:
+        "200":
+          description: Alarm event acknowledged (or already-acknowledged state returned unchanged)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlarmEvent"
+        "400":
+          description: Note exceeds maximum length
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing alarm ack permission for the Plant
+        "404":
+          description: Plant or alarm event is missing or outside the caller's scope
+  /api/v1/scada/screens:
+    get:
+      operationId: listScadaScreens
+      summary: List SCADA screens in the caller's Plant scope
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: plantId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Permission-scoped SCADA screens
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 200
+                items:
+                  $ref: "#/components/schemas/ScadaScreenSummary"
+        "400":
+          description: Invalid Plant ID
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing SCADA view permission
+    post:
+      operationId: createScadaScreen
+      summary: Create an empty Plant-scoped SCADA draft
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateScadaScreenRequest"
+      responses:
+        "201":
+          description: SCADA draft created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScadaScreen"
+        "400":
+          description: Invalid screen data
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing SCADA edit permission in the Plant scope
+        "409":
+          description: Screen name already exists in the Plant
+  /api/v1/scada/screens/{screenId}:
+    parameters:
+      - name: screenId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getScadaScreen
+      summary: Return one SCADA draft and caller capabilities
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: SCADA draft
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScadaScreen"
+        "401":
+          description: Authentication required
+        "404":
+          description: Screen is missing or outside scope
+    put:
+      operationId: saveScadaScreenDraft
+      summary: Save a validated SCADA draft with optimistic concurrency
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateScadaScreenRequest"
+      responses:
+        "200":
+          description: Draft saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScadaScreen"
+        "400":
+          description: Invalid name or design
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing SCADA edit permission
+        "404":
+          description: Screen is missing or outside scope
+        "409":
+          description: Draft changed; reload before saving
+    delete:
+      operationId: hardDeleteScadaScreen
+      summary: Permanently delete a SCADA screen and publication history
+      description: Platform Admin only. Requires the exact confirmation header `DELETE`.
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - $ref: "#/components/parameters/HardDeleteConfirmation"
+      responses:
+        "204":
+          description: Screen and publication history deleted
+        "400":
+          description: Invalid confirmation
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing global SCADA hard-delete permission
+        "404":
+          description: Screen is missing
+  /api/v1/scada/screens/{screenId}/published:
+    get:
+      operationId: getPublishedScadaScreen
+      summary: Return the currently selected immutable published SCADA version
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: screenId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Published SCADA screen
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublishedScadaScreen"
+        "401":
+          description: Authentication required
+        "404":
+          description: Screen has no published version or is outside scope
+  /api/v1/scada/screens/{screenId}/versions:
+    get:
+      operationId: listScadaScreenVersions
+      summary: List immutable published versions newest first
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: screenId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Published version history
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 100
+                items:
+                  $ref: "#/components/schemas/ScadaScreenVersion"
+        "401":
+          description: Authentication required
+        "404":
+          description: Screen is missing or outside scope
+  /api/v1/scada/screens/{screenId}/publish:
+    post:
+      operationId: publishScadaScreen
+      summary: Copy the current draft into a new immutable published version
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - name: screenId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishScadaScreenRequest"
+      responses:
+        "200":
+          description: New published version
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublishedScadaScreen"
+        "400":
+          description: Invalid publish request
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing SCADA publish permission
+        "404":
+          description: Screen is missing or outside scope
+        "409":
+          description: Draft or published pointer changed
+  /api/v1/scada/screens/{screenId}/rollback:
+    post:
+      operationId: rollbackPublishedScadaScreen
+      summary: Point viewers to an earlier immutable published version
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - name: screenId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RollbackScadaScreenRequest"
+      responses:
+        "200":
+          description: Selected published version
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublishedScadaScreen"
+        "400":
+          description: Invalid rollback request
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing SCADA publish permission
+        "404":
+          description: Screen or target version is missing or outside scope
+        "409":
+          description: Published pointer changed
+  /api/v1/dashboard/overview:
+    get:
+      operationId: getDashboardOverview
+      summary: Return permission-scoped Plant and Device communication KPIs from telemetry_latest
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: staleAfterSeconds
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 30
+            maximum: 86400
+            default: 300
+      responses:
+        "200":
+          description: Operational overview for Plants in the caller's scope
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardOverview"
+        "400":
+          description: Invalid stale threshold
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing Device read permission
+  /api/v1/dashboard/layout:
+    get:
+      operationId: getOwnDashboardLayout
+      summary: Return the caller's private draft Overview layout and edit capabilities
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Saved layout or the unsaved registry default at version zero
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardLayout"
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing Dashboard read permission
+    put:
+      operationId: saveOwnDashboardLayout
+      summary: Create or update the caller's private draft Overview layout with optimistic concurrency
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateDashboardLayoutRequest"
+      responses:
+        "200":
+          description: Saved layout with incremented version
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardLayout"
+        "400":
+          description: Invalid widget layout
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing Dashboard update permission or CSRF token
+        "409":
+          description: Layout was changed by another request
+  /api/v1/dashboard/layout/published:
+    get:
+      operationId: getOwnPublishedDashboardLayout
+      summary: Return the caller's published Overview snapshot or the registry default
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Published snapshot; version zero is the unsaved registry default
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublishedDashboardLayout"
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing Dashboard read permission
+  /api/v1/dashboard/layout/publish:
+    post:
+      operationId: publishOwnDashboardLayout
+      summary: Atomically copy the current private draft into the published snapshot
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishDashboardLayoutRequest"
+      responses:
+        "200":
+          description: Published snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublishedDashboardLayout"
+        "400":
+          description: No saved draft or invalid version
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing Dashboard publish permission or CSRF token
+        "409":
+          description: Draft or published snapshot changed by another request
+  /api/v1/ingestion/telemetry:
+    post:
+      tags: [Middleware Ingestion]
+      operationId: ingestCurrentMiddlewareBatch
+      summary: Accept the current Middleware dataItemMap batch contract
+      description: |
+        Backward-compatible v1 endpoint. Address Configuration has already
+        normalized each value and dataItemMap keys are canonical source keys.
+        Unknown keys create neutral Device Model Register Metadata defaults;
+        existing metadata is never overwritten.
+      security:
+        - middlewareApiKey: []
+      parameters:
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/ContentEncoding"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MiddlewareBatch"
+            examples:
+              inverterReading:
+                summary: Current normalized Middleware payload
+                value:
+                  data:
+                    - gatewayId: gateway-site-01
+                      devDn: INV-01
+                      devName: Inverter 01
+                      plantCode: PLANT-01
+                      plantName: Solar Plant 01
+                      devTypeId: 1
+                      model: vendor-model
+                      collectTime: 1784861728860
+                      dataItemMap:
+                        active_power: 25.18
+                        a_u: 235.8
+      responses:
+        "202":
+          description: Batch durably accepted and processed
+          headers:
+            X-Correlation-ID:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IngestionResponse"
+              examples:
+                accepted:
+                  value:
+                    ingestionId: 550e8400-e29b-41d4-a716-446655440000
+                    status: accepted
+                    acceptedCount: 1
+                    duplicateCount: 0
+                    rejectedCount: 0
+                    onboardedPlantCount: 0
+                    onboardedDeviceCount: 0
+                    errors: []
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /api/middleware/readings:
+    post:
+      tags: [Middleware Ingestion]
+      deprecated: true
+      operationId: ingestLegacyMiddlewareReadings
+      summary: Compatibility alias for the current Middleware endpoint configuration
+      security:
+        - middlewareApiKey: []
+      parameters:
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/ContentEncoding"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MiddlewareBatch"
+      responses:
+        "202":
+          description: Batch durably accepted and processed
+          headers:
+            X-Correlation-ID:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IngestionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /api/v2/ingestion/register-readings:
+    post:
+      tags: [Middleware Ingestion]
+      operationId: ingestRawRegisterBatch
+      summary: Accept decoded raw Modbus register readings without canonical mapping
+      security:
+        - middlewareApiKey: []
+      parameters:
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/ContentEncoding"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RawRegisterBatch"
+            examples:
+              holdingRegisterReading:
+                summary: Decoded raw registers before scaling and unit conversion
+                value:
+                  schemaVersion: "2.0"
+                  data:
+                    - gatewayId: gateway-site-01
+                      devDn: INV-01
+                      devName: Inverter 01
+                      plantCode: PLANT-01
+                      plantName: Solar Plant 01
+                      devTypeId: 1
+                      model: vendor-model
+                      collectTime: 1784861728860
+                      registerAddressMap:
+                        "40084": 2518
+      responses:
+        "202":
+          description: Raw register batch durably accepted
+          headers:
+            X-Correlation-ID:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RawRegisterIngestionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+components:
+  parameters:
+    CorrelationId:
+      name: X-Correlation-ID
+      in: header
+      required: false
+      description: Caller correlation ID using 1-100 ASCII letters, digits, dot, underscore, colon or hyphen. Invalid or missing values are replaced.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 100
+        pattern: "^[A-Za-z0-9._:-]+$"
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: Stable retry key. When omitted, the server derives one from the exact decompressed request body for deployed Middleware compatibility.
+      schema:
+        type: string
+        maxLength: 200
+    ContentEncoding:
+      name: Content-Encoding
+      in: header
+      required: false
+      description: Optional request compression.
+      schema:
+        type: string
+        enum: [identity, gzip]
+    HardDeleteConfirmation:
+      name: X-Hard-Delete-Confirm
+      in: header
+      required: true
+      description: Exact text `DELETE`. Longer legacy phrases remain accepted for compatibility.
+      schema:
+        type: string
+        enum: [DELETE]
+  headers:
+    CorrelationId:
+      description: Correlation ID accepted from the request or generated by the Platform.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 100
+  responses:
+    BadRequest:
+      description: Invalid batch envelope or record-independent validation failure
+      headers:
+        X-Correlation-ID:
+          $ref: "#/components/headers/CorrelationId"
+      content:
+        text/plain:
+          schema: { type: string }
+    Unauthorized:
+      description: Missing, inactive or invalid Middleware API key
+      headers:
+        X-Correlation-ID:
+          $ref: "#/components/headers/CorrelationId"
+      content:
+        text/plain:
+          schema: { type: string }
+    Conflict:
+      description: Idempotency key was reused with a different decompressed payload
+      headers:
+        X-Correlation-ID:
+          $ref: "#/components/headers/CorrelationId"
+      content:
+        text/plain:
+          schema: { type: string }
+    PayloadTooLarge:
+      description: Decompressed request body exceeds 1 MiB
+      headers:
+        X-Correlation-ID:
+          $ref: "#/components/headers/CorrelationId"
+      content:
+        text/plain:
+          schema: { type: string }
+    UnsupportedMediaType:
+      description: Content-Type is not application/json or Content-Encoding is unsupported
+      headers:
+        X-Correlation-ID:
+          $ref: "#/components/headers/CorrelationId"
+      content:
+        text/plain:
+          schema: { type: string }
+    InternalServerError:
+      description: Internal ingestion failure; retry with the same Idempotency-Key
+      headers:
+        X-Correlation-ID:
+          $ref: "#/components/headers/CorrelationId"
+      content:
+        text/plain:
+          schema: { type: string }
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: platform_session
+    csrfToken:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
+    middlewareApiKey:
+      type: apiKey
+      in: header
+      name: X-Api-Key
+  schemas:
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      required: [status, version]
+      properties:
+        status:
+          type: string
+          enum: [ok, ready]
+        version:
+          type: string
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [identifier, password]
+      properties:
+        identifier:
+          type: string
+          minLength: 1
+          maxLength: 320
+          description: Normalized email address or username
+        password:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          format: password
+    LoginResponse:
+      type: object
+      additionalProperties: false
+      required: [expiresAt, user]
+      properties:
+        expiresAt:
+          type: string
+          format: date-time
+        user:
+          $ref: "#/components/schemas/LoginUser"
+    LoginUser:
+      type: object
+      additionalProperties: false
+      required: [id, email, displayName]
+      properties:
+        id:
+          type: string
+          format: uuid
+        organizationId:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        displayName:
+          type: string
+    SelfProfile:
+      type: object
+      additionalProperties: false
+      required: [id, email, username, displayName, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        organizationId:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        username:
+          type: string
+        displayName:
+          type: string
+        updatedAt:
+          type: string
+          format: date-time
+    UpdateSelfProfileRequest:
+      type: object
+      additionalProperties: false
+      required: [email, username, displayName]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 320
+        username:
+          type: string
+          maxLength: 100
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 200
+    ForgotPasswordRequest:
+      type: object
+      additionalProperties: false
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+          minLength: 1
+          maxLength: 320
+    ResetPasswordRequest:
+      type: object
+      additionalProperties: false
+      required: [token, newPassword]
+      properties:
+        token:
+          type: string
+          minLength: 1
+        newPassword:
+          type: string
+          minLength: 12
+          maxLength: 72
+          format: password
+    ClearResult:
+      type: object
+      additionalProperties: false
+      required: [clearedCount]
+      properties:
+        clearedCount:
+          type: integer
+          format: int64
+          minimum: 0
+    UserSession:
+      type: object
+      additionalProperties: false
+      required: [id, createdAt, lastSeenAt, expiresAt, idleExpiresAt, userAgent, current]
+      properties:
+        id:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        lastSeenAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        idleExpiresAt:
+          type: string
+          format: date-time
+        revokedAt:
+          type: string
+          format: date-time
+        clientIp:
+          type: string
+        userAgent:
+          type: string
+        current:
+          type: boolean
+    ManagedUser:
+      type: object
+      additionalProperties: false
+      required: [id, organizationId, organizationName, email, displayName, status, isActive, failedLoginCount, roles, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        organizationId:
+          type: string
+          format: uuid
+        organizationName:
+          type: string
+        email:
+          type: string
+          format: email
+        username:
+          type: string
+        displayName:
+          type: string
+        status:
+          type: string
+          enum: [ACTIVE, DISABLED]
+        isActive:
+          type: boolean
+        failedLoginCount:
+          type: integer
+          minimum: 0
+        lockedUntil:
+          type: [string, "null"]
+          format: date-time
+        roles:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    Role:
+      type: object
+      additionalProperties: false
+      required: [id, organizationId, name, description, isSystem]
+      properties:
+        id:
+          type: string
+          format: uuid
+        organizationId:
+          type: [string, "null"]
+          format: uuid
+          description: Null for a global, cross-tenant role
+        name:
+          type: string
+        description:
+          type: string
+        isSystem:
+          type: boolean
+    Permission:
+      type: object
+      additionalProperties: false
+      required: [id, action, resourceType, description]
+      properties:
+        id:
+          type: string
+          format: uuid
+        action:
+          type: string
+        resourceType:
+          type: string
+        description:
+          type: string
+    RoleDetail:
+      allOf:
+        - $ref: "#/components/schemas/Role"
+        - type: object
+          additionalProperties: false
+          required: [permissionIds]
+          properties:
+            permissionIds:
+              type: array
+              items:
+                type: string
+                format: uuid
+    CreateRoleRequest:
+      type: object
+      additionalProperties: false
+      required: [global, name, description, permissionIds]
+      properties:
+        global:
+          type: boolean
+          description: True creates a cross-tenant role (requires global role-create permission); false creates a role scoped to organizationId or the caller's own organization
+        organizationId:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        description:
+          type: string
+          maxLength: 500
+        permissionIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+    UpdateRoleRequest:
+      type: object
+      additionalProperties: false
+      required: [name, description, permissionIds]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        description:
+          type: string
+          maxLength: 500
+        permissionIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+    CreateUserRequest:
+      type: object
+      additionalProperties: false
+      required: [organizationId, email, displayName, password, roleId]
+      properties:
+        organizationId:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+          maxLength: 320
+        username:
+          type: string
+          maxLength: 100
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 200
+        password:
+          type: string
+          minLength: 12
+          maxLength: 72
+          format: password
+        roleId:
+          type: string
+          format: uuid
+    UpdateUserStatusRequest:
+      type: object
+      additionalProperties: false
+      required: [isActive]
+      properties:
+        isActive:
+          type: boolean
+    APIKeyClient:
+      type: object
+      additionalProperties: false
+      required: [id, organizationId, organizationName, name, keyPrefix, autoOnboard, isActive, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        organizationId:
+          type: string
+          format: uuid
+        organizationName:
+          type: string
+        name:
+          type: string
+        keyPrefix:
+          type: string
+          description: Non-secret prefix for identifying the key
+        autoOnboard:
+          type: boolean
+        isActive:
+          type: boolean
+        lastSeenAt:
+          type: [string, "null"]
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    CreatedAPIKeyClient:
+      allOf:
+        - $ref: "#/components/schemas/APIKeyClient"
+        - type: object
+          additionalProperties: false
+          required: [apiKey]
+          properties:
+            apiKey:
+              type: string
+              description: Secret API key shown only once at creation time
+    CreateAPIKeyRequest:
+      type: object
+      additionalProperties: false
+      required: [organizationId, name]
+      properties:
+        organizationId:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        autoOnboard:
+          type: boolean
+          default: false
+    UpdateAPIKeyStatusRequest:
+      type: object
+      additionalProperties: false
+      required: [isActive]
+      properties:
+        isActive:
+          type: boolean
+    UpdateAdminUserRequest:
+      type: object
+      additionalProperties: false
+      required: [email, username, displayName, roleId, isActive]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 320
+        username:
+          type: string
+          maxLength: 100
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 200
+        roleId:
+          type: string
+          format: uuid
+        isActive:
+          type: boolean
+    AdminResetUserPasswordRequest:
+      type: object
+      additionalProperties: false
+      required: [newPassword]
+      properties:
+        newPassword:
+          type: string
+          minLength: 12
+          maxLength: 72
+          format: password
+    UpdateAPIKeyRequest:
+      type: object
+      additionalProperties: false
+      required: [name, autoOnboard, isActive]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        autoOnboard:
+          type: boolean
+        isActive:
+          type: boolean
+    AuditEvent:
+      type: object
+      additionalProperties: false
+      required: [id, action, targetType, occurredAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+        organizationId:
+          type: string
+          format: uuid
+        actorUserId:
+          type: string
+          format: uuid
+        actorEmail:
+          type: string
+          format: email
+        action:
+          type: string
+        targetType:
+          type: string
+        targetId:
+          type: string
+          format: uuid
+        beforeData:
+          type: object
+          additionalProperties: true
+        afterData:
+          type: object
+          additionalProperties: true
+        sourceIp:
+          type: string
+        correlationId:
+          type: string
+          format: uuid
+        occurredAt:
+          type: string
+          format: date-time
+    RealtimeMessage:
+      type: object
+      additionalProperties: false
+      required: [type, sentAt, userId]
+      properties:
+        type:
+          type: string
+          enum: [connection.ready, connection.heartbeat, telemetry.snapshot, alarm.event]
+        sentAt:
+          type: string
+          format: date-time
+          description: UTC RFC 3339 server timestamp
+        userId:
+          type: string
+          format: uuid
+        plantId:
+          type: string
+          format: uuid
+        data:
+          type: array
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/LatestTelemetry"
+    Plant:
+      type: object
+      additionalProperties: false
+      required: [id, organizationId, organizationName, code, name, timezone, isActive, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        organizationId:
+          type: string
+          format: uuid
+        organizationName:
+          type: string
+        code:
+          type: string
+        name:
+          type: string
+        timezone:
+          type: string
+        latitude:
+          type: [number, "null"]
+          minimum: -90
+          maximum: 90
+        longitude:
+          type: [number, "null"]
+          minimum: -180
+          maximum: 180
+        installedDcKw:
+          type: [number, "null"]
+          minimum: 0
+        installedAcKw:
+          type: [number, "null"]
+          minimum: 0
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    CreatePlantRequest:
+      type: object
+      additionalProperties: false
+      required: [code, name, timezone]
+      properties:
+        organizationId:
+          type: string
+          format: uuid
+          description: Defaults to the caller's organization; cross-organization creation requires a global grant
+        code:
+          type: string
+          minLength: 1
+          maxLength: 100
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        timezone:
+          type: string
+          minLength: 1
+          maxLength: 100
+        latitude:
+          type: [number, "null"]
+          minimum: -90
+          maximum: 90
+        longitude:
+          type: [number, "null"]
+          minimum: -180
+          maximum: 180
+        installedDcKw:
+          type: [number, "null"]
+          minimum: 0
+        installedAcKw:
+          type: [number, "null"]
+          minimum: 0
+    UpdatePlantRequest:
+      type: object
+      additionalProperties: false
+      required: [code, name, timezone, isActive]
+      properties:
+        code:
+          type: string
+          minLength: 1
+          maxLength: 100
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        timezone:
+          type: string
+          minLength: 1
+          maxLength: 100
+        latitude:
+          type: [number, "null"]
+          minimum: -90
+          maximum: 90
+        longitude:
+          type: [number, "null"]
+          minimum: -180
+          maximum: 180
+        installedDcKw:
+          type: [number, "null"]
+          minimum: 0
+        installedAcKw:
+          type: [number, "null"]
+          minimum: 0
+        isActive:
+          type: boolean
+    Device:
+      type: object
+      additionalProperties: false
+      required: [id, organizationId, plantId, externalId, name, deviceModelId, manufacturer, model, deviceType, isActive, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        organizationId:
+          type: string
+          format: uuid
+        plantId:
+          type: string
+          format: uuid
+        externalId:
+          type: string
+        name:
+          type: string
+        deviceModelId:
+          type: string
+          format: uuid
+        manufacturer:
+          type: string
+        model:
+          type: string
+        deviceType:
+          type: string
+        sourceTypeId:
+          type: [integer, "null"]
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    CreateDeviceRequest:
+      type: object
+      additionalProperties: false
+      required: [externalId, name, manufacturer, model, deviceType]
+      properties:
+        externalId:
+          type: string
+          minLength: 1
+          maxLength: 200
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        manufacturer:
+          type: string
+          minLength: 1
+          maxLength: 200
+        model:
+          type: string
+          minLength: 1
+          maxLength: 200
+        deviceType:
+          type: string
+          minLength: 1
+          maxLength: 100
+        sourceTypeId:
+          type: [integer, "null"]
+          minimum: 0
+        serialNumber:
+          type: string
+          maxLength: 200
+    DeviceModelOption:
+      type: object
+      additionalProperties: false
+      required: [id, organizationId, manufacturer, model, deviceType, isActive, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        organizationId:
+          type: string
+          format: uuid
+        manufacturer:
+          type: string
+        model:
+          type: string
+        deviceType:
+          type: string
+        sourceTypeId:
+          type: [integer, "null"]
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    DeviceModelRequest:
+      type: object
+      additionalProperties: false
+      required: [manufacturer, model, deviceType]
+      properties:
+        organizationId:
+          type: string
+          format: uuid
+          description: Optional. Defaults to the caller's organization when omitted.
+        manufacturer:
+          type: string
+          minLength: 1
+          maxLength: 200
+        model:
+          type: string
+          minLength: 1
+          maxLength: 200
+        deviceType:
+          type: string
+          minLength: 1
+          maxLength: 100
+        sourceTypeId:
+          type: [integer, "null"]
+          minimum: 0
+        isActive:
+          type: boolean
+          default: true
+    LatestTelemetry:
+      type: object
+      additionalProperties: false
+      required: [id, organizationId, plantId, deviceId, deviceExternalId, deviceName, gatewayId, observedAt, receivedAt, dataItemMap, parameterCount]
+      properties:
+        id:
+          type: string
+          format: uuid
+        organizationId:
+          type: string
+          format: uuid
+        plantId:
+          type: string
+          format: uuid
+        deviceId:
+          type: string
+          format: uuid
+        deviceExternalId:
+          type: string
+        deviceName:
+          type: string
+        gatewayId:
+          type: string
+        observedAt:
+          type: string
+          format: date-time
+        receivedAt:
+          type: string
+          format: date-time
+        dataItemMap:
+          type: object
+          additionalProperties:
+            type: number
+        parameterCount:
+          type: integer
+          minimum: 0
+    RegisterMetadata:
+      type: object
+      additionalProperties: false
+      required: [id, organizationId, plantId, deviceId, addressKey, displayName, unit, dataType, scale, offset, decimals, isEnabled, notes, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        organizationId:
+          type: string
+          format: uuid
+        plantId:
+          type: string
+          format: uuid
+        deviceId:
+          type: string
+          format: uuid
+        addressKey:
+          type: string
+          minLength: 1
+          maxLength: 200
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 200
+        unit:
+          type: string
+          maxLength: 40
+        dataType:
+          type: string
+          enum: [number, boolean, text, enum]
+        scale:
+          type: number
+          default: 1
+        offset:
+          type: number
+          default: 0
+        decimals:
+          type: integer
+          minimum: 0
+          maximum: 9
+        isEnabled:
+          type: boolean
+        notes:
+          type: string
+          maxLength: 500
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    UpdateRegisterMetadataRequest:
+      type: object
+      additionalProperties: false
+      required: [addressKey, isEnabled]
+      properties:
+        addressKey:
+          type: string
+          minLength: 1
+          maxLength: 200
+        displayName:
+          type: string
+          maxLength: 200
+        unit:
+          type: string
+          maxLength: 40
+        dataType:
+          type: string
+          enum: [number, boolean, text, enum]
+          default: number
+        scale:
+          type: number
+          default: 1
+        offset:
+          type: number
+          default: 0
+        decimals:
+          type: integer
+          minimum: 0
+          maximum: 9
+          default: 2
+        isEnabled:
+          type: boolean
+        notes:
+          type: string
+          maxLength: 500
+    TelemetryHistoryPage:
+      type: object
+      additionalProperties: false
+      required: [data, nextCursor]
+      properties:
+        data:
+          type: array
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/LatestTelemetry"
+        nextCursor:
+          type: [string, "null"]
+    AlarmRule:
+      type: object
+      additionalProperties: false
+      required: [id, organizationId, plantId, deviceId, pointKey, label, severity, isActive, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        organizationId:
+          type: string
+          format: uuid
+        plantId:
+          type: string
+          format: uuid
+        deviceId:
+          type: string
+          format: uuid
+        pointKey:
+          type: string
+        label:
+          type: string
+        minValue:
+          type: [number, "null"]
+        maxValue:
+          type: [number, "null"]
+        severity:
+          type: string
+          enum: [warning, major, critical]
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    CreateAlarmRuleRequest:
+      type: object
+      additionalProperties: false
+      required: [deviceId, pointKey, label, severity]
+      properties:
+        deviceId:
+          type: string
+          format: uuid
+        pointKey:
+          type: string
+          minLength: 1
+          maxLength: 200
+        label:
+          type: string
+          minLength: 1
+          maxLength: 200
+        minValue:
+          type: [number, "null"]
+        maxValue:
+          type: [number, "null"]
+        severity:
+          type: string
+          enum: [warning, major, critical]
+    UpdateAlarmRuleRequest:
+      type: object
+      additionalProperties: false
+      required: [label, severity, isActive]
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 200
+        minValue:
+          type: [number, "null"]
+        maxValue:
+          type: [number, "null"]
+        severity:
+          type: string
+          enum: [warning, major, critical]
+        isActive:
+          type: boolean
+    AlarmEvent:
+      type: object
+      additionalProperties: false
+      required: [id, organizationId, plantId, deviceId, alarmRuleId, pointKey, severity, value, breachedAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+        organizationId:
+          type: string
+          format: uuid
+        plantId:
+          type: string
+          format: uuid
+        deviceId:
+          type: string
+          format: uuid
+        alarmRuleId:
+          type: string
+          format: uuid
+        pointKey:
+          type: string
+        severity:
+          type: string
+          enum: [warning, major, critical]
+        value:
+          type: number
+        thresholdMin:
+          type: [number, "null"]
+        thresholdMax:
+          type: [number, "null"]
+        breachedAt:
+          type: string
+          format: date-time
+        clearedAt:
+          type: [string, "null"]
+          format: date-time
+        acknowledgedBy:
+          type: [string, "null"]
+          format: uuid
+        acknowledgedAt:
+          type: [string, "null"]
+          format: date-time
+        acknowledgedNote:
+          type: [string, "null"]
+    AcknowledgeAlarmEventRequest:
+      type: object
+      additionalProperties: false
+      required: []
+      properties:
+        note:
+          type: string
+          maxLength: 500
+    ScadaPosition:
+      type: object
+      additionalProperties: false
+      required: [x, y]
+      properties:
+        x:
+          type: number
+          minimum: -10000
+          maximum: 10000
+        y:
+          type: number
+          minimum: -10000
+          maximum: 10000
+    ScadaViewport:
+      type: object
+      additionalProperties: false
+      required: [x, y, zoom]
+      properties:
+        x:
+          type: number
+          minimum: -10000
+          maximum: 10000
+        y:
+          type: number
+          minimum: -10000
+          maximum: 10000
+        zoom:
+          type: number
+          minimum: 0.1
+          maximum: 4
+    ScadaTelemetryBinding:
+      type: object
+      additionalProperties: false
+      required: [deviceId, pointKey, unit, decimals]
+      properties:
+        deviceId:
+          type: string
+          format: uuid
+        pointKey:
+          type: string
+          minLength: 1
+          maxLength: 200
+        unit:
+          type: string
+          maxLength: 20
+        decimals:
+          type: integer
+          minimum: 0
+          maximum: 6
+    ScadaDataItem:
+      type: object
+      additionalProperties: false
+      required: [label, binding]
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 100
+        binding:
+          $ref: "#/components/schemas/ScadaTelemetryBinding"
+        minAlarm:
+          type: number
+        maxAlarm:
+          type: number
+    ScadaNodeData:
+      type: object
+      additionalProperties: false
+      required: [label]
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 100
+        equipmentKind:
+          type: string
+          enum: [solar-panel, inverter, meter, grid]
+        binding:
+          $ref: "#/components/schemas/ScadaTelemetryBinding"
+        deviceId:
+          type: string
+          format: uuid
+        displayType:
+          type: string
+          enum: [text, gauge, progress, tank]
+        shapeKind:
+          type: string
+          enum: [rectangle, circle, triangle, diamond, hexagon]
+        minValue:
+          type: number
+        maxValue:
+          type: number
+        onValue:
+          type: number
+        imageUrl:
+          type: string
+          format: uri-reference
+          maxLength: 2048
+        text:
+          type: string
+          maxLength: 200
+        timezone:
+          type: string
+          maxLength: 100
+        items:
+          type: array
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/ScadaDataItem"
+    ScadaNode:
+      type: object
+      additionalProperties: false
+      required: [id, type, position, data]
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 100
+        type:
+          type: string
+          enum: [equipment, metric, label, shape, section, led, clock, image, table, alarms, ticker, device-summary]
+        position:
+          $ref: "#/components/schemas/ScadaPosition"
+        data:
+          $ref: "#/components/schemas/ScadaNodeData"
+        width:
+          type: number
+          minimum: 40
+          maximum: 2000
+        height:
+          type: number
+          minimum: 30
+          maximum: 2000
+    ScadaEdge:
+      type: object
+      additionalProperties: false
+      required: [id, source, target, type]
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 100
+        source:
+          type: string
+          minLength: 1
+          maxLength: 100
+        target:
+          type: string
+          minLength: 1
+          maxLength: 100
+        type:
+          type: string
+          enum: [default, smoothstep]
+    ScadaDesign:
+      type: object
+      additionalProperties: false
+      required: [version, nodes, edges, viewport]
+      properties:
+        version:
+          type: integer
+          enum: [1]
+        nodes:
+          type: array
+          maxItems: 300
+          items:
+            $ref: "#/components/schemas/ScadaNode"
+        edges:
+          type: array
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/ScadaEdge"
+        viewport:
+          $ref: "#/components/schemas/ScadaViewport"
+    ScadaScreenSummary:
+      type: object
+      additionalProperties: false
+      required: [id, organizationId, plantId, plantCode, plantName, name, draftVersion, publishedVersion, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        organizationId:
+          type: string
+          format: uuid
+        plantId:
+          type: string
+          format: uuid
+        plantCode:
+          type: string
+        plantName:
+          type: string
+        name:
+          type: string
+        draftVersion:
+          type: integer
+          minimum: 1
+        publishedVersion:
+          type: integer
+          minimum: 0
+        updatedAt:
+          type: string
+          format: date-time
+    ScadaScreen:
+      allOf:
+        - $ref: "#/components/schemas/ScadaScreenSummary"
+        - type: object
+          required: [design, canEdit, canPublish, canManageAccess, canHardDelete]
+          properties:
+            design:
+              $ref: "#/components/schemas/ScadaDesign"
+            canEdit:
+              type: boolean
+            canPublish:
+              type: boolean
+            canManageAccess:
+              type: boolean
+            canHardDelete:
+              type: boolean
+      unevaluatedProperties: false
+    PublishedScadaScreen:
+      allOf:
+        - $ref: "#/components/schemas/ScadaScreenSummary"
+        - type: object
+          required: [sourceDraftVersion, design, publishedAt]
+          properties:
+            sourceDraftVersion:
+              type: integer
+              minimum: 1
+            design:
+              $ref: "#/components/schemas/ScadaDesign"
+            publishedAt:
+              type: string
+              format: date-time
+      unevaluatedProperties: false
+    ScadaScreenVersion:
+      type: object
+      additionalProperties: false
+      required: [version, sourceDraftVersion, publishedBy, publishedAt, current]
+      properties:
+        version:
+          type: integer
+          minimum: 1
+        sourceDraftVersion:
+          type: integer
+          minimum: 1
+        publishedBy:
+          type: string
+          format: uuid
+        publishedAt:
+          type: string
+          format: date-time
+        current:
+          type: boolean
+    CreateScadaScreenRequest:
+      type: object
+      additionalProperties: false
+      required: [plantId, name]
+      properties:
+        plantId:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+    UpdateScadaScreenRequest:
+      type: object
+      additionalProperties: false
+      required: [draftVersion, name, design]
+      properties:
+        draftVersion:
+          type: integer
+          minimum: 1
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        design:
+          $ref: "#/components/schemas/ScadaDesign"
+    PublishScadaScreenRequest:
+      type: object
+      additionalProperties: false
+      required: [draftVersion, publishedVersion]
+      properties:
+        draftVersion:
+          type: integer
+          minimum: 1
+        publishedVersion:
+          type: integer
+          minimum: 0
+    RollbackScadaScreenRequest:
+      type: object
+      additionalProperties: false
+      required: [targetVersion, publishedVersion]
+      properties:
+        targetVersion:
+          type: integer
+          minimum: 1
+        publishedVersion:
+          type: integer
+          minimum: 1
+    DashboardOverview:
+      type: object
+      additionalProperties: false
+      required: [generatedAt, staleAfterSeconds, plantCount, activeDeviceCount, reportingDeviceCount, staleDeviceCount, offlineDeviceCount, plants]
+      properties:
+        generatedAt:
+          type: string
+          format: date-time
+        staleAfterSeconds:
+          type: integer
+        plantCount:
+          type: integer
+        activeDeviceCount:
+          type: integer
+        reportingDeviceCount:
+          type: integer
+        staleDeviceCount:
+          type: integer
+        offlineDeviceCount:
+          type: integer
+        plants:
+          type: array
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/DashboardPlantStatus"
+    DashboardPlantStatus:
+      type: object
+      additionalProperties: false
+      required: [plantId, code, name, timezone, isActive, deviceCount, activeDeviceCount, reportingDeviceCount, staleDeviceCount, offlineDeviceCount, communicationStatus]
+      properties:
+        plantId:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          type: string
+        timezone:
+          type: string
+        isActive:
+          type: boolean
+        deviceCount:
+          type: integer
+        activeDeviceCount:
+          type: integer
+        reportingDeviceCount:
+          type: integer
+        staleDeviceCount:
+          type: integer
+        offlineDeviceCount:
+          type: integer
+        lastObservedAt:
+          type: [string, "null"]
+          format: date-time
+        communicationStatus:
+          type: string
+          enum: [ONLINE, DEGRADED, OFFLINE, NO_DEVICES, DISABLED]
+    DashboardWidget:
+      type: object
+      additionalProperties: false
+      required: [id, type, title]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [plant-count, active-device-count, reporting-device-count, attention-device-count, plant-status, timeseries.line]
+        title:
+          type: string
+    DashboardLayoutItem:
+      type: object
+      additionalProperties: false
+      required: [i, x, y, w, h]
+      properties:
+        i:
+          type: string
+        x:
+          type: integer
+          minimum: 0
+        y:
+          type: integer
+          minimum: 0
+        w:
+          type: integer
+          minimum: 1
+        h:
+          type: integer
+          minimum: 1
+    DashboardResponsiveLayouts:
+      type: object
+      additionalProperties: false
+      required: [lg, md, sm]
+      properties:
+        lg:
+          type: array
+          minItems: 5
+          maxItems: 6
+          items:
+            $ref: "#/components/schemas/DashboardLayoutItem"
+        md:
+          type: array
+          minItems: 5
+          maxItems: 6
+          items:
+            $ref: "#/components/schemas/DashboardLayoutItem"
+        sm:
+          type: array
+          minItems: 5
+          maxItems: 6
+          items:
+            $ref: "#/components/schemas/DashboardLayoutItem"
+    DashboardLayout:
+      type: object
+      additionalProperties: false
+      required: [id, version, registryVersion, widgets, layouts, widgetConfigs, canEdit, canPublish, updatedAt]
+      properties:
+        id:
+          type: [string, "null"]
+          format: uuid
+        version:
+          type: integer
+          minimum: 0
+        registryVersion:
+          type: integer
+          enum: [2]
+        widgets:
+          type: array
+          minItems: 6
+          maxItems: 6
+          items:
+            $ref: "#/components/schemas/DashboardWidget"
+        layouts:
+          $ref: "#/components/schemas/DashboardResponsiveLayouts"
+        widgetConfigs:
+          $ref: "#/components/schemas/DashboardWidgetConfigs"
+        canEdit:
+          type: boolean
+        canPublish:
+          type: boolean
+        updatedAt:
+          type: [string, "null"]
+          format: date-time
+    UpdateDashboardLayoutRequest:
+      type: object
+      additionalProperties: false
+      required: [version, layouts, widgetConfigs]
+      properties:
+        version:
+          type: integer
+          minimum: 0
+        layouts:
+          $ref: "#/components/schemas/DashboardResponsiveLayouts"
+        widgetConfigs:
+          $ref: "#/components/schemas/DashboardWidgetConfigs"
+    PublishedDashboardLayout:
+      type: object
+      additionalProperties: false
+      required: [id, version, sourceVersion, registryVersion, widgets, layouts, widgetConfigs, publishedAt]
+      properties:
+        id:
+          type: [string, "null"]
+          format: uuid
+        version:
+          type: integer
+          minimum: 0
+        sourceVersion:
+          type: integer
+          minimum: 0
+        registryVersion:
+          type: integer
+          enum: [2]
+        widgets:
+          type: array
+          minItems: 6
+          maxItems: 6
+          items:
+            $ref: "#/components/schemas/DashboardWidget"
+        layouts:
+          $ref: "#/components/schemas/DashboardResponsiveLayouts"
+        widgetConfigs:
+          $ref: "#/components/schemas/DashboardWidgetConfigs"
+        publishedAt:
+          type: [string, "null"]
+          format: date-time
+    DashboardWidgetConfigs:
+      type: object
+      additionalProperties: false
+      properties:
+        timeseries-line:
+          $ref: "#/components/schemas/TimeseriesWidgetConfig"
+    TimeseriesWidgetConfig:
+      type: object
+      additionalProperties: false
+      required: [version, dataBinding, display]
+      properties:
+        version:
+          type: integer
+          enum: [1]
+        dataBinding:
+          type: object
+          additionalProperties: false
+          required: [plantId, deviceId, pointKey, timeRangeHours]
+          properties:
+            plantId:
+              type: string
+              format: uuid
+            deviceId:
+              type: string
+              format: uuid
+            pointKey:
+              type: string
+              minLength: 1
+              maxLength: 200
+            timeRangeHours:
+              type: integer
+              enum: [1, 6, 24, 168]
+        display:
+          type: object
+          additionalProperties: false
+          required: [unit, decimals]
+          properties:
+            unit:
+              type: string
+              maxLength: 20
+            decimals:
+              type: integer
+              minimum: 0
+              maximum: 6
+    PublishDashboardLayoutRequest:
+      type: object
+      additionalProperties: false
+      required: [version, publishedVersion]
+      properties:
+        version:
+          type: integer
+          minimum: 1
+        publishedVersion:
+          type: integer
+          minimum: 0
+    UpdateDeviceRequest:
+      type: object
+      additionalProperties: false
+      required: [name, isActive]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        isActive:
+          type: boolean
+    MiddlewareReading:
+      type: object
+      additionalProperties: false
+      required: [devDn, plantCode, devTypeId, collectTime, dataItemMap]
+      properties:
+        gatewayId:
+          type: string
+          maxLength: 200
+        devDn:
+          type: string
+          minLength: 1
+          maxLength: 200
+        devName:
+          type: string
+          maxLength: 200
+        plantCode:
+          type: string
+          minLength: 1
+          maxLength: 100
+        plantName:
+          type: string
+          maxLength: 200
+        devTypeId:
+          type: integer
+          minimum: 1
+        model:
+          type: string
+          maxLength: 200
+        collectTime:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Source observation time as Unix epoch milliseconds
+        dataItemMap:
+          type: object
+          minProperties: 1
+          maxProperties: 5000
+          additionalProperties:
+            type: number
+    MiddlewareBatch:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/MiddlewareReading"
+    RawRegisterReading:
+      type: object
+      additionalProperties: false
+      required: [devDn, plantCode, devTypeId, collectTime, registerAddressMap]
+      properties:
+        gatewayId:
+          type: string
+          minLength: 1
+          maxLength: 200
+        devDn:
+          type: string
+          minLength: 1
+          maxLength: 200
+        devName:
+          type: string
+          maxLength: 200
+        plantCode:
+          type: string
+          minLength: 1
+          maxLength: 100
+        plantName:
+          type: string
+          maxLength: 200
+        devTypeId:
+          type: integer
+          minimum: 1
+        model:
+          type: string
+          maxLength: 200
+        collectTime:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Source observation time as Unix epoch milliseconds
+        registerAddressMap:
+          type: object
+          minProperties: 1
+          maxProperties: 5000
+          description: Keyed by register address (e.g. "40072"); value is the decoded raw register value. Function code is fixed per Device Model profile; data type, scaling, units and quality are owned by Register Metadata on the Central Platform.
+          additionalProperties:
+            type: number
+    RawRegisterBatch:
+      type: object
+      additionalProperties: false
+      required: [schemaVersion, data]
+      properties:
+        schemaVersion:
+          type: string
+          enum: ["2.0"]
+        data:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/RawRegisterReading"
+    RawRegisterIngestionResponse:
+      $ref: "#/components/schemas/IngestionResponse"
+    IngestionRecordError:
+      type: object
+      additionalProperties: false
+      required: [index, code, message]
+      properties:
+        index:
+          type: integer
+          minimum: 0
+        code:
+          type: string
+        message:
+          type: string
+    IngestionResponse:
+      type: object
+      additionalProperties: false
+      required: [ingestionId, status, acceptedCount, duplicateCount, rejectedCount, onboardedPlantCount, onboardedDeviceCount, errors]
+      properties:
+        ingestionId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [accepted, duplicate]
+        acceptedCount:
+          type: integer
+          minimum: 0
+        duplicateCount:
+          type: integer
+          minimum: 0
+        rejectedCount:
+          type: integer
+          minimum: 0
+        onboardedPlantCount:
+          type: integer
+          minimum: 0
+        onboardedDeviceCount:
+          type: integer
+          minimum: 0
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/IngestionRecordError"
+    ChangePasswordRequest:
+      type: object
+      additionalProperties: false
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          format: password
+        newPassword:
+          type: string
+          minLength: 12
+          maxLength: 72
+          format: password

@@ -1,0 +1,18 @@
+--- a/README.md
++++ b/README.md
+@@ -136,6 +136,7 @@
+ cd D:\PROJECT_2026\CHPP\modbus-api-middleware
+ 
+ .\build\middleware-v0.2.4-windows-amd64.exe `
++  -run `
+   -db middleware.db `
+   -listen 0.0.0.0:8081
+ ```
+@@ -144,6 +145,7 @@
+ 
+ ```powershell
+ .\build\middleware-v0.2.4-windows-amd64.exe `
++  -run `
+   -gateway-id MOXA-VT1-01 `
+   -db middleware.db `
+   -listen 0.0.0.0:8081 `

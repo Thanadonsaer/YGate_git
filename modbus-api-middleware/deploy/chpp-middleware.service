@@ -1,0 +1,19 @@
+[Unit]
+Description=CHPP Modbus API Middleware
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/chpp-middleware
+Environment=GATEWAY_ID=MOXA-VT1-01
+Environment=DB_PATH=/opt/chpp-middleware/middleware.db
+Environment=LISTEN_ADDR=0.0.0.0:8081
+Environment=CLEANUP_RETENTION_DAYS=30
+EnvironmentFile=-/etc/chpp-middleware.env
+ExecStart=/opt/chpp-middleware/middleware -gateway-id ${GATEWAY_ID} -db ${DB_PATH} -listen ${LISTEN_ADDR} -cleanup-retention-days ${CLEANUP_RETENTION_DAYS}
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

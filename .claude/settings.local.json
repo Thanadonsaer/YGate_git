@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(go build *)",
+      "Bash(go vet *)",
+      "Bash(go test *)",
+      "Bash(npm run *)",
+      "Bash(npm view *)",
+      "Bash(ls \"/c/Users/MDES-NA/.claude/projects/d--PROJECT-2026-ygate/MEMORY.md\" 2>&1 || echo \"no MEMORY.md yet\")",
+      "Read(//c/Users/MDES-NA/.claude/projects/d--PROJECT-2026-ygate/**)",
+      "Bash(curl -s -o /tmp/site-map.html -w \"http:%{http_code}\\\\n\" http://localhost:8080/site-map)",
+      "Read(//tmp/**)",
+      "Bash(taskkill //F //IM node.exe)"
+    ]
+  }
+}

@@ -1,0 +1,107 @@
+diff --git a/modbus-api-middleware/cmd/middleware/main.go b/modbus-api-middleware/cmd/middleware/main.go
+--- a/modbus-api-middleware/cmd/middleware/main.go
++++ b/modbus-api-middleware/cmd/middleware/main.go
+@@ -22,5 +22,5 @@
+ )
+ 
+ var (
+-	version          = "0.2.3"
++	version          = "0.2.4"
+ 	commit           = "dev"
+@@ -46,3 +46,5 @@
+ 	apiKey := flag.String("api-key", "", "gateway API key")
+ 	gateway := flag.String("gateway-id", "", "local gateway identity")
++	runServer := flag.Bool("run", false, "run polling and the web server in console mode")
++	serviceAction := flag.String("service", "", "manage Windows Service: install, status, start, stop, restart, uninstall")
+ 	configureOnly := flag.Bool("configure-only", false, "save gateway flags and exit without polling or starting the web server")
+@@ -57,4 +59,4 @@
+ 	licenseStatus := flag.Bool("license-status", false, "check license-file and exit")
+ 	machineID := flag.Bool("machine-id", false, "print machine id for license activation and exit")
+-	gui := flag.Bool("gui", len(os.Args) == 1, "open web GUI in browser")
++	gui := flag.Bool("gui", false, "open web GUI in browser; implies -run")
+ 	flag.Parse()
+@@ -84,3 +86,23 @@
+ 		return nil
+ 	}
++	action := strings.ToLower(strings.TrimSpace(*serviceAction))
++	if action != "" {
++		if action == "install" {
++			if _, err := license.CheckFile(*licenseFile, publicKey); err != nil {
++				return fmt.Errorf("activate license before installing service: %w", err)
++			}
++		}
++		return manageService(serviceConfig{
++			Action:               action,
++			DatabasePath:         *dbPath,
++			Listen:               *listen,
++			LicenseFile:          *licenseFile,
++			CleanupRetentionDays: *cleanupRetentionDays,
++		})
++	}
++	if !serviceMode && !*runServer && !*gui && !*configureOnly {
++		fmt.Println("middleware not started; install the service with -service install or use -run for console mode")
++		flag.PrintDefaults()
++		return nil
++	}
+ 	if *requireLicense {
+diff --git a/modbus-api-middleware/cmd/middleware/service_cli_windows.go b/modbus-api-middleware/cmd/middleware/service_cli_windows.go
+--- a/modbus-api-middleware/cmd/middleware/service_cli_windows.go
++++ b/modbus-api-middleware/cmd/middleware/service_cli_windows.go
+@@ -9,3 +9,4 @@
+ 	"os"
+ 	"os/exec"
++	"path/filepath"
+ 	"strings"
+@@ -19,6 +20,9 @@
+ 		return installService(cfg)
+ 	case "status":
+-		query, _ := runServiceCommand("query")
+-		config, _ := runServiceCommand("qc")
++		query, err := runServiceCommand("query")
++		if err != nil {
++			return err
++		}
++		config, _ := runServiceCommand("qc")
+ 		fmt.Println(strings.TrimSpace(query + "\n" + config))
+ 		return nil
+@@ -44,3 +49,11 @@
+ 		return err
+ 	}
++	cfg.DatabasePath, err = filepath.Abs(cfg.DatabasePath)
++	if err != nil {
++		return err
++	}
++	cfg.LicenseFile, err = filepath.Abs(cfg.LicenseFile)
++	if err != nil {
++		return err
++	}
+ 	binPath := serviceBinaryPath(exe, cfg)
+diff --git a/modbus-api-middleware/run.bat b/modbus-api-middleware/run.bat
+--- a/modbus-api-middleware/run.bat
++++ b/modbus-api-middleware/run.bat
+@@ -17,1 +17,1 @@
+-go run .\cmd\middleware -db middleware.db -listen 0.0.0.0:8081 %*
++go run .\cmd\middleware -run -db middleware.db -listen 0.0.0.0:8081 %*
+diff --git a/modbus-api-middleware/build-all.bat b/modbus-api-middleware/build-all.bat
+--- a/modbus-api-middleware/build-all.bat
++++ b/modbus-api-middleware/build-all.bat
+@@ -21,4 +21,4 @@
+ set "GOARCH="
+ set "GOARM="
+-set "VERSION=0.2.3"
++set "VERSION=0.2.4"
+ set "KEYS_FILE=%CD%\license-keys.env"
+diff --git a/modbus-api-middleware/CHANGELOG.md b/modbus-api-middleware/CHANGELOG.md
+--- a/modbus-api-middleware/CHANGELOG.md
++++ b/modbus-api-middleware/CHANGELOG.md
+@@ -1,3 +1,10 @@
+ # Changelog
+ 
++## v0.2.4
++
++- Added `-service install|status|start|stop|restart|uninstall` to the Middleware EXE.
++- Prevented no-argument console launches from opening SQLite or port 8081.
++- Required explicit `-run` or `-gui` for console web-server mode.
++- Kept Windows Service startup unchanged after a completed installation.
++
+ ## v0.2.3

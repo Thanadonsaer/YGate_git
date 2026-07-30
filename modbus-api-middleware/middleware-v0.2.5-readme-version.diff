@@ -1,0 +1,55 @@
+--- a/README.md
++++ b/README.md
+@@ -135,8 +135,8 @@
+ ```powershell
+ cd D:\PROJECT_2026\CHPP\modbus-api-middleware
+ 
+-.\build\middleware-v0.2.4-windows-amd64.exe `
++.\build\middleware-v0.2.5-windows-amd64.exe `
+   -run `
+   -db middleware.db `
+   -listen 0.0.0.0:8081
+ ```
+@@ -146,5 +146,5 @@
+ ```powershell
+-.\build\middleware-v0.2.4-windows-amd64.exe `
++.\build\middleware-v0.2.5-windows-amd64.exe `
+   -run `
+   -gateway-id MOXA-VT1-01 `
+   -db middleware.db `
+@@ -158,9 +158,9 @@
+ ## Version
+ 
+ ```bash
+-./build/middleware-v0.2.4-linux-amd64 -version
++./build/middleware-v0.2.5-linux-amd64 -version
+ # หรือ Windows
+-.\build\middleware-v0.2.4-windows-amd64.exe -version
++.\build\middleware-v0.2.5-windows-amd64.exe -version
+ ```
+ 
+ ## Configuration API
+@@ -186,11 +186,11 @@
+ ผลลัพธ์หลัก:
+ 
+ ```text
+-build\middleware-v0.2.4-windows-amd64.exe
++build\middleware-v0.2.5-windows-amd64.exe
+ build\linux\build\middleware-linux-amd64
+ build\linux\deploy\*.sh
+-build\patches\chpp-middleware-v0.2.4-windows-amd64-update.zip
+-build\patches\chpp-middleware-v0.2.4-linux-amd64-update.zip
++build\patches\chpp-middleware-v0.2.5-windows-amd64-update.zip
++build\patches\chpp-middleware-v0.2.5-linux-amd64-update.zip
+ ```
+ 
+ 
+@@ -212,7 +212,7 @@
+ เมนูจะไม่เปิด SQLite, polling หรือ port `8081` จนกว่าจะเลือก Install/Start Service ให้เปิด EXE แบบ Run as Administrator เมื่อต้องการเปลี่ยนสถานะ Windows Service
+ 
+ ```powershell
+-$exe = (Resolve-Path ".\build\middleware-v0.2.4-windows-amd64.exe").Path
++$exe = (Resolve-Path ".\build\middleware-v0.2.5-windows-amd64.exe").Path
+ $db = Join-Path (Split-Path $exe) "middleware.db"
+ $license = Join-Path (Split-Path $exe) "license.json"
+ ```

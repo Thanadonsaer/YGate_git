@@ -1,0 +1,107 @@
+--- a/internal/web/static/index.html
++++ b/internal/web/static/index.html
+@@ -1400,12 +1400,10 @@
+               <label>Plant</label><select id="connection-plant"
+                 required disabled></select>
+             </div>
+-            <!-- <div class="field">
+-              <label>Device Set *</label><select
++            <div class="field">
++              <label>Device Model *</label><select
+                 id="connection-set" required></select>
+-              <button class="btn secondary mt-10" type="button"
+-                onclick="installSMAProfile()">+ เพิ่ม/เลือก SMA Profile</button>
+-            </div> -->
++            </div>
+             <div class="field">
+               <label>Device Code / devDn *</label><input
+                 id="connection-devdn" required
+--- a/cmd/middleware/main.go
++++ b/cmd/middleware/main.go
+@@ -22,7 +22,7 @@
+ )
+ 
+ var (
+-	version          = "0.2.5"
++	version          = "0.2.6"
+ 	commit           = "dev"
+ 	licensePublicKey = ""
+ 	serviceMode      bool
+--- a/build-all.bat
++++ b/build-all.bat
+@@ -21,7 +21,7 @@
+ set "GOOS="
+ set "GOARCH="
+ set "GOARM="
+-set "VERSION=0.2.5"
++set "VERSION=0.2.6"
+ set "KEYS_FILE=%CD%\license-keys.env"
+ 
+ if exist "%KEYS_FILE%" (
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,5 +1,11 @@
+ # Changelog
+ 
++## v0.2.6
++
++- Restored the required Device Model selector in the add/edit Device dialog.
++- Kept Device Model creation in Register Metadata instead of nesting it in the Device dialog.
++- Added an embedded-page regression test for active dialog fields hidden by HTML comments.
++
+ ## v0.2.5
+ 
+ - Opened an interactive Windows Service Manager when launching the EXE without arguments.
+--- a/README.md
++++ b/README.md
+@@ -138,6 +138,6 @@
+ cd D:\PROJECT_2026\CHPP\modbus-api-middleware
+ 
+-.\build\middleware-v0.2.5-windows-amd64.exe `
++.\build\middleware-v0.2.6-windows-amd64.exe `
+   -run `
+   -db middleware.db `
+   -listen 0.0.0.0:8081
+@@ -147,6 +147,6 @@
+ 
+ ```powershell
+-.\build\middleware-v0.2.5-windows-amd64.exe `
++.\build\middleware-v0.2.6-windows-amd64.exe `
+   -run `
+   -gateway-id MOXA-VT1-01 `
+   -db middleware.db `
+@@ -161,8 +161,8 @@
+ 
+ ```bash
+-./build/middleware-v0.2.5-linux-amd64 -version
++./build/middleware-v0.2.6-linux-amd64 -version
+ # หรือ Windows
+-.\build\middleware-v0.2.5-windows-amd64.exe -version
++.\build\middleware-v0.2.6-windows-amd64.exe -version
+ ```
+ 
+ ## Configuration API
+@@ -189,11 +189,11 @@
+ ผลลัพธ์หลัก:
+ 
+ ```text
+-build\middleware-v0.2.5-windows-amd64.exe
++build\middleware-v0.2.6-windows-amd64.exe
+ build\linux\build\middleware-linux-amd64
+ build\linux\deploy\*.sh
+-build\patches\chpp-middleware-v0.2.5-windows-amd64-update.zip
+-build\patches\chpp-middleware-v0.2.5-linux-amd64-update.zip
++build\patches\chpp-middleware-v0.2.6-windows-amd64-update.zip
++build\patches\chpp-middleware-v0.2.6-linux-amd64-update.zip
+ ```
+ 
+ 
+@@ -215,7 +215,7 @@
+ เมนูจะไม่เปิด SQLite, polling หรือ port `8081` จนกว่าจะเลือก Install/Start Service ให้เปิด EXE แบบ Run as Administrator เมื่อต้องการเปลี่ยนสถานะ Windows Service
+ 
+ ```powershell
+-$exe = (Resolve-Path ".\build\middleware-v0.2.5-windows-amd64.exe").Path
++$exe = (Resolve-Path ".\build\middleware-v0.2.6-windows-amd64.exe").Path
+ $db = Join-Path (Split-Path $exe) "middleware.db"
+ $license = Join-Path (Split-Path $exe) "license.json"
+ ```

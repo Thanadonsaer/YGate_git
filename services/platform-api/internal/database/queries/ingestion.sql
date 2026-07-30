@@ -1,0 +1,112 @@
+-- name: AuthenticateMiddlewareClient :one
+SELECT id, organization_id, name, auto_onboard
+FROM middleware_client
+WHERE key_hash = sqlc.arg(key_hash) AND is_active = true
+LIMIT 1;
+
+-- name: CreateOrGetIngestBatch :one
+INSERT INTO telemetry_ingest_batch (
+    id, organization_id, middleware_client_id, idempotency_key, payload_hash, raw_payload
+) VALUES (
+    sqlc.arg(id), sqlc.arg(organization_id), sqlc.arg(middleware_client_id),
+    sqlc.arg(idempotency_key), sqlc.arg(payload_hash), sqlc.arg(raw_payload)
+)
+ON CONFLICT (middleware_client_id, idempotency_key) DO UPDATE
+SET idempotency_key = EXCLUDED.idempotency_key
+RETURNING id, payload_hash, status, accepted_count, duplicate_count, rejected_count,
+          onboarded_plant_count, onboarded_device_count, errors;
+
+-- name: CompleteIngestBatch :exec
+UPDATE telemetry_ingest_batch
+SET accepted_count = sqlc.arg(accepted_count),
+    duplicate_count = sqlc.arg(duplicate_count),
+    rejected_count = sqlc.arg(rejected_count),
+    onboarded_plant_count = sqlc.arg(onboarded_plant_count),
+    onboarded_device_count = sqlc.arg(onboarded_device_count),
+    errors = sqlc.arg(errors), status = 'PROCESSED', processed_at = now()
+WHERE id = sqlc.arg(id);
+
+-- name: TouchMiddlewareClient :exec
+UPDATE middleware_client SET last_seen_at = now(), updated_at = now() WHERE id = sqlc.arg(id);
+
+-- name: GetIngestionPlant :one
+SELECT id, organization_id, code, name, is_active
+FROM plant
+WHERE organization_id = sqlc.arg(organization_id) AND code = sqlc.arg(code)
+LIMIT 1;
+
+-- name: GetIngestionDevice :one
+SELECT id, organization_id, plant_id, device_model_id, external_id, name, is_active
+FROM device
+WHERE organization_id = sqlc.arg(organization_id)
+  AND plant_id = sqlc.arg(plant_id)
+  AND external_id = sqlc.arg(external_id)
+LIMIT 1;
+-- name: OnboardPlant :one
+INSERT INTO plant (id, organization_id, code, name, timezone)
+VALUES (sqlc.arg(id), sqlc.arg(organization_id), sqlc.arg(code), sqlc.arg(name), 'Asia/Bangkok')
+ON CONFLICT (organization_id, code) DO UPDATE SET code = EXCLUDED.code
+RETURNING id, organization_id, code, name, is_active, (xmax = 0) AS created;
+
+-- name: OnboardDeviceModel :one
+INSERT INTO device_model (
+    id, organization_id, manufacturer, model, device_type, source_type_id
+) VALUES (
+    sqlc.arg(id), sqlc.arg(organization_id), 'Middleware', sqlc.arg(model),
+    sqlc.arg(device_type), sqlc.arg(source_type_id)
+)
+ON CONFLICT (organization_id, manufacturer, model) DO UPDATE SET model = EXCLUDED.model
+RETURNING id, organization_id, manufacturer, model, device_type, source_type_id,
+          is_active, (xmax = 0) AS created;
+
+-- name: OnboardDevice :one
+INSERT INTO device (
+    id, organization_id, plant_id, device_model_id, external_id, name, source_metadata
+) VALUES (
+    sqlc.arg(id), sqlc.arg(organization_id), sqlc.arg(plant_id), sqlc.arg(device_model_id),
+    sqlc.arg(external_id), sqlc.arg(name), sqlc.arg(source_metadata)
+)
+ON CONFLICT (organization_id, plant_id, external_id) DO UPDATE SET external_id = EXCLUDED.external_id
+RETURNING id, organization_id, plant_id, device_model_id, external_id, name,
+          is_active, (xmax = 0) AS created;
+
+-- name: InsertTelemetryReading :one
+INSERT INTO telemetry_reading (
+    id, organization_id, plant_id, device_id, middleware_client_id, ingest_batch_id,
+    gateway_id, external_key, observed_at, data_item_map, parameter_count
+) VALUES (
+    sqlc.arg(id), sqlc.arg(organization_id), sqlc.arg(plant_id), sqlc.arg(device_id),
+    sqlc.arg(middleware_client_id), sqlc.arg(ingest_batch_id), sqlc.arg(gateway_id),
+    sqlc.arg(external_key), sqlc.arg(observed_at), sqlc.arg(data_item_map), sqlc.arg(parameter_count)
+)
+ON CONFLICT (middleware_client_id, external_key) DO NOTHING
+RETURNING id;
+
+-- name: UpsertTelemetryLatest :exec
+INSERT INTO telemetry_latest (
+    organization_id, plant_id, device_id, telemetry_reading_id, gateway_id,
+    observed_at, received_at, data_item_map, parameter_count
+)
+SELECT organization_id, plant_id, device_id, id, gateway_id,
+       observed_at, received_at, data_item_map, parameter_count
+FROM telemetry_reading
+WHERE id = sqlc.arg(reading_id)
+ON CONFLICT (organization_id, device_id) DO UPDATE
+SET plant_id = EXCLUDED.plant_id,
+    telemetry_reading_id = EXCLUDED.telemetry_reading_id,
+    gateway_id = EXCLUDED.gateway_id,
+    observed_at = EXCLUDED.observed_at,
+    received_at = EXCLUDED.received_at,
+    data_item_map = EXCLUDED.data_item_map,
+    parameter_count = EXCLUDED.parameter_count,
+    updated_at = now()
+WHERE (EXCLUDED.observed_at, EXCLUDED.received_at, EXCLUDED.telemetry_reading_id) >
+      (telemetry_latest.observed_at, telemetry_latest.received_at, telemetry_latest.telemetry_reading_id);
+
+-- name: CreateInventoryAuditEvent :exec
+INSERT INTO audit_log (
+    organization_id, action, target_type, target_id, after_data, correlation_id
+) VALUES (
+    sqlc.arg(organization_id), sqlc.arg(action), sqlc.arg(target_type),
+    sqlc.arg(target_id), sqlc.arg(after_data), sqlc.arg(correlation_id)
+);

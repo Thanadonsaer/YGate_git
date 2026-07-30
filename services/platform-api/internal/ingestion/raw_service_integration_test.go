@@ -1,0 +1,80 @@
+package ingestion
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/json"
+	"os"
+	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
+
+	"ygate/platform-api/internal/auth"
+	"ygate/platform-api/internal/core"
+)
+
+func TestRawIngestionPersistsRegisterMapAgainstPostgreSQL(t *testing.T) {
+	databaseURL := os.Getenv("PLATFORM_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("PLATFORM_TEST_DATABASE_URL is not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	pool := disposablePool(t, ctx, databaseURL)
+	defer pool.Close()
+
+	organizationID, _ := newUUID()
+	clientID, _ := newUUID()
+	if _, err := pool.Exec(ctx, "INSERT INTO organization(id,code,name) VALUES($1,'YGATE-RAW-TEST','Raw Ingestion Test')", organizationID); err != nil {
+		t.Fatal(err)
+	}
+	key := "ygate_raw_integration_key_123456"
+	hash := sha256.Sum256([]byte(key))
+	if _, err := pool.Exec(ctx, `INSERT INTO middleware_client(id,organization_id,name,key_prefix,key_hash,auto_onboard)
+		VALUES($1,$2,'Raw Gateway','ygate_raw',$3,true)`, clientID, organizationID, hash[:]); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	batch := RawBatch{SchemaVersion: RawSchemaVersion, Data: []RawReading{{
+		GatewayID: "G1", PlantCode: "RAW-PLANT", PlantName: "Raw Plant",
+		DevDn: "RAW-INV-1", DevName: "Raw Inverter", DevTypeID: 1, Model: "PVS100",
+		CollectTime:        now.UnixMilli(),
+		RegisterAddressMap: map[string]float64{"40084": 321},
+	}}}
+	raw, _ := json.Marshal(batch)
+	result, err := New(pool).IngestRaw(ctx, Client{ID: clientID, OrganizationID: organizationID, Name: "Raw Gateway", AutoOnboard: true}, "", raw, batch, now)
+	if err != nil || result.AcceptedCount != 1 || result.OnboardedPlantCount != 1 || result.OnboardedDeviceCount != 1 {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+
+	var stored []byte
+	var count int
+	if err = pool.QueryRow(ctx, "SELECT register_address_map, parameter_count FROM raw_register_reading").Scan(&stored, &count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 || !json.Valid(stored) || bytes.Contains(stored, []byte("dataItemMap")) || bytes.Contains(stored, []byte("canonicalKey")) {
+		t.Fatalf("stored=%s count=%d", stored, count)
+	}
+	var plantID, deviceID, modelID pgtype.UUID
+	if err = pool.QueryRow(ctx, `SELECT p.id, d.id, d.device_model_id FROM plant p JOIN device d ON d.plant_id=p.id WHERE p.code='RAW-PLANT'`).Scan(&plantID, &deviceID, &modelID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE device_model_register_metadata SET scale=2, value_offset=1 WHERE organization_id=$1 AND device_model_id=$2 AND address_key='40084'`, organizationID, modelID); err != nil {
+		t.Fatal(err)
+	}
+	adminID, _ := newUUID()
+	assignmentID, _ := newUUID()
+	if _, err = pool.Exec(ctx, `INSERT INTO app_user(id,organization_id,email,display_name,password_hash) VALUES($1,$2,'raw@test.invalid','Raw Viewer','unused')`, adminID, organizationID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO user_role(id,user_id,role_id) VALUES($1,$2,'00000000-0000-4000-8000-000000000201')`, assignmentID, adminID); err != nil {
+		t.Fatal(err)
+	}
+	latest, err := core.New(pool).LatestTelemetry(ctx, auth.Principal{UserID: adminID, OrganizationID: organizationID}, uuidString(plantID))
+	if err != nil || len(latest) != 1 || latest[0].DeviceID != uuidString(deviceID) || latest[0].DataItemMap["40084"] != 643 {
+		t.Fatalf("latest=%+v err=%v", latest, err)
+	}
+}

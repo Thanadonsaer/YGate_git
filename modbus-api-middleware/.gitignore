@@ -1,0 +1,4 @@
+/.cache/
+/build/
+/*.db
+/license-keys.env

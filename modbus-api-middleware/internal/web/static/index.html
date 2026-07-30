@@ -1,0 +1,2972 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Y-Gate Edge Middleware</title>
+    <style>
+      :root {
+        --navy: #052b55;
+        --navy-deep: #031c38;
+        --yellow: #ffd600;
+        --yellow-soft: #fff7c2;
+        --ink: #102a43;
+        --muted: #65758b;
+        --line: #d7dfe8;
+        --card: #fff;
+        --danger: #c63d4f;
+        --shadow: 0 8px 24px #052b5514;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background-color: #f4f6f8;
+        background-image:
+          linear-gradient(#052b5507 1px, transparent 1px),
+          linear-gradient(90deg, #052b5507 1px, transparent 1px),
+          radial-gradient(circle at 92% 5%, #ffd60028, transparent 24rem);
+        background-size:
+          32px 32px,
+          32px 32px,
+          auto;
+        color: var(--ink);
+        font-family: "Segoe UI", Tahoma, sans-serif;
+      }
+      button,
+      input,
+      select,
+      textarea {
+        font: inherit;
+      }
+      button {
+        cursor: pointer;
+      }
+      input,
+      select,
+      textarea {
+        width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        background: #fff;
+        padding: 10px 12px;
+        color: var(--ink);
+      }
+      .check {
+        display: flex !important;
+        align-items: center;
+        gap: 8px;
+        height: 41px;
+        margin: 0;
+        color: var(--ink);
+        font-size: 13px;
+        text-transform: none !important;
+        letter-spacing: 0 !important;
+      }
+      .check input {
+        width: auto;
+      }
+      input:focus,
+      select:focus,
+      textarea:focus {
+        outline: 0;
+        border-color: #d5b300;
+        box-shadow: 0 0 0 3px #ffd60030;
+      }
+      textarea {
+        min-height: 84px;
+        resize: vertical;
+      }
+      a {
+        color: inherit;
+      }
+      .app {
+        min-height: 100vh;
+        display: grid;
+        grid-template-columns: 258px minmax(0, 1fr);
+      }
+      .side {
+        position: sticky;
+        top: 0;
+        height: 100vh;
+        align-self: start;
+        background: linear-gradient(165deg, var(--navy), var(--navy-deep));
+        color: #fff;
+        padding: 22px 18px;
+        display: flex;
+        flex-direction: column;
+        gap: 24px;
+      }
+      .side::after {
+        /* content: ""; */
+        position: absolute;
+        width: 180px;
+        height: 180px;
+        right: -115px;
+        top: 92px;
+        border: 1px solid #ffd60055;
+        transform: rotate(45deg);
+      }
+      .logo {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        gap: 13px;
+        align-items: center;
+        padding: 4px;
+      }
+      .logo-mark {
+        position: relative;
+        width: 44px;
+        height: 44px;
+        background: var(--yellow);
+        box-shadow: 0 0 24px #ffd60066;
+        flex: 0 0 auto;
+      }
+      .logo-mark::before {
+        content: "";
+        position: absolute;
+        inset: 12px;
+        background: var(--navy);
+        transform: rotate(45deg);
+      }
+      .logo-mark::after {
+        content: "";
+        position: absolute;
+        inset: 18px;
+        background: var(--yellow);
+      }
+      .logo b {
+        display: block;
+        font-size: 15px;
+        letter-spacing: 0.12em;
+      }
+      .logo small {
+        display: block;
+        color: #aebed0;
+        margin-top: 3px;
+        font-size: 11px;
+        letter-spacing: 0.04em;
+      }
+      .nav {
+        position: relative;
+        z-index: 1;
+        display: grid;
+        gap: 5px;
+      }
+      .nav button {
+        border: 0;
+        border-left: 3px solid transparent;
+        text-align: left;
+        border-radius: 2px;
+        background: transparent;
+        color: #c8d4e1;
+        padding: 12px 14px;
+        font-weight: 650;
+        transition: 0.15s;
+      }
+      .nav button:hover {
+        background: #ffffff0d;
+        color: #fff;
+      }
+      .nav button.active {
+        border-left-color: var(--yellow);
+        background: #ffffff12;
+        color: #fff;
+      }
+      .side-note {
+        position: relative;
+        z-index: 1;
+        margin-top: auto;
+        border-top: 1px solid #ffffff26;
+        padding: 16px 5px 0;
+        color: #aebed0;
+        font-size: 12px;
+        line-height: 1.6;
+      }
+      .side-note b {
+        display: block;
+        color: var(--yellow);
+        font-size: 13px;
+        letter-spacing: 0.04em;
+      }
+      main {
+        min-width: 0;
+      }
+      .top {
+        height: 72px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 0 28px;
+        background: #fffffff2;
+        border-bottom: 1px solid var(--line);
+        position: sticky;
+        top: 0;
+        z-index: 5;
+      }
+      .top::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 76px;
+        height: 3px;
+        background: var(--yellow);
+      }
+      .top h1 {
+        font-size: 20px;
+        margin: 0;
+        color: var(--navy);
+        letter-spacing: 0.02em;
+      }
+      .top p {
+        margin: 2px 0 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .content {
+        padding: 28px 30px 42px;
+      }
+      .view,
+      .subview {
+        display: none;
+      }
+      .view.active,
+      .subview.active {
+        display: block;
+      }
+      .hero {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 14px;
+        margin-bottom: 20px;
+      }
+      .hero > div:first-child {
+        border-left: 4px solid var(--yellow);
+        padding-left: 13px;
+      }
+      .hero h2 {
+        margin: 0 0 5px;
+        font-size: 24px;
+        color: var(--navy);
+        letter-spacing: -0.02em;
+      }
+      .hero p {
+        margin: 0;
+        color: var(--muted);
+      }
+      .metrics {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(140px, 1fr));
+        gap: 14px;
+        margin-bottom: 18px;
+      }
+      .metric,
+      .card {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        box-shadow: var(--shadow);
+      }
+      .metric {
+        position: relative;
+        overflow: hidden;
+        padding: 18px 18px 17px;
+      }
+      .metric::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        right: 0;
+        width: 22px;
+        height: 22px;
+        background: var(--yellow);
+      }
+      .metric span {
+        display: block;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+      .metric b {
+        display: block;
+        color: var(--navy);
+        font-size: 30px;
+        margin-top: 6px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 14px;
+      }
+      .card {
+        padding: 17px;
+      }
+      .card-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+      .card h3 {
+        margin: 0;
+        color: var(--navy);
+        font-size: 17px;
+      }
+      .card p {
+        margin: 5px 0 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .tabs {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+        margin: 0 0 18px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid var(--line);
+      }
+      .tabs button {
+        border: 0;
+        border-bottom: 3px solid transparent;
+        background: transparent;
+        color: #53677d;
+        border-radius: 0;
+        padding: 9px 14px;
+        font-weight: 750;
+      }
+      .tabs button:hover {
+        color: var(--navy);
+      }
+      .tabs button.active {
+        border-bottom-color: var(--yellow);
+        color: var(--navy);
+        background: var(--yellow-soft);
+      }
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        border-radius: 3px;
+        background: var(--yellow-soft);
+        color: #695800;
+        padding: 5px 9px;
+        font-size: 12px;
+        font-weight: 700;
+      }
+      .actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .btn {
+        border: 1px solid transparent;
+        border-radius: 4px;
+        padding: 9px 14px;
+        font-weight: 750;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        text-decoration: none;
+        transition:
+          transform 0.12s,
+          box-shadow 0.12s;
+      }
+      .btn:hover {
+        transform: translateY(-1px);
+      }
+      .primary {
+        background: var(--yellow);
+        border-color: #e4bf00;
+        color: var(--navy-deep);
+        box-shadow: 0 3px 10px #d5b30030;
+      }
+      .secondary {
+        background: #e8edf3;
+        color: var(--navy);
+      }
+      .ghost {
+        background: #fff;
+        border-color: #afbdcb;
+        color: var(--navy);
+      }
+      .danger {
+        background: #fff0f2;
+        color: var(--danger);
+      }
+      .table-wrap {
+        overflow: auto;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        background: #fff;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14px;
+      }
+      th,
+      td {
+        padding: 12px;
+        border-bottom: 1px solid #e5eaf0;
+        text-align: left;
+        vertical-align: top;
+      }
+      th {
+        color: var(--navy);
+        background: #edf1f5;
+        border-top: 3px solid var(--yellow);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+      tbody tr:hover {
+        background: #fffdf0;
+      }
+      tr:last-child td {
+        border-bottom: 0;
+      }
+      .empty {
+        border: 1px dashed #aebdcb;
+        border-radius: 4px;
+        background: #fff;
+        padding: 28px;
+        text-align: center;
+        color: var(--muted);
+      }
+      .mono {
+        font-family: Consolas, monospace;
+        word-break: break-all;
+      }
+      .status-line {
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .ok {
+        color: #16815e;
+        font-weight: 800;
+      }
+      .bad {
+        color: #bd4b52;
+        font-weight: 800;
+      }
+      .terminal {
+        min-height: 150px;
+        white-space: pre-wrap;
+        background: var(--navy-deep);
+        color: #dce7f2;
+        border-left: 4px solid var(--yellow);
+        border-radius: 3px;
+        padding: 14px;
+        font-family: Consolas, monospace;
+        overflow: auto;
+      }
+      .log-panel {
+        display: grid;
+        grid-template-columns: 280px minmax(0, 1fr);
+        gap: 14px;
+      }
+      .kv {
+        display: grid;
+        grid-template-columns: 110px 1fr;
+        gap: 8px;
+      }
+      .kv b {
+        color: var(--navy);
+      }
+      .compact th,
+      .compact td {
+        padding: 8px 10px;
+      }
+      .snippet {
+        max-width: 260px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      dialog {
+        border: 0;
+        border-radius: 6px;
+        box-shadow: 0 24px 70px #00152f66;
+        width: min(720px, calc(100vw - 24px));
+        padding: 0;
+        color: var(--ink);
+      }
+      dialog.wide {
+        width: min(1120px, calc(100vw - 24px));
+      }
+      dialog::backdrop {
+        background: #001a36b8;
+      }
+      .modal-head,
+      .modal-foot {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 18px 20px;
+        border-bottom: 1px solid var(--line);
+      }
+      .modal-head {
+        border-top: 5px solid var(--yellow);
+      }
+      .modal-foot {
+        border-top: 1px solid var(--line);
+        border-bottom: 0;
+        background: #f4f6f8;
+        justify-content: flex-end;
+      }
+      .modal-body {
+        padding: 20px;
+        display: grid;
+        gap: 14px;
+      }
+      .fields {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+      }
+      .field label {
+        display: block;
+        font-size: 11px;
+        color: var(--navy);
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin-bottom: 6px;
+      }
+      .wide-field {
+        grid-column: 1/-1;
+      }
+      .addr-head,
+      .addr-row {
+        display: grid;
+        grid-template-columns: 70px 105px 180px 145px 160px 85px 85px 120px 75px 110px 90px 100px 90px 180px 38px;
+        min-width: 1650px;
+        gap: 8px;
+        align-items: center;
+      }
+      .addr-head {
+        color: var(--navy);
+        font-size: 11px;
+        font-weight: 800;
+        padding: 0 2px;
+      }
+      .addr-row {
+        margin-top: 8px;
+      }
+      .addr-row input,
+      .addr-row select {
+        padding: 9px;
+      }
+      .toast {
+        position: fixed;
+        right: 18px;
+        bottom: 18px;
+        max-width: 360px;
+        background: var(--navy);
+        color: #fff;
+        padding: 12px 14px;
+        border-left: 5px solid var(--yellow);
+        border-radius: 3px;
+        box-shadow: var(--shadow);
+        display: none;
+        z-index: 30;
+      }
+      .toast.err {
+        background: #8d2635;
+        border-left-color: #ff8c99;
+      }
+      .m-0 {
+        margin: 0;
+      }
+      .mt-10 {
+        margin-top: 10px;
+      }
+      .mt-12 {
+        margin-top: 12px;
+      }
+      .mt-14 {
+        margin-top: 14px;
+      }
+      .mt-16 {
+        margin-top: 16px;
+      }
+      .w-220 {
+        width: 220px;
+      }
+      .hidden {
+        display: none;
+      }
+      @media (max-width: 860px) {
+        .app {
+          grid-template-columns: 1fr;
+        }
+        .side {
+          position: relative;
+          top: auto;
+          height: auto;
+          overflow: hidden;
+          padding: 14px;
+        }
+        .side::after,
+        .side-note {
+          display: none;
+        }
+        .nav {
+          grid-template-columns: repeat(4, 1fr);
+        }
+        .nav button {
+          text-align: center;
+          padding: 10px 6px;
+        }
+        .metrics {
+          grid-template-columns: repeat(2, 1fr);
+        }
+        .fields {
+          grid-template-columns: 1fr;
+        }
+        .addr-head {
+          display: none;
+        }
+        .addr-row {
+          grid-template-columns: 1fr;
+          min-width: 0;
+        }
+        .top {
+          padding: 0 18px;
+        }
+        .content {
+          padding: 20px 18px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <aside class="side">
+        <div class="logo">
+          <div class="logo-mark" aria-hidden="true"></div>
+          <div><b>Y-GATE EDGE</b><small>YOKOGAWA • Middleware v<span
+                id="app-version">-</span></small></div>
+        </div>
+        <nav class="nav">
+          <button type="button" class="active" data-view="dashboard">
+            ภาพรวม</button><button type="button"
+            data-view="setup">Setup</button><button type="button"
+            data-view="api">API</button><button type="button"
+            data-view="monitor">Live Monitor</button><button type="button"
+            data-view="update">Update Patch</button>
+        </nav>
+        <div class="side-note">
+          <b>Co-innovating tomorrow</b>Connecting humanity and
+          technology<br />Precision
+          • Trust • Sustainability
+        </div>
+      </aside>
+      <main>
+        <header class="top">
+          <div>
+            <h1 id="page-title">ภาพรวม</h1>
+            <p id="page-subtitle">ภาพรวมและทางลัดที่จำเป็น</p>
+          </div>
+          <div class="actions">
+            <button class="btn secondary" type="button"
+              onclick="exportSettings()">Export Settings</button>
+            <input id="settings-import-file" class="hidden" type="file"
+              accept="application/json,.json" />
+            <button class="btn secondary" type="button"
+              onclick="$('settings-import-file').click()">Import
+              Settings</button>
+            <button class="btn secondary" type="button"
+              onclick="refresh()">Refresh</button>
+          </div>
+        </header>
+        <div class="content">
+          <section id="dashboard" class="view active">
+            <div class="hero">
+              <div>
+                <h2>Middleware Overview</h2>
+                <p>ทุกงานยังอยู่ในจอเดียว: Setup, API,
+                  Monitor</p>
+              </div>
+            </div>
+            <div class="metrics">
+              <div class="metric"><span>Brand</span><b
+                  id="m-brand">0</b></div>
+              <div class="metric">
+                <span>Device Set</span><b id="m-set">0</b>
+              </div>
+              <div class="metric">
+                <span>Address</span><b id="m-address">0</b>
+              </div>
+              <div class="metric">
+                <span>Connection</span><b
+                  id="m-connection">0</b>
+              </div>
+            </div>
+            <div class="grid">
+              <div class="card">
+                <h3>Setup</h3>
+                <p>
+                  Brand, Device Set + Address และ Plant/Device
+                  รวมอยู่ในหน้าเดียว
+                </p>
+                <div class="actions mt-14">
+                  <button
+                    type="button"
+                    class="btn primary"
+                    onclick="showSetup('brands')">
+                    Brand</button><button
+                    type="button"
+                    class="btn secondary"
+                    onclick="showSetup('sets')">
+                    Device Set</button><button
+                    type="button"
+                    class="btn secondary"
+                    onclick="showSetup('plants')">
+                    Plant / Device
+                  </button>
+                </div>
+              </div>
+              <div class="card">
+                <h3>API</h3>
+                <p>
+                  Endpoint, timeout และ send logs สำหรับตรวจ
+                  response ที่ส่งขึ้น
+                  Backend
+                </p>
+                <div class="actions mt-14">
+                  <button
+                    type="button"
+                    class="btn primary"
+                    onclick="showApi('endpoint')">
+                    Endpoint</button><button
+                    type="button"
+                    class="btn secondary"
+                    onclick="showApi('logs')">
+                    Logs
+                  </button>
+                </div>
+              </div>
+              <div class="card">
+                <h3>Monitor</h3>
+                <p>
+                  Live Test อ่านทุก enabled connection ตามรอบของหน้านี้
+                </p>
+                <div class="actions mt-14">
+                  <button
+                    type="button"
+                    class="btn primary"
+                    onclick="view('monitor')">
+                    Live Test
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
+          <section id="setup" class="view">
+            <div class="hero">
+              <div>
+                <h2>Setup</h2>
+                <p>สร้าง Plant ก่อน แล้วกดเข้า Plant เพื่อจัดการ
+                  Device</p>
+              </div>
+            </div>
+            <div class="tabs">
+              <button
+                type="button"
+                class="active"
+                data-setup="brands"
+                onclick="showSetup('brands')">
+                Brand
+              </button>
+              <button
+                type="button"
+                data-setup="sets"
+                onclick="showSetup('sets')">
+                Device Set + Address
+              </button>
+              <button
+                type="button"
+                data-setup="plants"
+                onclick="showSetup('plants')">
+                Plant / Device
+              </button>
+            </div>
+            <div id="setup-brands" class="subview active">
+              <div class="hero">
+                <div>
+                  <h2>Brand</h2>
+                  <p>กดดู Device Set ของ Brand
+                    นั้นโดยไม่ออกจาก layout</p>
+                </div>
+                <button type="button" class="btn primary"
+                  onclick="openBrand()">
+                  + เพิ่ม Brand
+                </button>
+              </div>
+              <div id="brand-list" class="grid"></div>
+            </div>
+            <div id="setup-sets" class="subview">
+              <div class="hero">
+                <div>
+                  <h2>Device Set + Address</h2>
+                  <p>
+                    จัดการ Device Set, Address และ
+                    Import/Export Template
+                    ในหน้าเดียว
+                  </p>
+                </div>
+                <div class="actions">
+                  <select id="brand-filter"
+                    class="w-220"></select><input
+                    id="set-search"
+                    class="w-220"
+                    placeholder="ค้นหา Device Set / Address..."
+                    oninput="renderSets()" /><a
+                    class="btn secondary"
+                    href="/template/device-set-address.csv">Export
+                    CSV Template</a><input
+                    id="import-file"
+                    class="hidden"
+                    type="file"
+                    accept=".csv,text/csv" /><button
+                    type="button"
+                    class="btn secondary"
+                    onclick="$('import-file').click()">
+                    Import Address</button><button
+                    type="button"
+                    class="btn primary"
+                    onclick="openSet()">
+                    + เพิ่ม Device Set
+                  </button>
+                </div>
+              </div>
+              <div id="import-status" class="status-line mt-10">
+                ใช้ Export Template แล้ว Import CSV
+                กลับเข้าหน้านี้ได้เลย
+              </div>
+              <pre id="import-raw"
+                class="terminal hidden mt-12"></pre>
+              <div id="set-list" class="card mt-14"></div>
+            </div>
+            <div id="setup-plants" class="subview">
+              <div class="hero">
+                <div>
+                  <h2>Plant</h2>
+                  <p>
+                    กด “เข้า Plant” เพื่อเพิ่มหรือ Import
+                    Device ของ Plant นั้น
+                  </p>
+                </div>
+                <button type="button" class="btn primary"
+                  onclick="openPlant()">
+                  + เพิ่ม Plant
+                </button>
+              </div>
+              <div class="card">
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Plant Code</th>
+                        <th>Plant Name</th>
+                        <th>Devices</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody id="plant-rows"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+            <div id="setup-connections" class="subview">
+              <div class="hero">
+                <div>
+                  <h2 id="connection-heading">Device</h2>
+                  <p id="connection-subheading">
+                    Device Connection สำหรับ Modbus TCP
+                  </p>
+                </div>
+                <div class="actions">
+                  <button
+                    type="button"
+                    class="btn ghost"
+                    onclick="showSetup('plants')">
+                    ← กลับ Plant</button><input
+                    id="connection-search"
+                    class="w-220"
+                    placeholder="ค้นหา Device..."
+                    oninput="renderConnections()" /><a
+                    id="device-template"
+                    class="btn secondary" href="#">Export
+                    CSV Template</a><input
+                    id="connection-import-file"
+                    class="hidden"
+                    type="file"
+                    accept=".csv,text/csv" /><button
+                    type="button"
+                    class="btn secondary"
+                    onclick="$('connection-import-file').click()">
+                    Import Device</button><button
+                    type="button"
+                    class="btn secondary"
+                    onclick="openDiscovery()">
+                    Discover Modbus</button><button
+                    type="button"
+                    class="btn primary"
+                    onclick="openConnection()">
+                    + เพิ่ม Device
+                  </button>
+                </div>
+              </div>
+              <div class="card">
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Connection</th>
+                        <th>Device</th>
+                        <th>Device Set</th>
+                        <th>Host</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody id="connection-list"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </section>
+          <section id="api" class="view">
+            <div class="hero">
+              <div>
+                <h2>API</h2>
+                <p>
+                  ตั้งค่า Endpoint, Timeout และดู Send Logs
+                  พร้อม response
+                  detail
+                </p>
+              </div>
+            </div>
+            <div class="tabs">
+              <button type="button" class="active"
+                data-api="endpoint">
+                Endpoint</button><button type="button"
+                data-api="logs">Send Logs</button>
+            </div>
+            <div id="api-endpoint" class="subview active">
+              <form class="card" id="cfg-form">
+                <div class="card-head">
+                  <div>
+                    <h3>Gateway API Config</h3>
+                    <p>รายละเอียดปลายทางที่ middleware
+                      ใช้ส่ง readings</p>
+                  </div>
+                  <span id="api-status"
+                    class="status-line">กำลังโหลด...</span>
+                </div>
+                <div class="fields">
+                  <div class="field">
+                    <label>gateway_id</label><input
+                      id="cfg-gateway"
+                      placeholder="MOXA-VT1-01" />
+                  </div>
+                  <div class="field">
+                    <label>api_key</label><input
+                      id="cfg-key"
+                      type="password"
+                      placeholder="chpp_xxx" />
+                  </div>
+                  <div class="field">
+                    <label>API polling</label><label
+                      class="check"><input
+                        id="cfg-enabled"
+                        type="checkbox" /> Enable API
+                      Polling</label>
+                  </div>
+                  <div class="field">
+                    <label>API poll interval
+                      seconds</label><input
+                      id="cfg-interval"
+                      type="number"
+                      min="1"
+                      max="3600"
+                      value="5" />
+                  </div>
+                  <div class="field">
+                    <label>send timeout
+                      seconds</label><input
+                      id="cfg-timeout"
+                      type="number"
+                      min="1"
+                      max="300"
+                      value="10" />
+                  </div>
+                  <div class="field wide-field">
+                    <label>API endpoint</label><input
+                      id="cfg-endpoint"
+                      type="url"
+                      placeholder="http://192.168.1.108:44440/api/v2/ingestion/register-readings" />
+                  </div>
+                </div>
+                <div class="actions mt-16">
+                  <button type="submit" class="btn primary">
+                    บันทึก Config</button><button
+                    class="btn secondary"
+                    type="button"
+                    onclick="showApi('logs')">
+                    ดู Log
+                  </button>
+                </div>
+              </form>
+              <div class="card mt-14">
+                <h3>Connection Detail</h3>
+                <div class="table-wrap mt-12">
+                  <table>
+                    <tbody id="cfg-detail"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+            <div id="api-logs" class="subview">
+              <div class="card">
+                <div class="card-head">
+                  <div>
+                    <h3>API Send Logs</h3>
+                    <p>ประวัติการส่ง readings ขึ้น Backend
+                      API</p>
+                  </div>
+                  <div class="actions">
+                    <button
+                      type="button"
+                      class="btn secondary"
+                      onclick="loadLogs()">
+                      Refresh Logs
+                    </button><button
+                      type="button"
+                      class="btn secondary"
+                      onclick="exportApiLogs()">
+                      Export CSV
+                    </button><button
+                      type="button"
+                      class="btn danger"
+                      onclick="clearApiLogs()">
+                      Clear Logs
+                    </button>
+                  </div>
+                </div>
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>ID</th>
+                        <th>Status</th>
+                        <th>HTTP</th>
+                        <th>Attempts</th>
+                        <th>Created</th>
+                        <th>Delivered</th>
+                        <th>Error</th>
+                        <th>Response</th>
+                        <th>Idempotency</th>
+                        <th>Detail</th>
+                      </tr>
+                    </thead>
+                    <tbody id="log-rows"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </section>
+          <section id="monitor" class="view">
+            <div class="hero">
+              <div>
+                <h2>Live Monitor</h2>
+                <p>
+                  Live Test อ่านตามรอบหน้านี้ แยกจาก background service
+                  Polling แล้วอ่านทุก
+                  enabled connection ตามรอบนี้
+                </p>
+              </div>
+              <div class="actions">
+                <input
+                  id="live-interval"
+                  class="w-220"
+                  type="number"
+                  min="1"
+                  max="3600"
+                  value="5"
+                  title="Live Test Poll Seconds" /><button
+                  id="live-toggle"
+                  type="button"
+                  class="btn primary"
+                  onclick="toggleLiveTest()">
+                  Start Live Test</button><button
+                  type="button"
+                  class="btn secondary"
+                  onclick="refreshMonitor()">
+                  Refresh Monitor
+                </button>
+              </div>
+            </div>
+            <div class="card">
+              <div class="table-wrap">
+                <table class="compact">
+                  <thead>
+                    <tr>
+                      <th>Connection</th>
+                      <th>Plant / Device</th>
+                      <th>Host</th>
+                      <th>Service</th>
+                      <th>Last Read</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody id="monitor-rows"></tbody>
+                </table>
+              </div>
+            </div>
+            <div id="monitor-current" class="card mt-14"></div>
+            <div class="card mt-14">
+              <div class="card-head">
+                <div>
+                  <h3 id="monitor-title">Session Read Logs</h3>
+                  <p>
+                    ตารางนี้แสดง Live Test session log รวมทุก Connection
+                    ส่วนปุ่ม View จะแสดงเฉพาะ Connection นั้น
+                  </p>
+                </div>
+                <div class="actions">
+                  <button
+                    type="button"
+                    class="btn secondary"
+                    onclick="exportLiveLogs()">
+                    Export CSV
+                  </button><button
+                    type="button"
+                    class="btn danger"
+                    onclick="clearLiveLogs()">
+                    Clear Session
+                  </button>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Time</th>
+                      <th>Status</th>
+                      <th>Message</th>
+                      <th>Detail</th>
+                    </tr>
+                  </thead>
+                  <tbody id="poll-log-rows">
+                    <tr>
+                      <td colspan="4">เลือก Connection
+                        ก่อน</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+          <section id="update" class="view">
+            <div class="hero">
+              <div>
+                <h2>Update Patch</h2>
+                <p>Upload release patch ZIP, validate manifest, stage แล้วค่อย
+                  Apply & Restart service</p>
+              </div>
+            </div>
+            <div class="grid two">
+              <div class="card">
+                <div class="card-head">
+                  <div>
+                    <h3>Patch Upload</h3>
+                    <p>เลือก patch ZIP แล้วระบบจะ validate และ stage
+                      ให้ทันที</p>
+                  </div>
+                </div>
+                <div class="modal-body">
+                  <div class="field full"><label>Patch ZIP</label><input
+                      id="update-file" type="file"
+                      accept=".zip,application/zip"
+                      onchange="uploadUpdatePatch()"></div>
+                  <div class="actions mt-14">
+                    <button type="button" class="btn primary"
+                      onclick="uploadUpdatePatch()">Upload / Stage</button>
+                    <button type="button" class="btn secondary"
+                      onclick="loadUpdateStatus()">Refresh Status</button>
+                  </div>
+                </div>
+              </div>
+              <div id="update-actions-card" class="card" style="display:none">
+                <div class="card-head">
+                  <div>
+                    <h3>Apply / Rollback</h3>
+                    <p>Apply ใช้ได้เมื่อ middleware รันเป็น Windows Service หรือ
+                      Linux systemd เท่านั้น</p>
+                  </div>
+                </div>
+                <div class="modal-body">
+                  <div class="table-wrap"><table><tbody
+                        id="update-detail"><tr><td>Loading...</td></tr></tbody></table></div>
+                  <div class="actions mt-14">
+                    <button id="update-apply" type="button" class="btn danger"
+                      onclick="applyUpdatePatch()">Apply & Restart</button>
+                    <button id="update-rollback" type="button"
+                      class="btn secondary"
+                      onclick="rollbackUpdatePatch()">Rollback</button>
+                  </div>
+                  <div id="update-message" class="status-line mt-12"></div>
+                </div>
+              </div>
+            </div>
+          </section> </div>
+      </main>
+    </div>
+    <dialog id="brand-dialog">
+      <form id="brand-form">
+        <div class="modal-head">
+          <h3 id="brand-title" class="m-0">เพิ่ม Brand</h3>
+          <button
+            class="btn secondary"
+            type="button"
+            onclick="closeDialog('brand-dialog')">
+            ปิด
+          </button>
+        </div>
+        <div class="modal-body">
+          <input id="brand-id" type="hidden" />
+          <div class="field">
+            <label>Brand Name *</label><input id="brand-name"
+              required placeholder="Huawei" />
+          </div>
+          <div class="field">
+            <label>Description</label><textarea
+              id="brand-description"
+              placeholder="รายละเอียดเพิ่มเติม"></textarea>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button
+            class="btn secondary"
+            type="button"
+            onclick="closeDialog('brand-dialog')">
+            ยกเลิก</button><button type="submit"
+            class="btn primary">บันทึก</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="set-dialog" class="wide">
+      <form id="set-form">
+        <div class="modal-head">
+          <h3 id="set-title" class="m-0">เพิ่ม Device Set</h3>
+          <button
+            class="btn secondary"
+            type="button"
+            onclick="closeDialog('set-dialog')">
+            ปิด
+          </button>
+        </div>
+        <div class="modal-body">
+          <input id="set-id" type="hidden" />
+          <div class="fields">
+            <div class="field">
+              <label>Brand *</label><select id="set-brand"
+                required></select>
+            </div>
+            <div class="field">
+              <label>Device Type *</label><select id="set-type">
+                <option>Inverter</option>
+                <option>Grid-Meter</option>
+              </select>
+            </div>
+            <div class="field wide-field">
+              <label>Device Model *</label><input id="set-model"
+                required placeholder="SUN2000-100KTL-M1" />
+            </div>
+            <div class="field"><label>Address Mode</label><select
+                id="set-address-mode"><option>ZERO_BASED</option><option>ONE_BASED</option><option>FULL_NOTATION</option><option>REGISTER_30001</option><option>REGISTER_40001</option><option>VENDOR_RAW</option><option>SMA</option></select></div>
+            <div class="field"><label>Byte Order</label><select
+                id="set-byte-order"><option>BIG_ENDIAN</option><option>LITTLE_ENDIAN</option></select></div>
+            <div class="field"><label>Word Order</label><select
+                id="set-word-order"><option>HIGH_LOW</option><option>LOW_HIGH</option></select></div>
+            <div class="field"><label>Max Block Size</label><input
+                id="set-max-block" type="number" min="1" max="125"
+                value="30" /></div>
+          </div>
+
+          <div class="card-head">
+            <div>
+              <h3>Address</h3>
+              <p>
+                Address Mode กำหนดว่า register เป็น offset,
+                one-based, full notation หรือ vendor raw
+              </p>
+            </div>
+            <button id="add-address" class="btn secondary"
+              type="button">
+              + เพิ่ม Address
+            </button>
+          </div>
+
+          <div style="overflow:scroll;max-height:400px">
+            <div class="addr-head">
+              <span>FC</span><span>Register</span><span>Description</span><span>Canonical
+                Key</span><span>Source
+                Tag</span><span>Factor</span><span>Offset</span><span>Data
+                Type</span><span>Length</span><span>Word
+                Order</span><span>Source Unit</span><span>Canonical
+                Unit</span><span>Enabled</span><span>Remark</span><span></span>
+            </div>
+            <div id="address-list"></div>
+          </div>
+
+        </div>
+        <div class="modal-foot">
+          <button
+            class="btn secondary"
+            type="button"
+            onclick="closeDialog('set-dialog')">
+            ยกเลิก</button><button type="submit"
+            class="btn primary">บันทึก</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="plant-dialog">
+      <form id="plant-form">
+        <div class="modal-head">
+          <h3 id="plant-title" class="m-0">เพิ่ม Plant</h3>
+          <button
+            class="btn secondary"
+            type="button"
+            onclick="closeDialog('plant-dialog')">
+            ปิด
+          </button>
+        </div>
+        <div class="modal-body">
+          <input id="plant-id" type="hidden" />
+          <div class="fields">
+            <div class="field">
+              <label>Plant Code *</label><input id="plant-code"
+                required placeholder="VT1" />
+            </div>
+            <div class="field">
+              <label>Plant Name *</label><input id="plant-name"
+                required placeholder="CHPP VT1" />
+            </div>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button
+            class="btn secondary"
+            type="button"
+            onclick="closeDialog('plant-dialog')">
+            ยกเลิก</button><button type="submit"
+            class="btn primary">บันทึก</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="connection-dialog">
+      <form id="connection-form">
+        <div class="modal-head">
+          <h3 id="connection-title" class="m-0">เพิ่ม Device</h3>
+          <button
+            class="btn secondary"
+            type="button"
+            onclick="closeDialog('connection-dialog')">
+            ปิด
+          </button>
+        </div>
+        <div class="modal-body">
+          <input id="connection-id" type="hidden" />
+          <div class="fields">
+            <div class="field">
+              <label>Name *</label><input id="connection-name"
+                required placeholder="AICA-INV-01" />
+            </div>
+            <div class="field">
+              <label>Plant</label><select id="connection-plant"
+                required disabled></select>
+            </div>
+            <div class="field">
+              <label>Device Model *</label><select
+                id="connection-set" required></select>
+            </div>
+            <div class="field">
+              <label>Device Code / devDn *</label><input
+                id="connection-devdn" required
+                placeholder="VT1-INV-01" />
+            </div>
+            <div class="field">
+              <label>Device Name *</label><input
+                id="connection-device-name"
+                required
+                placeholder="Inverter 01" />
+            </div>
+            <div class="field">
+              <label>Host *</label><input
+                id="connection-host"
+                required
+                placeholder="192.168.1.200" />
+            </div>
+            <div class="field">
+              <label>Port *</label><input
+                id="connection-port"
+                required
+                type="number"
+                min="1"
+                max="65535"
+                value="502" />
+            </div>
+            <div class="field">
+              <label>Unit ID / Slave ID</label><input
+                id="connection-unit"
+                type="number"
+                min="0"
+                max="255"
+                value="1" />
+            </div>
+            <div class="field">
+              <label>Service</label><select
+                id="connection-enabled">
+                <option value="true">Enabled</option>
+                <option value="false">Disabled</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button
+            class="btn secondary"
+            type="button"
+            onclick="closeDialog('connection-dialog')">
+            ยกเลิก</button><button type="submit"
+            class="btn primary">บันทึก</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="discover-dialog" class="wide">
+      <div class="modal-head">
+        <h3 class="m-0">Discover Modbus TCP/IP</h3>
+        <button
+          class="btn secondary"
+          type="button"
+          onclick="closeDialog('discover-dialog')">
+          ปิด
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="fields">
+          <div class="field">
+            <label>CIDR *</label><input id="discover-cidr"
+              placeholder="192.168.1.0/24" />
+          </div>
+          <div class="field">
+            <label>Ports *</label><input id="discover-ports"
+              placeholder="502,15034,15035" />
+          </div>
+          <div class="field">
+            <label>Unit ID</label><input
+              id="discover-unit"
+              type="number"
+              min="1"
+              max="255"
+              value="1" />
+          </div>
+          <div class="field">
+            <label>Timeout ms</label><input
+              id="discover-timeout"
+              type="number"
+              min="100"
+              max="5000"
+              value="500" />
+          </div>
+        </div>
+        <div class="actions">
+          <button type="button" class="btn primary"
+            onclick="scanModbus()">
+            Scan</button><button
+            type="button"
+            class="btn secondary"
+            onclick="saveDiscovered()">
+            Save Selected</button><span id="discover-status"
+            class="status-line">กรอกวงเน็ตแล้วกด Scan</span>
+        </div>
+        <div class="table-wrap">
+          <table class="compact">
+            <thead>
+              <tr>
+                <th>Save</th>
+                <th>Host</th>
+                <th>Status</th>
+                <th>Modbus Detail</th>
+                <th>Device Set</th>
+                <th>Connection Name</th>
+                <th>Device Code</th>
+                <th>Device Name</th>
+              </tr>
+            </thead>
+            <tbody id="discover-rows">
+              <tr>
+                <td colspan="8">ยังไม่มีผล Scan</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </dialog>
+    <dialog id="detail-dialog" class="wide">
+      <div class="modal-head">
+        <h3 id="detail-title" class="m-0">Poll Detail</h3>
+        <button
+          class="btn secondary"
+          type="button"
+          onclick="closeDialog('detail-dialog')">
+          ปิด
+        </button>
+      </div>
+      <div class="modal-body" id="detail-body"></div>
+    </dialog>
+    <dialog id="log-dialog" class="wide">
+      <div class="modal-head">
+        <h3 id="log-dialog-title" class="m-0">Connection Logs</h3>
+        <div class="actions">
+          <input
+            id="log-filter"
+            class="w-220"
+            placeholder="ค้นหา log..."
+            oninput="renderLogRows()" /><button
+            class="btn secondary"
+            type="button"
+            onclick="closeDialog('log-dialog')">
+            ปิด
+          </button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div class="table-wrap">
+          <table class="compact">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Status</th>
+                <th>Message</th>
+                <th>Summary</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="log-dialog-rows"></tbody>
+          </table>
+        </div>
+      </div>
+    </dialog>
+    <div class="toast" id="toast"></div>
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const state = {
+        brands: [],
+        sets: [],
+        plants: [],
+        connections: [],
+        selectedPlant: 0,
+        config: {},
+        logs: [],
+        pollLogs: [],
+        liveLogs: [],
+        monitorId: 0,
+        setupTab: "brands",
+        apiTab: "endpoint",
+        brandFilter: 0,
+        last: null,
+        liveTimer: 0,
+        liveRunning: false,
+        discover: [],
+        update: {},
+        version: {},
+      };
+      const titles = {
+        dashboard: ["ภาพรวม", "ภาพรวมและทางลัดที่จำเป็น"],
+        setup: ["Setup", "Brand, Device Set และ Plant/Device"],
+        api: ["API", "Endpoint, Timeout และ Send Logs"],
+        monitor: [
+          "Live Monitor",
+          "Live Test อ่านทุก Connection ด้วย interval ของหน้านี้ ไม่ใช่รอบส่ง API",
+        ],
+      };
+      function esc(v) {
+        return String(v ?? "").replace(
+          /[&<>"']/g,
+          (c) =>
+            ({
+              "&": "&amp;",
+              "<": "&lt;",
+              ">": "&gt;",
+              '"': "&quot;",
+              "'": "&#39;",
+            })[c],
+        );
+      }
+      function dt(ms) {
+        return ms ? new Date(ms).toLocaleString() : "-";
+      }
+      function mask(v) {
+        return v
+          ? v.length <= 8
+            ? "••••"
+            : v.slice(0, 4) + "••••" + v.slice(-4)
+          : "-";
+      }
+      function toast(msg, bad = false) {
+        const t = $("toast");
+        t.textContent = msg;
+        t.className = "toast" + (bad ? " err" : "");
+        t.style.display = "block";
+        clearTimeout(toast.timer);
+        toast.timer = setTimeout(() => (t.style.display = "none"), 3200);
+      }
+      function openDialog(id) {
+        const d = $(id);
+        if (d && !d.open) d.showModal();
+      }
+      function closeDialog(id) {
+        const d = $(id);
+        if (d && d.open) d.close();
+      }
+      function view(name) {
+        document
+          .querySelectorAll(".view")
+          .forEach((v) => v.classList.toggle("active", v.id === name));
+        document
+          .querySelectorAll(".nav button")
+          .forEach((b) =>
+            b.classList.toggle("active", b.dataset.view === name),
+          );
+        $("page-title").textContent = titles[name][0];
+        $("page-subtitle").textContent = titles[name][1];
+      }
+      function showSetup(tab = "brands", brandId) {
+        if (tab === "import") tab = "sets";
+        if (tab === "connections" && !state.selectedPlant) tab = "plants";
+        if (tab !== "connections") state.selectedPlant = 0;
+        if (tab === "brands") state.brandFilter = 0;
+        state.setupTab = tab;
+        if (brandId !== undefined) state.brandFilter = +brandId || 0;
+        view("setup");
+        document
+          .querySelectorAll("[data-setup]")
+          .forEach((b) =>
+            b.classList.toggle("active", b.dataset.setup === tab),
+          );
+        document
+          .querySelectorAll("#setup .subview")
+          .forEach((v) =>
+            v.classList.toggle("active", v.id === "setup-" + tab),
+          );
+        renderSets();
+        renderConnections();
+      }
+      function showApi(tab = "endpoint") {
+        state.apiTab = tab;
+        view("api");
+        document
+          .querySelectorAll("[data-api]")
+          .forEach((b) => b.classList.toggle("active", b.dataset.api === tab));
+        document
+          .querySelectorAll("#api .subview")
+          .forEach((v) => v.classList.toggle("active", v.id === "api-" + tab));
+        if (tab === "endpoint") loadConfig();
+        if (tab === "logs") loadLogs();
+      }
+      document
+        .querySelectorAll("[data-view]")
+        .forEach(
+          (b) =>
+            (b.onclick = () =>
+              b.dataset.view === "setup"
+                ? showSetup("brands")
+                : b.dataset.view === "api"
+                  ? showApi(state.apiTab)
+                  : view(b.dataset.view)),
+        );
+      document
+        .querySelectorAll("[data-api]")
+        .forEach((b) => (b.onclick = () => showApi(b.dataset.api)));
+      $("settings-import-file").onchange = importSettings;
+      async function api(path, options) {
+        const res = await fetch(path, options);
+        let body = {};
+        try {
+          body = await res.json();
+        } catch {}
+        if (!res.ok || body.success === false)
+          throw new Error(body.error || res.statusText);
+        return body.data ?? body;
+      }
+      async function post(path, data) {
+        return api(path, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        });
+      }
+      async function loadUpdateStatus() {
+        try {
+          state.update = await api("/api/update/status");
+          renderUpdateStatus();
+        } catch (e) {
+          toast(e.message, true);
+        }
+      }
+      function renderUpdateStatus() {
+        const u = state.update || {}, s = u.staged || {};
+        const rows = $("update-detail");
+        if (!rows) return;
+        rows.innerHTML =
+                    `<tr><th>Current</th><td>${esc(u.currentVersion || "-")} / ${esc(u.os || "-")}/${esc(u.arch || "-")}</td></tr>` +
+          `<tr><th>Can Apply</th><td class="${u.canApply ? "ok" : "bad"}">${u.canApply ? "Service mode" : "Stage only"}</td></tr>` +
+          `<tr><th>Staged</th><td>${s.version ? esc(s.version + " / " + s.os + "/" + s.arch) : "-"}</td></tr>` +
+          `<tr><th>Binary</th><td class="mono">${esc(s.binary || "-")}</td></tr>` +
+          `<tr><th>SHA256</th><td class="mono">${esc(s.sha256 || "-")}</td></tr>` +
+          `<tr><th>Backup</th><td class="mono">${esc(u.backup || "-")}</td></tr>`;
+        const message = $("update-message");
+        if (message) {
+          message.textContent = u.message || "";
+          message.className = "status-line mt-12 " + (u.canApply ? "ok" : "bad");
+        }
+        if ($("update-actions-card")) $("update-actions-card").style.display = (s.version || u.backup) ? "block" : "none";
+        if ($("update-apply")) $("update-apply").disabled = !(u.canApply && s.version);
+        if ($("update-rollback")) $("update-rollback").disabled = !(u.canApply && u.backup);
+      }
+      async function uploadUpdatePatch() {
+        const file = $("update-file")?.files?.[0];
+        if (!file) return toast("กรุณาเลือก patch ZIP", true);
+        let updateState;
+        try {
+          updateState = await api("/api/update/status");
+        } catch (e) {
+          return toast(e.message, true);
+        }
+        const prompt = updateState.canApply
+          ? "Upload patch แล้ว restart service เพื่อติดตั้งตอนนี้?"
+          : "Upload patch เพื่อ Stage ไว้ก่อน? ต้องติดตั้ง Middleware เป็น Service จึงจะ Apply ได้";
+        if (!confirm(prompt)) return;
+        const fd = new FormData();
+        fd.append("patch", file);
+        try {
+          const res = await fetch("/api/update/upload", { method: "POST", body: fd });
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok || body.success === false) throw new Error(body.error || res.statusText);
+          state.update = await api("/api/update/status");
+          renderUpdateStatus();
+          if (!state.update.canApply) {
+            toast("Stage patch แล้ว — ติดตั้ง Middleware เป็น Windows Service ก่อน Apply", true);
+            return;
+          }
+          toast("Upload สำเร็จ กำลังติดตั้ง patch...");
+          const data = await api("/api/update/apply", { method: "POST" });
+          toast(data.message || "เริ่ม update แล้ว");
+          setTimeout(loadUpdateStatus, 5000);
+        } catch (e) {
+          toast(e.message, true);
+          await loadUpdateStatus();
+        }
+      }
+      async function applyUpdatePatch() {
+        if (!confirm("Apply patch แล้ว restart service ตอนนี้?")) return;
+        try {
+          const data = await api("/api/update/apply", { method: "POST" });
+          toast(data.message || "เริ่ม update แล้ว");
+          setTimeout(loadUpdateStatus, 5000);
+        } catch (e) {
+          toast(e.message, true);
+        }
+      }
+      async function rollbackUpdatePatch() {
+        if (!confirm("Rollback กลับ binary backup ล่าสุด แล้ว restart service?")) return;
+        try {
+          const data = await api("/api/update/rollback", { method: "POST" });
+          toast(data.message || "เริ่ม rollback แล้ว");
+          setTimeout(loadUpdateStatus, 5000);
+        } catch (e) {
+          toast(e.message, true);
+        }
+      }
+      async function refresh() {
+        try {
+          const [brands, sets, plants, connections, versionInfo] = await Promise.all([
+            api("/api/brands"),
+            api("/api/device-sets"),
+            api("/api/plants"),
+            api("/api/connections"),
+            api("/api/version"),
+          ]);
+          state.brands = Array.isArray(brands) ? brands : [];
+          state.sets = Array.isArray(sets) ? sets : [];
+          state.plants = Array.isArray(plants) ? plants : [];
+          state.connections = Array.isArray(connections) ? connections : [];
+          state.version = versionInfo || {};
+          render();
+          loadConfig(false);
+          loadLogs(false);
+        } catch (e) {
+          toast(e.message, true);
+        }
+      }
+      function render() {
+        const addressCount = state.sets.reduce(
+          (n, s) => n + (s.addresses || []).length,
+          0,
+        );
+        $("m-brand").textContent = state.brands.length;
+        $("m-set").textContent = state.sets.length;
+        $("m-address").textContent = addressCount;
+        $("m-connection").textContent = state.connections.length;
+        fillSelects();
+        renderBrands();
+        renderSets();
+        renderPlants();
+        renderConnections();
+        renderMonitor();
+        renderVersion();
+      }
+      function renderVersion() {
+        const el = $("app-version");
+        if (el) el.textContent = state.version.version || "-";
+      }
+      function fillSelects() {
+        const brands = state.brands
+          .map(
+            (b) => `<option value="${b.brandId}">${esc(b.brandName)}</option>`,
+          )
+          .join("");
+        const setBrand = $("set-brand");
+        const brandFilter = $("brand-filter");
+        if (setBrand) setBrand.innerHTML = brands;
+        if (brandFilter) {
+          brandFilter.innerHTML =
+            '<option value="0">ทุก Brand</option>' + brands;
+          brandFilter.value = state.brandFilter;
+        }
+        const setOptions = state.sets
+          .map(
+            (s) =>
+              `<option value="${s.deviceSetId}">${esc(s.brandName || "")} ${esc(s.devType)} ${esc(s.devModel)}</option>`,
+          )
+          .join("");
+        const connectionSet = $("connection-set");
+        const connectionPlant = $("connection-plant");
+        if (connectionSet) connectionSet.innerHTML = setOptions;
+        if (connectionPlant)
+          connectionPlant.innerHTML = state.plants
+          .map(
+            (p) =>
+              `<option value="${esc(p.plantCode)}">${esc(p.plantCode)} — ${esc(p.plantName)}</option>`,
+          )
+          .join("");
+      }
+      function renderBrands() {
+        const box = $("brand-list");
+        if (!box) return;
+        if (!state.brands.length) {
+          box.innerHTML =
+            '<div class="empty">ยังไม่มี Brand — กด “+ เพิ่ม Brand” เพื่อเริ่มต้น</div>';
+          return;
+        }
+        box.innerHTML = state.brands
+          .map(
+            (b) =>
+              `<div class="card"><div class="card-head"><div><h3>${esc(b.brandName)}</h3><p>${esc(b.brandDescription || "ไม่มีรายละเอียด")}</p></div><span class="chip">${(b.brandDevSetList || []).length} set</span></div><div class="actions"><button type="button" class="btn primary" onclick="showSetup('sets',${b.brandId})">ดู Device Set</button><button type="button" class="btn secondary" onclick="openBrand(${b.brandId})">แก้ไข</button><button type="button" class="btn danger" onclick="deleteBrand(${b.brandId})">ลบ</button></div></div>`,
+          )
+          .join("");
+      }
+      function visibleSets() {
+        return state.brandFilter
+          ? state.sets.filter((s) => s.brandId === state.brandFilter)
+          : state.sets;
+      }
+      function renderSets() {
+        const box = $("set-list");
+        if (!box) return;
+        let items = visibleSets();
+        const q = ($("set-search")?.value || "").trim().toLowerCase();
+        if ($("brand-filter")) $("brand-filter").value = state.brandFilter;
+        if (q)
+          items = items.filter((s) =>
+            [
+              s.brandName,
+              s.devType,
+              s.devModel,
+              ...(s.addresses || []).flatMap((a) => [
+                a.functionCode,
+                a.register,
+                a.description,
+                a.sourceTag,
+                a.canonicalKey,
+                a.factor,
+                a.dataType,
+                a.sourceUnit,
+                a.canonicalUnit,
+              ]),
+            ].some((v) =>
+              String(v || "")
+                .toLowerCase()
+                .includes(q),
+            ),
+          );
+        if (!items.length) {
+          box.className = "";
+          box.innerHTML =
+            '<div class="empty mt-14">No Device Set in this filter — add one or Import Address</div>';
+          return;
+        }
+        box.className = "card mt-14";
+        box.innerHTML =
+          '<div class="table-wrap"><table class="compact"><thead><tr><th>Brand</th><th>Device Set</th><th>Addresses</th><th>Action</th></tr></thead><tbody>' +
+          items
+            .map(
+              (s) =>
+                "<tr><td><b>" +
+                esc(s.brandName || "-") +
+                "</b></td><td><b>" +
+                esc(s.devType || "-") +
+                "</b><br>" +
+                esc(s.devModel || "-") +
+                "</td><td>" +
+                addressTable(s) +
+                '</td><td><div class="actions"><button type="button" class="btn secondary" onclick="openSet(' +
+                s.deviceSetId +
+                ')">แก้ไข</button><button type="button" class="btn danger" onclick="deleteSet(' +
+                s.deviceSetId +
+                ')">ลบ</button></div></td></tr>',
+            )
+            .join("") +
+          "</tbody></table></div>";
+      }
+      function addressTable(s) {
+        const rows = s.addresses || [];
+        if (!rows.length) return '<span class="bad">ไม่มี Address</span>';
+        return (
+          '<details><summary><span class="chip">' +
+          rows.length +
+          ' address</span> ดูรายการ</summary><div class="table-wrap mt-10"><table class="compact"><thead><tr><th>FC</th><th>Register</th><th>Description</th><th>Source Tag</th><th>Canonical Key</th><th>Factor</th><th>Type</th><th>Unit</th></tr></thead><tbody>' +
+          rows
+            .map(
+              (a) =>
+                "<tr><td>" +
+                String(a.functionCode || "").padStart(2, "0") +
+                "</td><td>" +
+                esc(a.register ?? "-") +
+                "</td><td>" +
+                esc(a.description || "-") +
+                "</td><td>" +
+                esc(a.sourceTag || "-") +
+                "</td><td>" +
+                esc(a.canonicalKey || "-") +
+                "</td><td>" +
+                esc(a.factor ?? "-") +
+                "</td><td>" +
+                esc(a.dataType || "-") +
+                "</td><td>" +
+                esc(a.canonicalUnit || a.sourceUnit || "-") +
+                "</td></tr>",
+            )
+            .join("") +
+          "</tbody></table></div></details>"
+        );
+      }
+      function renderMonitor() {
+        const rows = $("monitor-rows");
+        if (!rows) return;
+        if (!state.connections.length) {
+          rows.innerHTML = '<tr><td colspan="6">ยังไม่มี Connection</td></tr>';
+          renderMonitorCurrent();
+          return;
+        }
+        rows.innerHTML = state.connections
+          .map(
+            (c) =>
+              `<tr class="${c.connectionId === state.monitorId ? "selected" : ""}"><td><b>${esc(c.connectionName)}</b></td><td><b>${esc(c.plantCode || "-")}</b><br>${esc(c.deviceName || c.devDn || "-")}</td><td>${esc(c.host)}:${c.port}<br>unit ${c.unitId || c.slaveId || 1}</td><td><span class="${c.enabled ? "ok" : "bad"}">${c.enabled ? "Enabled" : "Disabled"}</span></td><td>${latestPollText(c.connectionId)}</td><td><div class="actions"><button type="button" class="btn primary" onclick="connectTest(${c.connectionId})">Connect Test</button><button type="button" class="btn primary" onclick="readNow(${c.connectionId})">Read Now</button><button type="button" class="btn secondary" onclick="sendAPIOnce(${c.connectionId})">Send API Once</button><button type="button" class="btn secondary" onclick="selectMonitorConnection(${c.connectionId})">View</button></div></td></tr>`,
+          )
+          .join("");
+        if (!state.monitorId && state.connections[0])
+          state.monitorId = state.connections[0].connectionId;
+        renderMonitorCurrent();
+        if (state.monitorId) loadPollLogs(false);
+      }
+      function latestPollText(id) {
+        const log = state.pollLogs.find((x) => x.connectionId === id);
+        return log ? `${esc(log.status)}<br>${dt(log.createdAt)}` : "-";
+      }
+      function renderMonitorCurrent() {
+        const box = $("monitor-current");
+        if (!box) return;
+        const c = state.connections.find(
+          (x) => x.connectionId === state.monitorId,
+        );
+        box.innerHTML = c
+          ? `<div class="card-head"><div><h3>${esc(c.connectionName)}</h3><p>${esc(c.plantCode || "-")} • ${esc(c.deviceName || c.devDn || "-")}</p></div><div class="actions"><button type="button" class="btn secondary" onclick="connectTest(${c.connectionId})">Connect Test</button><button type="button" class="btn primary" onclick="readNow(${c.connectionId})">Read Now</button><button type="button" class="btn secondary" onclick="sendAPIOnce(${c.connectionId})">Send API Once</button></div></div><div class="modal-body"><div class="kv"><b>Host</b><span>${esc(c.host)}:${c.port} / unit ${c.unitId || c.slaveId || 1}</span><b>Polling</b><span class="${c.enabled ? "ok" : "bad"}">${c.enabled ? "Enabled" : "Disabled"}</span><b>Device Set</b><span>${esc(c.deviceSetName || "-")}</span></div></div>`
+          : '<div class="empty">เลือก Connection เพื่อดูรายละเอียด</div>';
+      }
+      async function refreshMonitor() {
+        await refresh();
+        if (state.monitorId) await loadPollLogs();
+      }
+      async function selectMonitorConnection(id) {
+        state.monitorId = id;
+        view("monitor");
+        renderMonitorCurrent();
+        await loadPollLogs();
+        openLogDialog();
+      }
+      async function loadPollLogs(showError = true) {
+        state.pollLogs = state.liveLogs;
+        $("monitor-title").textContent = "Session Read Logs";
+        renderPollLogs();
+        renderMonitorCurrent();
+      }
+      function renderPollLogs() {
+        const rows = $("poll-log-rows");
+        if (!rows) return;
+        state.pollLogs = state.liveLogs;
+        if (!state.pollLogs.length) {
+          rows.innerHTML = '<tr><td colspan="4">ยังไม่มี Live Test session log</td></tr>';
+          renderLogRows();
+          return;
+        }
+        rows.innerHTML = state.pollLogs
+          .map(
+            (x, i) =>
+              `<tr><td>${dt(x.createdAt)}</td><td class="${x.status === "OK" ? "ok" : "bad"}">${esc(x.status)}</td><td><b>${esc(x.connectionName || "-")}</b><br>${esc(x.message || "-")}<br><span class="mono">${esc(logSummary(x))}</span></td><td><button type="button" class="btn secondary" onclick="openPollDetail(${i})">Detail</button></td></tr>`,
+          )
+          .join("");
+        renderLogRows();
+      }
+      function openLogDialog() {
+        const c = state.connections.find(
+          (x) => x.connectionId === state.monitorId,
+        );
+        $("log-dialog-title").textContent = c
+          ? "Session Logs: " + c.connectionName
+          : "Connection Logs";
+        renderLogRows();
+        openDialog("log-dialog");
+      }
+      function renderLogRows() {
+        const rows = $("log-dialog-rows");
+        if (!rows) return;
+        const q = ($("log-filter")?.value || "").trim().toLowerCase();
+        const items = state.liveLogs
+          .map((x, i) => ({ x, i }))
+          .filter((o) => !state.monitorId || o.x.connectionId === state.monitorId)
+          .filter(
+            (o) =>
+              !q ||
+              [
+                o.x.status,
+                o.x.connectionName,
+                o.x.message,
+                logSummary(o.x),
+                dt(o.x.createdAt),
+              ].some((v) =>
+                String(v || "")
+                  .toLowerCase()
+                  .includes(q),
+              ),
+          );
+        if (!items.length) {
+          rows.innerHTML = '<tr><td colspan="5">ยังไม่มี log ใน session นี้</td></tr>';
+          return;
+        }
+        rows.innerHTML = items
+          .map(
+            ({ x, i }) =>
+              `<tr><td>${dt(x.createdAt)}</td><td class="${x.status === "OK" ? "ok" : "bad"}">${esc(x.status)}</td><td>${esc(x.message || "-")}</td><td class="mono">${esc(logSummary(x))}</td><td><button type="button" class="btn secondary" onclick="openPollDetail(${i})">Detail</button></td></tr>`,
+          )
+          .join("");
+      }
+      function logSummary(log) {
+        try {
+          const d = log.detail ? JSON.parse(log.detail) : {},
+            r = d.reading || {},
+            k = r.registerAddressMap || {};
+          return (
+            Object.entries(k)
+              .slice(0, 4)
+              .map(([key, val]) => key + "=" + val.rawValue)
+              .join(" / ") ||
+            d.pollError ||
+            "-"
+          );
+        } catch {
+          return log.detail || "-";
+        }
+      }
+      function openPollDetail(i) {
+        closeDialog("log-dialog");
+        const log = state.pollLogs[i];
+        $("detail-title").textContent = "Read Detail: " + dt(log.createdAt);
+        $("detail-body").innerHTML = detailHTML(log);
+        openDialog("detail-dialog");
+      }
+      function detailHTML(log) {
+        let d = {};
+        try {
+          d = log.detail ? JSON.parse(log.detail) : {};
+        } catch {
+          d = { raw: log.detail };
+        }
+        const reading = d.reading || {},
+          items = d.measurements || [],
+          kpis = reading.registerAddressMap || {};
+        return `<div class="card"><h3>Summary</h3><div class="table-wrap mt-12"><table><tbody><tr><th>Status</th><td class="${log.status === "OK" ? "ok" : "bad"}">${esc(log.status)}</td></tr><tr><th>Message</th><td>${esc(log.message || "-")}</td></tr><tr><th>Device</th><td>${esc(reading.devName || reading.devDn || log.connectionName || "-")}</td></tr><tr><th>Plant</th><td>${esc(reading.plantName || reading.plantCode || "-")}</td></tr><tr><th>Collect Time</th><td>${dt(reading.collectTime)}</td></tr></tbody></table></div></div><div class="card"><h3>Raw Registers</h3><div class="table-wrap mt-12"><table><thead><tr><th>Address Key</th><th>Raw Value</th></tr></thead><tbody>${
+          Object.keys(kpis).length
+            ? Object.entries(kpis)
+                .map(
+                  ([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v.rawValue)}</td></tr>`,
+                )
+                .join("")
+            : '<tr><td colspan="2">ไม่มี Raw Register</td></tr>'
+        }</tbody></table></div></div><div class="card"><h3>Measurements</h3><div class="table-wrap mt-12"><table><thead><tr><th>FC</th><th>Register</th><th>Data Type</th><th>Raw</th><th>Quality</th></tr></thead><tbody>${items.length ? items.map((m) => `<tr><td>${esc(m.functionCode || "-")}</td><td>${esc(m.registerAddress ?? "-")}</td><td>${esc(m.dataType || "-")}</td><td>${esc(m.rawValue)}</td><td>${esc(m.quality)}</td></tr>`).join("") : '<tr><td colspan="5">ไม่มี Measurement</td></tr>'}</tbody></table></div></div>`;
+      }
+      function renderPlants() {
+        const rows = $("plant-rows");
+        if (!rows) return;
+        if (!state.plants.length) {
+          rows.innerHTML =
+            '<tr><td colspan="4">ยังไม่มี Plant — สร้าง Plant ก่อนเพิ่ม Device</td></tr>';
+          return;
+        }
+        rows.innerHTML = state.plants
+          .map(
+            (p) =>
+              `<tr><td><b>${esc(p.plantCode)}</b></td><td>${esc(p.plantName)}</td><td>${state.connections.filter((c) => c.plantCode === p.plantCode).length}</td><td><div class="actions"><button type="button" class="btn primary" onclick="viewPlant(${p.plantId})">เข้า Plant</button><button type="button" class="btn secondary" onclick="openPlant(${p.plantId})">แก้ไข</button><button type="button" class="btn danger" onclick="deletePlant(${p.plantId})">ลบ</button></div></td></tr>`,
+          )
+          .join("");
+      }
+      function viewPlant(id) {
+        state.selectedPlant = id;
+        const p = state.plants.find((x) => x.plantId === id);
+        if (!p) return;
+        $("connection-heading").textContent = "Device — " + p.plantCode;
+        $("connection-subheading").textContent =
+          p.plantName + " • เพิ่มหรือ Import Device ภายใน Plant นี้";
+        $("device-template").href =
+          "/template/devices.csv?plantCode=" + encodeURIComponent(p.plantCode);
+        state.setupTab = "connections";
+        view("setup");
+        document
+          .querySelectorAll("[data-setup]")
+          .forEach((b) => b.classList.remove("active"));
+        document
+          .querySelectorAll("#setup .subview")
+          .forEach((v) =>
+            v.classList.toggle("active", v.id === "setup-connections"),
+          );
+        renderConnections();
+      }
+      function renderConnections() {
+        const box = $("connection-list");
+        if (!box) return;
+        const plant = state.plants.find(
+          (p) => p.plantId === state.selectedPlant,
+        );
+        const q = ($("connection-search")?.value || "").trim().toLowerCase();
+        const items = state.connections
+          .filter((c) => plant && c.plantCode === plant.plantCode)
+          .filter(
+            (c) =>
+              !q ||
+              [
+                c.connectionName,
+                c.devDn,
+                c.deviceName,
+                c.deviceSetName,
+                c.host,
+              ].some((v) =>
+                String(v || "")
+                  .toLowerCase()
+                  .includes(q),
+              ),
+          );
+        if (!items.length) {
+          box.innerHTML =
+            '<tr><td colspan="6">ยังไม่มี Device ใน Plant นี้</td></tr>';
+          return;
+        }
+        box.innerHTML = items
+          .map(
+            (c) =>
+              `<tr><td><b>${esc(c.connectionName)}</b></td><td><span class="mono">${esc(c.devDn || "-")}</span><br>${esc(c.deviceName || "-")}</td><td>${esc(c.deviceSetName || "-")}</td><td>${esc(c.host)}:${c.port}<br>unit ${c.unitId || c.slaveId || 1}</td><td class="${c.enabled ? "ok" : "bad"}">${c.enabled ? "Enabled" : "Disabled"}</td><td><div class="actions"><button type="button" class="btn primary" onclick="connectTest(${c.connectionId})">Test</button><button type="button" class="btn primary" onclick="readNow(${c.connectionId})">Read</button><button type="button" class="btn secondary" onclick="sendAPIOnce(${c.connectionId})">Send API</button><button type="button" class="btn secondary" onclick="openConnection(${c.connectionId})">แก้ไข</button><button type="button" class="btn secondary" onclick="toggleConnection(${c.connectionId},${!c.enabled})">${c.enabled ? "Disable" : "Enable"}</button><button type="button" class="btn danger" onclick="deleteConnection(${c.connectionId})">ลบ</button></div></td></tr>`,
+          )
+          .join("");
+      }
+      function discoverPorts() {
+        return [
+          ...new Set([
+            502,
+            ...state.connections.map((c) => +c.port).filter(Boolean),
+          ]),
+        ]
+          .sort((a, b) => a - b)
+          .join(",");
+      }
+      function openDiscovery() {
+        const plant = state.plants.find(
+          (p) => p.plantId === state.selectedPlant,
+        );
+        if (!plant) {
+          toast("กรุณาเข้า Plant ก่อน Discover", true);
+          showSetup("plants");
+          return;
+        }
+        if (!state.sets.length) {
+          toast("กรุณาสร้าง Device Set ก่อน", true);
+          showSetup("sets");
+          return;
+        }
+        $("discover-cidr").value = "";
+        $("discover-ports").value = discoverPorts();
+        $("discover-unit").value = 1;
+        $("discover-timeout").value = 500;
+        state.discover = [];
+        renderDiscoverRows();
+        $("discover-status").textContent = "กรอกวงเน็ตแล้วกด Scan";
+        openDialog("discover-dialog");
+        setTimeout(() => $("discover-cidr").focus(), 0);
+      }
+      function parsePorts(v) {
+        return [
+          ...new Set(
+            String(v || "")
+              .split(",")
+              .map((x) => +x.trim())
+              .filter((x) => x >= 1 && x <= 65535),
+          ),
+        ];
+      }
+      function deviceSetOptions(v = "") {
+        return (
+          '<option value="">เลือก Device Set</option>' +
+          state.sets
+            .map(
+              (s) =>
+                `<option value="${s.deviceSetId}"${String(v) === String(s.deviceSetId) ? " selected" : ""}>${esc(s.brandName || "")} ${esc(s.devType)} ${esc(s.devModel)}</option>`,
+            )
+            .join("")
+        );
+      }
+      function discoveryName(plant, r) {
+        return `${plant.plantCode}-${r.host.split(".").pop()}-${r.port}`;
+      }
+      async function scanModbus() {
+        const plant = state.plants.find(
+            (p) => p.plantId === state.selectedPlant,
+          ),
+          ports = parsePorts($("discover-ports").value);
+        if (!plant) return;
+        if (!$("discover-cidr").value.trim() || !ports.length) {
+          toast("กรอก CIDR และ Port ให้ถูกต้อง", true);
+          return;
+        }
+        try {
+          $("discover-status").textContent = "Scanning...";
+          const data = await post("/api/modbus-discovery", {
+            cidr: $("discover-cidr").value.trim(),
+            ports,
+            unitId: +$("discover-unit").value || 1,
+            timeoutMs: +$("discover-timeout").value || 500,
+          });
+          state.discover = (data || []).map((r) => {
+            const name = discoveryName(plant, r);
+            return {
+              ...r,
+              selected: !r.existingConnectionId,
+              deviceSetId: "",
+              connectionName: name,
+              devDn: name,
+              deviceName: name,
+            };
+          });
+          renderDiscoverRows();
+          $("discover-status").textContent =
+            `พบ ${state.discover.length} Modbus device`;
+        } catch (e) {
+          $("discover-status").textContent = e.message;
+          toast(e.message, true);
+        }
+      }
+      function updateDiscover(i, k, v) {
+        if (state.discover[i])
+          state.discover[i][k] = k === "selected" ? !!v : v;
+      }
+      function discoverDetail(r) {
+        const fcs = (r.functionCodes || []).map((x) => "FC" + String(x).padStart(2, "0")).join(", ");
+        return `${esc(r.protocol || "Modbus TCP")}<br>${esc(r.registerFamily || "-")}<br><span class="mono">${esc(fcs || "-")}</span>${r.detail ? "<br>" + esc(r.detail) : ""}`;
+      }
+      function renderDiscoverRows() {
+        const rows = $("discover-rows");
+        if (!rows) return;
+        if (!state.discover.length) {
+          rows.innerHTML = '<tr><td colspan="8">ยังไม่มีผล Scan</td></tr>';
+          return;
+        }
+        rows.innerHTML = state.discover
+          .map(
+            (r, i) =>
+              `<tr><td><input type="checkbox" ${r.selected ? "checked" : ""} ${r.existingConnectionId ? "disabled" : ""} onchange="updateDiscover(${i},'selected',this.checked)"></td><td><b>${esc(r.host)}:${r.port}</b><br>unit ${r.unitId}</td><td class="${r.existingConnectionId ? "bad" : "ok"}">${esc(r.status)}${r.existingPlantCode ? "<br>" + esc(r.existingPlantCode) : ""}<br>${r.latencyMs} ms</td><td>${discoverDetail(r)}</td><td><select onchange="updateDiscover(${i},'deviceSetId',this.value)">${deviceSetOptions(r.deviceSetId)}</select></td><td><input value="${esc(r.connectionName)}" oninput="updateDiscover(${i},'connectionName',this.value)"></td><td><input value="${esc(r.devDn)}" oninput="updateDiscover(${i},'devDn',this.value)"></td><td><input value="${esc(r.deviceName)}" oninput="updateDiscover(${i},'deviceName',this.value)"></td></tr>`,
+          )
+          .join("");
+      }
+      async function saveDiscovered() {
+        const plant = state.plants.find(
+            (p) => p.plantId === state.selectedPlant,
+          ),
+          items = state.discover.filter(
+            (r) => r.selected && !r.existingConnectionId,
+          );
+        if (!plant || !items.length) {
+          toast("เลือก Device ที่ต้องการบันทึกก่อน", true);
+          return;
+        }
+        const missing = items.find(
+          (r) =>
+            !+r.deviceSetId ||
+            !String(r.connectionName || "").trim() ||
+            !String(r.devDn || "").trim(),
+        );
+        if (missing) {
+          toast("เลือก Device Set และกรอกชื่อให้ครบทุกแถว", true);
+          return;
+        }
+        let ok = 0;
+        for (const r of items) {
+          await post("/api/connections", {
+            connectionName: r.connectionName.trim(),
+            deviceSetId: +r.deviceSetId,
+            plantCode: plant.plantCode,
+            devDn: r.devDn.trim(),
+            deviceName: String(r.deviceName || r.connectionName).trim(),
+            host: r.host,
+            port: +r.port,
+            unitId: +r.unitId,
+            slaveId: +r.unitId,
+            enabled: true,
+          });
+          ok++;
+        }
+        closeDialog("discover-dialog");
+        toast(`บันทึก ${ok} device เข้า ${plant.plantCode} แล้ว`);
+        await refresh();
+        showSetup("connections");
+      }
+      $("brand-filter").onchange = (e) => {
+        state.brandFilter = +e.target.value || 0;
+        renderSets();
+      };
+      function openBrand(id = 0) {
+        const b = state.brands.find((x) => x.brandId === id) || {};
+        $("brand-title").textContent = id ? "แก้ไข Brand" : "เพิ่ม Brand";
+        $("brand-id").value = b.brandId || 0;
+        $("brand-name").value = b.brandName || "";
+        $("brand-description").value = b.brandDescription || "";
+        openDialog("brand-dialog");
+        setTimeout(() => $("brand-name").focus(), 0);
+      }
+      function openSet(id = 0) {
+        const s = state.sets.find((x) => x.deviceSetId === id) || {};
+        $("set-title").textContent = id
+          ? "แก้ไข Device Set"
+          : "เพิ่ม Device Set";
+        $("set-id").value = s.deviceSetId || 0;
+        fillSelects();
+        $("set-brand").value =
+          s.brandId || state.brandFilter || state.brands[0]?.brandId || "";
+        $("set-type").value = s.devType || "Inverter";
+        $("set-model").value = s.devModel || "";
+        $("set-address-mode").value = s.addressMode || "ZERO_BASED";
+        $("set-byte-order").value = s.byteOrder || "BIG_ENDIAN";
+        $("set-word-order").value = s.wordOrder || "HIGH_LOW";
+        $("set-max-block").value = s.maxBlockSize || 30;
+        $("address-list").innerHTML = "";
+        (s.addresses && s.addresses.length ? s.addresses : [{}]).forEach(
+          addressRow,
+        );
+        openDialog("set-dialog");
+      }
+      function openPlant(id = 0) {
+        const p = state.plants.find((x) => x.plantId === id) || {};
+        $("plant-title").textContent = id ? "แก้ไข Plant" : "เพิ่ม Plant";
+        $("plant-id").value = p.plantId || 0;
+        $("plant-code").value = p.plantCode || "";
+        $("plant-name").value = p.plantName || "";
+        openDialog("plant-dialog");
+        setTimeout(() => $("plant-code").focus(), 0);
+      }
+      function openConnection(id = 0) {
+        const plant = state.plants.find(
+          (p) => p.plantId === state.selectedPlant,
+        );
+        if (!plant) {
+          toast("กรุณาเข้า Plant ก่อนเพิ่ม Device", true);
+          showSetup("plants");
+          return;
+        }
+        const c = state.connections.find((x) => x.connectionId === id) || {};
+        $("connection-title").textContent = id
+          ? "แก้ไข Device"
+          : "เพิ่ม Device";
+        $("connection-id").value = c.connectionId || 0;
+        fillSelects();
+        $("connection-name").value = c.connectionName || "";
+        $("connection-set").value =
+          c.deviceSetId || state.sets[0]?.deviceSetId || "";
+        $("connection-plant").value = plant.plantCode;
+        $("connection-devdn").value = c.devDn || c.connectionName || "";
+        $("connection-device-name").value =
+          c.deviceName || c.connectionName || "";
+        $("connection-host").value = c.host || "";
+        $("connection-port").value = c.port || 502;
+        $("connection-unit").value = c.unitId || c.slaveId || 1;
+        $("connection-enabled").value = String(c.enabled !== false);
+        openDialog("connection-dialog");
+        setTimeout(() => $("connection-name").focus(), 0);
+      }
+      async function installSMAProfile() {
+        try {
+          const set = await post("/api/device-profiles/sma", {});
+          await refresh();
+          $("connection-set").value = set.deviceSetId;
+          toast("SMA Profile พร้อมใช้งานแล้ว — กรุณากรอก Unit ID ของอุปกรณ์");
+        } catch (err) {
+          toast(err.message, true);
+        }
+      }
+      function addressRow(a = {}) {
+        const row = document.createElement("div");
+        row.className = "addr-row";
+        row._address = a;
+        row.innerHTML = `<select class="fc"><option value="3">03</option><option value="4">04</option></select><input class="reg" type="number" min="0" required value="${a.register ?? ""}"><input class="desc" required value="${esc(a.description || "")}"><input class="key" value="${esc(a.canonicalKey || "")}"><input class="tag" value="${esc(a.sourceTag || "")}"><input class="factor" type="number" step="any" value="${a.factor ?? 1}"><input class="offset" type="number" step="any" value="${a.offset ?? 0}"><select class="type">${["SHORT", "USHORT", "INT32", "UINT32", "LONG", "ULONG", "UINT64", "S32", "U32", "U64", "SW_INT", "SW_UINT", "FLOAT", "SW_FLOAT", "SMA_INT32", "SMA_UINT32", "SMA_UINT64"].map((t) => `<option${(a.dataType || "SHORT") === t ? " selected" : ""}>${t}</option>`).join("")}</select><input class="length" type="number" min="1" max="4" value="${a.length || 1}"><select class="words"><option value="">Device Set</option><option>HIGH_LOW</option><option>LOW_HIGH</option></select><input class="source-unit" value="${esc(a.sourceUnit || "")}"><input class="canonical-unit" value="${esc(a.canonicalUnit || "")}"><select class="enabled"><option value="true">Enabled</option><option value="false">Disabled</option></select><input class="remark" value="${esc(a.remark || "")}"><button class="btn danger" type="button" title="ลบ">×</button>`;
+        row.querySelector(".fc").value = a.functionCode || 3;
+        row.querySelector(".words").value = a.wordOrder || "";
+        row.querySelector(".enabled").value = String(a.enabled !== false);
+        row.querySelector("button").onclick = () => row.remove();
+        $("address-list").appendChild(row);
+      }
+      function readAddresses() {
+        return [...document.querySelectorAll(".addr-row")]
+          .map((r) => ({
+            ...r._address,
+            functionCode: +r.querySelector(".fc").value,
+            register: +r.querySelector(".reg").value,
+            description: r.querySelector(".desc").value.trim(),
+            canonicalKey: r.querySelector(".key").value.trim(),
+            sourceTag: r.querySelector(".tag").value.trim(),
+            factor: +r.querySelector(".factor").value,
+            offset: +r.querySelector(".offset").value,
+            dataType: r.querySelector(".type").value,
+            length: +r.querySelector(".length").value,
+            wordOrder: r.querySelector(".words").value,
+            sourceUnit: r.querySelector(".source-unit").value.trim(),
+            canonicalUnit: r.querySelector(".canonical-unit").value.trim(),
+            enabled: r.querySelector(".enabled").value === "true",
+            remark: r.querySelector(".remark").value.trim(),
+          }))
+          .filter((a) => a.description && a.register >= 0);
+      }
+      $("add-address").onclick = () => addressRow();
+      $("brand-form").onsubmit = async (e) => {
+        e.preventDefault();
+        try {
+          await post("/api/brands", {
+            brandId: +$("brand-id").value || 0,
+            brandName: $("brand-name").value.trim(),
+            brandDescription: $("brand-description").value.trim(),
+          });
+          closeDialog("brand-dialog");
+          toast("บันทึก Brand แล้ว");
+          await refresh();
+        } catch (err) {
+          toast(err.message, true);
+        }
+      };
+      async function deleteBrand(id) {
+        const b = state.brands.find((x) => x.brandId === id);
+        if (!confirm(`ลบ Brand "${b?.brandName || id}"?`)) return;
+        try {
+          await api("/api/brands?id=" + encodeURIComponent(id), {
+            method: "DELETE",
+          });
+          toast("ลบ Brand แล้ว");
+          await refresh();
+        } catch (e) {
+          toast(e.message, true);
+        }
+      }
+      $("set-form").onsubmit = async (e) => {
+        e.preventDefault();
+        try {
+          await post("/api/device-sets", {
+            deviceSetId: +$("set-id").value || 0,
+            brandId: +$("set-brand").value,
+            devType: $("set-type").value,
+            devModel: $("set-model").value.trim(),
+            addressMode: $("set-address-mode").value,
+            byteOrder: $("set-byte-order").value,
+            wordOrder: $("set-word-order").value,
+            maxBlockSize: +$("set-max-block").value || 30,
+            addresses: readAddresses(),
+          });
+          closeDialog("set-dialog");
+          toast("บันทึก Device Set แล้ว");
+          await refresh();
+          showSetup("sets", state.brandFilter);
+        } catch (err) {
+          toast(err.message, true);
+        }
+      };
+      async function deleteSet(id) {
+        const s = state.sets.find((x) => x.deviceSetId === id);
+        if (
+          !confirm(`ลบ Device Set "${s?.devModel || id}" และ Address ทั้งหมด?`)
+        )
+          return;
+        try {
+          await api("/api/device-sets?id=" + encodeURIComponent(id), {
+            method: "DELETE",
+          });
+          toast("ลบ Device Set แล้ว");
+          await refresh();
+          showSetup("sets", state.brandFilter);
+        } catch (e) {
+          toast(e.message, true);
+        }
+      }
+      $("plant-form").onsubmit = async (e) => {
+        e.preventDefault();
+        try {
+          await post("/api/plants", {
+            plantId: +$("plant-id").value || 0,
+            plantCode: $("plant-code").value.trim(),
+            plantName: $("plant-name").value.trim(),
+          });
+          closeDialog("plant-dialog");
+          toast("บันทึก Plant แล้ว");
+          await refresh();
+          showSetup("plants");
+        } catch (err) {
+          toast(err.message, true);
+        }
+      };
+      async function deletePlant(id) {
+        const p = state.plants.find((x) => x.plantId === id);
+        if (!confirm(`ลบ Plant "${p?.plantCode || id}" พร้อม Device ทั้งหมดใน Plant นี้?`)) return;
+        try {
+          await api("/api/plants?id=" + encodeURIComponent(id), {
+            method: "DELETE",
+          });
+          toast("ลบ Plant แล้ว");
+          await refresh();
+          showSetup("plants");
+        } catch (e) {
+          toast(e.message, true);
+        }
+      }
+      $("connection-form").onsubmit = async (e) => {
+        e.preventDefault();
+        const unit = +$("connection-unit").value;
+        try {
+          await post("/api/connections", {
+            connectionId: +$("connection-id").value || 0,
+            connectionName: $("connection-name").value.trim(),
+            deviceSetId: +$("connection-set").value,
+            plantCode: $("connection-plant").value,
+            devDn: $("connection-devdn").value.trim(),
+            deviceName: $("connection-device-name").value.trim(),
+            host: $("connection-host").value.trim(),
+            port: +$("connection-port").value,
+            unitId: unit,
+            slaveId: unit,
+            enabled: $("connection-enabled").value === "true",
+          });
+          closeDialog("connection-dialog");
+          toast("บันทึก Connection แล้ว");
+          await refresh();
+          showSetup("connections");
+        } catch (err) {
+          toast(err.message, true);
+        }
+      };
+      async function toggleConnection(id, enabled) {
+        try {
+          await api(
+            "/api/connections?id=" +
+              encodeURIComponent(id) +
+              "&enabled=" +
+              enabled,
+            { method: "PATCH" },
+          );
+          toast(enabled ? "Enabled connection" : "Disabled connection");
+          await refresh();
+          showSetup("connections");
+        } catch (e) {
+          toast(e.message, true);
+        }
+      }
+      async function deleteConnection(id) {
+        const c = state.connections.find((x) => x.connectionId === id);
+        if (!confirm(`ลบ Connection "${c?.connectionName || id}"?`)) return;
+        try {
+          await api("/api/connections?id=" + encodeURIComponent(id), {
+            method: "DELETE",
+          });
+          toast("ลบ Connection แล้ว");
+          await refresh();
+          showSetup("connections");
+        } catch (e) {
+          toast(e.message, true);
+        }
+      }
+      $("connection-import-file").onchange = async (e) => {
+        const file = e.target.files[0],
+          plant = state.plants.find((p) => p.plantId === state.selectedPlant);
+        if (!file || !plant) return;
+        try {
+          const data = await post("/api/import-connections", {
+            csv: await file.text(),
+            plantCode: plant.plantCode,
+          });
+          toast(
+            `Import สำเร็จ ${data.connections} device เข้า ${plant.plantCode}`,
+          );
+          e.target.value = "";
+          await refresh();
+          showSetup("connections");
+        } catch (err) {
+          toast(err.message, true);
+        }
+      };
+      async function loadConfig(noToast = true) {
+        try {
+          state.config = await api("/api/gateway-config");
+          renderConfig();
+        } catch (e) {
+          if (noToast) toast(e.message, true);
+        }
+      }
+      async function loadLogs(noToast = true) {
+        try {
+          const logs = await api("/api/delivery-logs?limit=100");
+          state.logs = Array.isArray(logs) ? logs : [];
+          renderLogs();
+        } catch (e) {
+          if (noToast) toast(e.message, true);
+        }
+      }
+      function renderConfig() {
+        const c = state.config || {};
+        $("cfg-gateway").value = c.gatewayId || "";
+        $("cfg-endpoint").value = c.endpoint || "";
+        $("cfg-key").value = c.apiKey || "";
+        $("cfg-enabled").checked = !!c.apiPollingEnabled;
+        $("cfg-interval").value = c.sendIntervalSeconds || 5;
+        $("cfg-timeout").value = c.sendTimeoutSeconds || 10;
+        $("api-status").textContent = !c.endpoint
+          ? "ยังไม่ได้ตั้งค่า endpoint"
+          : c.apiPollingEnabled
+            ? "API Polling เปิดอยู่"
+            : "API Polling ปิดอยู่";
+        $("api-status").className =
+          "status-line " + (c.endpoint && c.apiPollingEnabled ? "ok" : "bad");
+        const last = state.logs[0];
+        $("cfg-detail").innerHTML =
+          `<tr><th>Gateway</th><td>${esc(c.gatewayId || "-")}</td></tr><tr><th>Endpoint</th><td class="mono">${esc(c.endpoint || "-")}</td></tr><tr><th>API Key</th><td class="mono">${esc(mask(c.apiKey))}</td></tr><tr><th>API Polling</th><td class="${c.apiPollingEnabled ? "ok" : "bad"}">${c.apiPollingEnabled ? "Enabled" : "Disabled"}</td></tr><tr><th>API Poll Interval</th><td>${esc(c.sendIntervalSeconds || 5)} sec</td></tr><tr><th>Timeout</th><td>${esc(c.sendTimeoutSeconds || 10)} sec</td></tr><tr><th>Payload Mapping</th><td>${new Set(state.connections.map((x) => x.plantCode).filter(Boolean)).size} plant / ${new Set(state.connections.map((x) => x.devDn).filter(Boolean)).size} device / ${state.connections.length} connection</td></tr><tr><th>Last API Send</th><td>${last ? esc(last.status + " / HTTP " + (last.lastHttpStatus || "-") + " / " + dt(last.deliveredAt || last.createdAt)) : "ยังไม่มี log"}</td></tr><tr><th>Last Response</th><td class="mono">${esc(shortText(last?.lastResponse || last?.lastError || "-", 180))}</td></tr>`;
+      }
+      function shortText(v, n = 80) {
+        v = String(v || "");
+        return v.length > n ? v.slice(0, n) + "..." : v;
+      }
+      function csvCell(v) {
+        return '"' + String(v ?? "").replaceAll('"', '""') + '"';
+      }
+      function downloadBlob(filename, blob) {
+        downloadBlob(filename, blob);
+      }
+      async function exportSettings() {
+        try {
+          const res = await fetch("/api/settings/export");
+          if (!res.ok) throw new Error(res.statusText);
+          downloadBlob("chpp-middleware-settings.json", new Blob([await res.text()], { type: "application/json;charset=utf-8" }));
+          toast("Export settings แล้ว");
+        } catch (e) {
+          toast(e.message, true);
+        }
+      }
+      async function importSettings() {
+        const file = $("settings-import-file")?.files?.[0];
+        if (!file) return;
+        try {
+          const data = JSON.parse(await file.text());
+          if (!confirm("Import settings ทั้งหมดทับ/อัปเดต config ปัจจุบัน?")) return;
+          const summary = await post("/api/settings/import", data);
+          toast(`Import แล้ว: ${summary.brands} brand, ${summary.deviceSets} set, ${summary.plants} plant, ${summary.connections} connection`);
+          await refresh();
+        } catch (e) {
+          toast(e.message, true);
+        } finally {
+          $("settings-import-file").value = "";
+        }
+      }
+      function exportRows(filename, rows) {
+        if (!rows || rows.length < 2) {
+          toast("ไม่มี log ให้ export", true);
+          return;
+        }
+        const blob = new Blob([rows.map((r) => r.map(csvCell).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" });
+        downloadBlob(filename, blob);
+      }
+      function exportApiLogs() {
+        exportRows("api-send-logs.csv", [
+          ["id", "status", "http", "attempts", "created", "delivered", "error", "response", "idempotency_key"],
+          ...state.logs.map((x) => [
+            x.id,
+            x.status,
+            x.lastHttpStatus || "",
+            x.attempts,
+            dt(x.createdAt),
+            dt(x.deliveredAt),
+            x.lastError || "",
+            x.lastResponse || "",
+            x.idempotencyKey || "",
+          ]),
+        ]);
+      }
+      async function clearApiLogs() {
+        if (!confirm("ล้าง API Send Logs ที่ส่งจบแล้ว? Pending/Retrying จะยังไม่ถูกลบ")) return;
+        const res = await api("/api/delivery-logs", { method: "DELETE" });
+        await loadLogs(false);
+        toast("ล้าง API Send Logs แล้ว " + (res.deleted || 0) + " รายการ");
+      }
+      function renderLogs() {
+        const rows = $("log-rows");
+        if (!state.logs.length) {
+          rows.innerHTML = '<tr><td colspan="10">ยังไม่มี log</td></tr>';
+          renderConfig();
+          return;
+        }
+        rows.innerHTML = state.logs
+          .map(
+            (x, i) =>
+              `<tr><td>${x.id}</td><td class="${x.status === "DELIVERED" ? "ok" : "bad"}">${esc(x.status)}</td><td>${x.lastHttpStatus || "-"}</td><td>${x.attempts}</td><td>${dt(x.createdAt)}</td><td>${dt(x.deliveredAt)}</td><td class="mono snippet">${esc(x.lastError || "-")}</td><td class="mono snippet">${esc(shortText(x.lastResponse || "-"))}</td><td class="mono">${esc(x.idempotencyKey)}</td><td><button type="button" class="btn secondary" onclick="openApiLogDetail(${i})">Detail</button></td></tr>`,
+          )
+          .join("");
+        renderConfig();
+      }
+      function openApiLogDetail(i) {
+        const x = state.logs[i];
+        $("detail-title").textContent = "API Response: #" + x.id;
+        $("detail-body").innerHTML =
+          `<div class="card"><h3>Send Log</h3><div class="table-wrap mt-12"><table><tbody><tr><th>Status</th><td class="${x.status === "DELIVERED" ? "ok" : "bad"}">${esc(x.status)}</td></tr><tr><th>HTTP</th><td>${esc(x.lastHttpStatus || "-")}</td></tr><tr><th>Attempts</th><td>${esc(x.attempts)}</td></tr><tr><th>Created</th><td>${dt(x.createdAt)}</td></tr><tr><th>Delivered</th><td>${dt(x.deliveredAt)}</td></tr><tr><th>Idempotency</th><td class="mono">${esc(x.idempotencyKey)}</td></tr></tbody></table></div></div><div class="card"><h3>Response / Error</h3><pre class="terminal">${esc(x.lastResponse || x.lastError || "-")}</pre></div>`;
+        openDialog("detail-dialog");
+      }
+      $("cfg-form").onsubmit = async (e) => {
+        e.preventDefault();
+        try {
+          state.config = await post("/api/gateway-config", {
+            gatewayId: $("cfg-gateway").value.trim(),
+            endpoint: $("cfg-endpoint").value.trim(),
+            apiKey: $("cfg-key").value.trim(),
+            apiPollingEnabled: $("cfg-enabled").checked,
+            sendIntervalSeconds: +$("cfg-interval").value || 5,
+            sendTimeoutSeconds: +$("cfg-timeout").value || 10,
+          });
+          renderConfig();
+          toast("บันทึก API Config แล้ว");
+        } catch (err) {
+          toast(err.message, true);
+        }
+      };
+      $("import-file").onchange = async (e) => {
+        const f = e.target;
+        if (!f.files.length) return;
+        try {
+          const csv = await f.files[0].text();
+          const data = await post("/api/import-device-set-address", { csv });
+          $("import-status").textContent =
+            "Import สำเร็จ: " +
+            data.brands +
+            " brand, " +
+            data.deviceSets +
+            " device set, " +
+            data.addresses +
+            " address";
+          $("import-status").className = "status-line ok";
+          $("import-raw").classList.remove("hidden");
+          $("import-raw").textContent = JSON.stringify(data, null, 2);
+          f.value = "";
+          await refresh();
+          showSetup("sets");
+        } catch (err) {
+          $("import-status").textContent = err.message;
+          $("import-status").className = "status-line bad";
+        }
+      };
+      function liveInterval() {
+        return Math.max(
+          1,
+          Math.min(3600, +($("live-interval")?.value || 5) || 5),
+        );
+      }
+      function updateLiveButton() {
+        const b = $("live-toggle");
+        if (b) {
+          b.textContent = state.liveRunning
+            ? "Stop Live Test"
+            : "Start Live Test";
+          b.className = "btn " + (state.liveRunning ? "danger" : "primary");
+        }
+      }
+      function addLiveLog(id, status, message, detail) {
+        const c = state.connections.find((x) => x.connectionId === +id) || {};
+        state.liveLogs.unshift({
+          id: Date.now() + Math.random(),
+          connectionId: +id,
+          connectionName: c.connectionName || String(id),
+          status,
+          message,
+          detail: JSON.stringify(detail || {}),
+          createdAt: Date.now(),
+        });
+        state.liveLogs = state.liveLogs.slice(0, 500);
+        state.pollLogs = state.liveLogs;
+        renderPollLogs();
+        renderMonitor();
+      }
+      async function connectTest(id) {
+        state.monitorId = +id;
+        try {
+          const data = await post("/api/connect-test/" + id, {});
+          const p = data.probe || {};
+          addLiveLog(id, "OK", "connect ok: " + (p.registerFamily || p.protocol || "Modbus TCP"), data);
+          toast("Connect OK");
+          view("monitor");
+        } catch (e) {
+          addLiveLog(id, "ERROR", e.message, { connectError: e.message });
+          toast(e.message, true);
+        }
+      }
+      async function sendAPIOnce(id) {
+        state.monitorId = +id;
+        try {
+          const data = await post("/api/send-api-once/" + id, {});
+          addLiveLog(id, "OK", "sent API once: HTTP " + (data.httpStatus || "-"), data);
+          state.last = data;
+          await loadLogs();
+          view("monitor");
+          toast("ส่ง API แล้ว 1 ครั้ง");
+        } catch (e) {
+          addLiveLog(id, "ERROR", e.message, { sendError: e.message });
+          toast(e.message, true);
+        }
+      }      async function liveRead(id) {
+        try {
+          const data = await post("/api/read-now/" + id, {});
+          addLiveLog(id, "OK", "manual read only", data);
+          return data;
+        } catch (e) {
+          addLiveLog(id, "ERROR", e.message, { pollError: e.message });
+          throw e;
+        }
+      }
+      async function toggleLiveTest() {
+        if (state.liveRunning) {
+          clearInterval(state.liveTimer);
+          state.liveRunning = false;
+          updateLiveButton();
+          toast("หยุด Live Test แล้ว");
+          return;
+        }
+        try {
+          state.liveRunning = true;
+          updateLiveButton();
+          await runLiveSweep();
+          state.liveTimer = setInterval(runLiveSweep, liveInterval() * 1000);
+          toast("เริ่ม Live Test ทุก " + liveInterval() + " sec");
+        } catch (e) {
+          state.liveRunning = false;
+          updateLiveButton();
+          toast(e.message, true);
+        }
+      }
+      async function runLiveSweep() {
+        const items = state.connections.filter((c) => c.enabled);
+        if (!items.length) {
+          toast("ไม่มี enabled connection", true);
+          return;
+        }
+        if (!state.monitorId) state.monitorId = items[0].connectionId;
+        let ok = 0;
+        for (const c of items) {
+          try {
+            await liveRead(c.connectionId);
+            ok++;
+          } catch (e) {
+            console.warn(e);
+          }
+        }
+        renderMonitorCurrent();
+        toast("Live Test อ่านแล้ว " + ok + "/" + items.length + " connection");
+      }
+      async function readNow(id, quiet = false) {
+        state.monitorId = +id;
+        try {
+          const data = await liveRead(id);
+          state.last = data;
+          view("monitor");
+          if (!quiet) toast("อ่านค่าแล้ว (ยังไม่ส่ง API)");
+        } catch (e) {
+          toast(e.message, true);
+        }
+      }
+      function clearLiveLogs() {
+        state.liveLogs = [];
+        state.pollLogs = [];
+        renderPollLogs();
+        renderMonitor();
+        toast("ล้าง Live Monitor session log แล้ว");
+      }
+      function exportLiveLogs() {
+        exportRows("live-monitor-logs.csv", [
+          ["time", "connection_name", "status", "message", "summary", "detail"],
+          ...state.liveLogs.map((x) => [
+            dt(x.createdAt),
+            x.connectionName,
+            x.status,
+            x.message,
+            logSummary(x),
+            x.detail,
+          ]),
+        ]);
+      }
+      setInterval(() => {
+        if (
+          document.getElementById("monitor")?.classList.contains("active") &&
+          state.monitorId
+        )
+          loadPollLogs(false);
+      }, 5000);
+      refresh();
+    </script>
+  </body>
+</html>

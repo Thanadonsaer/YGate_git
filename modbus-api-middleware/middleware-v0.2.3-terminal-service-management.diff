@@ -1,0 +1,142 @@
+diff --git a/modbus-api-middleware/internal/web/configuration.go b/modbus-api-middleware/internal/web/configuration.go
+--- a/modbus-api-middleware/internal/web/configuration.go
++++ b/modbus-api-middleware/internal/web/configuration.go
+@@ -16,5 +16,6 @@
+ 	mux := http.NewServeMux()
+ 	mux.HandleFunc("/config", s.configPage)
+ 	mux.HandleFunc("/logs", s.logsPage)
+-	mux.HandleFunc("/service", s.servicePage)
++	mux.HandleFunc("/service", http.NotFound)
++	mux.HandleFunc("/api/service/", http.NotFound)
+ 	mux.HandleFunc("/brands/", s.brandPage)
+@@ -37,4 +38,0 @@
+-	mux.HandleFunc("/api/service/status", s.serviceStatus)
+-	mux.HandleFunc("/api/service/action", s.serviceAction)
+-	mux.HandleFunc("/api/service/license", s.serviceLicense)
+-	mux.HandleFunc("/api/service/machine-id", s.serviceMachineID)
+diff --git a/modbus-api-middleware/internal/web/static/index.html b/modbus-api-middleware/internal/web/static/index.html
+--- a/modbus-api-middleware/internal/web/static/index.html
++++ b/modbus-api-middleware/internal/web/static/index.html
+@@ -665,4 +665,3 @@
+             data-view="monitor">Live Monitor</button><button type="button"
+-            data-view="update">Update Patch</button><button type="button"
+-            onclick="location.href='/service'">Service</button>
++            data-view="update">Update Patch</button>
+         </nav>
+diff --git a/modbus-api-middleware/internal/web/license_gate.go b/modbus-api-middleware/internal/web/license_gate.go
+--- a/modbus-api-middleware/internal/web/license_gate.go
++++ b/modbus-api-middleware/internal/web/license_gate.go
+@@ -3,5 +3,6 @@
+ import (
+ 	"fmt"
+ 	"net/http"
++	"os"
+ 	"path/filepath"
+ 	"strings"
+@@ -11,24 +12,11 @@
+ func (s *Server) licenseGate(next http.Handler) http.Handler {
+ 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+-		if s.LicensePublicKey == "" || s.licenseAllowedPath(r.URL.Path) || s.hasValidLicense() {
++		if s.LicensePublicKey == "" || s.hasValidLicense() {
+ 			next.ServeHTTP(w, r)
+ 			return
+ 		}
+-		if r.Method == http.MethodGet && !strings.HasPrefix(r.URL.Path, "/api/") {
+-			http.Redirect(w, r, "/service", http.StatusFound)
+-			return
+-		}
+-		writeError(w, http.StatusForbidden, fmt.Errorf("activate license first"))
++		writeError(w, http.StatusForbidden, fmt.Errorf("license required; activate from Terminal with -activate-license"))
+ 	})
+ }
+ 
+-func (s *Server) licenseAllowedPath(path string) bool {
+-	switch path {
+-	case "/service", "/api/service/status", "/api/service/license", "/api/service/machine-id":
+-		return true
+-	default:
+-		return false
+-	}
+-}
+-
+ func (s *Server) hasValidLicense() bool {
+@@ -42,4 +32,5 @@
+ func (s *Server) licenseFiles() []string {
+ 	file := strings.TrimSpace(s.LicenseFile)
+-	def := defaultServiceRequest().LicenseFile
++	exe, _ := os.Executable()
++	def := filepath.Join(filepath.Dir(exe), "license.json")
+ 	candidates := []string{file}
+diff --git a/modbus-api-middleware/internal/web/license_gate_test.go b/modbus-api-middleware/internal/web/license_gate_test.go
+--- a/modbus-api-middleware/internal/web/license_gate_test.go
++++ b/modbus-api-middleware/internal/web/license_gate_test.go
+@@ -13,5 +13,5 @@
+ 	web := httptest.NewRecorder()
+ 	h.ServeHTTP(web, httptest.NewRequest(http.MethodGet, "/", nil))
+-	if web.Code != http.StatusFound || web.Header().Get("Location") != "/service" {
+-		t.Fatalf("web status=%d location=%q", web.Code, web.Header().Get("Location"))
++	if web.Code != http.StatusForbidden {
++		t.Fatalf("web status=%d body=%q", web.Code, web.Body.String())
+ 	}
+@@ -25,8 +25,17 @@
+-func TestLicenseGateAllowsServicePage(t *testing.T) {
+-	s := &Server{LicensePublicKey: "not-a-valid-public-key", LicenseFile: "missing-license.json"}
+-	res := httptest.NewRecorder()
+-	s.FullHandler().ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/service", nil))
+-	if res.Code != http.StatusOK {
+-		t.Fatalf("status=%d body=%s", res.Code, res.Body.String())
++func TestServiceManagementRoutesAreNotExposed(t *testing.T) {
++	s := &Server{}
++	for _, tc := range []struct {
++		method string
++		path   string
++	}{
++		{http.MethodGet, "/service"},
++		{http.MethodGet, "/api/service/status"},
++		{http.MethodPost, "/api/service/action"},
++	} {
++		res := httptest.NewRecorder()
++		s.FullHandler().ServeHTTP(res, httptest.NewRequest(tc.method, tc.path, nil))
++		if res.Code != http.StatusNotFound {
++			t.Fatalf("%s %s status=%d body=%s", tc.method, tc.path, res.Code, res.Body.String())
++		}
+ 	}
+ }
+diff --git a/modbus-api-middleware/cmd/middleware/main.go b/modbus-api-middleware/cmd/middleware/main.go
+--- a/modbus-api-middleware/cmd/middleware/main.go
++++ b/modbus-api-middleware/cmd/middleware/main.go
+@@ -22,5 +22,5 @@
+ )
+ 
+ var (
+-	version          = "0.2.2"
++	version          = "0.2.3"
+ 	commit           = "dev"
+@@ -220,4 +220,4 @@
+ 		host = "127.0.0.1"
+ 	}
+-	return "http://" + net.JoinHostPort(host, port) + "/service"
++	return "http://" + net.JoinHostPort(host, port) + "/"
+ }
+diff --git a/modbus-api-middleware/build-all.bat b/modbus-api-middleware/build-all.bat
+--- a/modbus-api-middleware/build-all.bat
++++ b/modbus-api-middleware/build-all.bat
+@@ -21,4 +21,4 @@
+ set "GOARCH="
+ set "GOARM="
+-set "VERSION=0.2.2"
++set "VERSION=0.2.3"
+ set "KEYS_FILE=%CD%\license-keys.env"
+diff --git a/modbus-api-middleware/CHANGELOG.md b/modbus-api-middleware/CHANGELOG.md
+--- a/modbus-api-middleware/CHANGELOG.md
++++ b/modbus-api-middleware/CHANGELOG.md
+@@ -1,3 +1,9 @@
+ # Changelog
+ 
++## v0.2.3
++
++- Removed Windows Service lifecycle controls and license activation from the web UI.
++- Returned `404` for the retired `/service` and `/api/service/*` routes.
++- Kept service installation, control, and license activation in the Terminal.
++
+ ## v0.2.2

@@ -1,0 +1,11 @@
+--- a/build-all.bat
++++ b/build-all.bat
+@@ -66,7 +66,7 @@
+ copy /Y "deploy\manage-service.sh" "build\linux\deploy\manage-service.sh" >nul
+ if exist "README.md" copy /Y "README.md" "build\linux\README.md" >nul
+ echo Final clean
+-del /q "build\*.db" "build\*.exe~" "build\license.json" >nul 2>nul
++del /q "build\*.exe~" >nul 2>nul
+ 
+ echo.
+ echo Build complete:

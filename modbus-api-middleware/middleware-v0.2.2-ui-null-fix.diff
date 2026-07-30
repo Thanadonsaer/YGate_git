@@ -1,0 +1,136 @@
+diff --git a/modbus-api-middleware/internal/web/static/index.html b/modbus-api-middleware/internal/web/static/index.html
+--- a/modbus-api-middleware/internal/web/static/index.html
++++ b/modbus-api-middleware/internal/web/static/index.html
+@@ -1744,2 +1744,5 @@
+-        $("update-message").textContent = u.message || "";
+-        $("update-message").className = "status-line mt-12 " + (u.canApply ? "ok" : "bad");
++        const message = $("update-message");
++        if (message) {
++          message.textContent = u.message || "";
++          message.className = "status-line mt-12 " + (u.canApply ? "ok" : "bad");
++        }
+@@ -1752,5 +1755,14 @@
+       async function uploadUpdatePatch() {
+         const file = $("update-file")?.files?.[0];
+         if (!file) return toast("กรุณาเลือก patch ZIP", true);
+-        if (!confirm("Upload patch แล้ว restart service เพื่อติดตั้งตอนนี้?")) return;
++        let updateState;
++        try {
++          updateState = await api("/api/update/status");
++        } catch (e) {
++          return toast(e.message, true);
++        }
++        const prompt = updateState.canApply
++          ? "Upload patch แล้ว restart service เพื่อติดตั้งตอนนี้?"
++          : "Upload patch เพื่อ Stage ไว้ก่อน? ต้องติดตั้ง Middleware เป็น Service จึงจะ Apply ได้";
++        if (!confirm(prompt)) return;
+         const fd = new FormData();
+@@ -1760,2 +1770,8 @@
+           if (!res.ok || body.success === false) throw new Error(body.error || res.statusText);
++          state.update = await api("/api/update/status");
++          renderUpdateStatus();
++          if (!state.update.canApply) {
++            toast("Stage patch แล้ว — ติดตั้ง Middleware เป็น Windows Service ก่อน Apply", true);
++            return;
++          }
+           toast("Upload สำเร็จ กำลังติดตั้ง patch...");
+@@ -1833,7 +1849,11 @@
+           )
+           .join("");
+-        $("set-brand").innerHTML = brands;
+-        $("brand-filter").innerHTML =
+-          '<option value="0">ทุก Brand</option>' + brands;
+-        $("brand-filter").value = state.brandFilter;
++        const setBrand = $("set-brand");
++        const brandFilter = $("brand-filter");
++        if (setBrand) setBrand.innerHTML = brands;
++        if (brandFilter) {
++          brandFilter.innerHTML =
++            '<option value="0">ทุก Brand</option>' + brands;
++          brandFilter.value = state.brandFilter;
++        }
+         const setOptions = state.sets
+@@ -1847,5 +1869,8 @@
+           )
+           .join("");
+-        $("connection-set").innerHTML = setOptions;
+-        $("connection-plant").innerHTML = state.plants
++        const connectionSet = $("connection-set");
++        const connectionPlant = $("connection-plant");
++        if (connectionSet) connectionSet.innerHTML = setOptions;
++        if (connectionPlant)
++          connectionPlant.innerHTML = state.plants
+           .map(
+@@ -1857,3 +1882,4 @@
+       function renderBrands() {
+         const box = $("brand-list");
++        if (!box) return;
+         if (!state.brands.length) {
+@@ -1882,3 +1908,4 @@
+       function renderSets() {
+         const box = $("set-list");
++        if (!box) return;
+         let items = visibleSets();
+diff --git a/modbus-api-middleware/internal/web/update_test.go b/modbus-api-middleware/internal/web/update_test.go
+--- a/modbus-api-middleware/internal/web/update_test.go
++++ b/modbus-api-middleware/internal/web/update_test.go
+@@ -127,3 +127,21 @@
+ }
+ 
++func TestUpdatePageGuardsOptionalElementsAndStandaloneApply(t *testing.T) {
++	page, err := files.ReadFile("static/index.html")
++	if err != nil {
++		t.Fatal(err)
++	}
++	html := string(page)
++	for _, required := range []string{
++		"if (setBrand) setBrand.innerHTML",
++		"if (brandFilter)",
++		"if (connectionSet) connectionSet.innerHTML",
++		"if (!state.update.canApply)",
++	} {
++		if !strings.Contains(html, required) {
++			t.Fatalf("update page missing guard %q", required)
++		}
++	}
++}
++
+ func TestUpdateUploadAcceptsManifestBOM(t *testing.T) {
+diff --git a/modbus-api-middleware/cmd/middleware/main.go b/modbus-api-middleware/cmd/middleware/main.go
+--- a/modbus-api-middleware/cmd/middleware/main.go
++++ b/modbus-api-middleware/cmd/middleware/main.go
+@@ -22,8 +22,8 @@
+ )
+ 
+ var (
+-	version          = "0.2.1"
++	version          = "0.2.2"
+ 	commit           = "dev"
+ 	licensePublicKey = ""
+ 	serviceMode      bool
+ )
+diff --git a/modbus-api-middleware/build-all.bat b/modbus-api-middleware/build-all.bat
+--- a/modbus-api-middleware/build-all.bat
++++ b/modbus-api-middleware/build-all.bat
+@@ -20,7 +20,7 @@
+ set "GOOS="
+ set "GOARCH="
+ set "GOARM="
+-set "VERSION=0.2.1"
++set "VERSION=0.2.2"
+ set "KEYS_FILE=%CD%\license-keys.env"
+ 
+ if exist "%KEYS_FILE%" (
+diff --git a/modbus-api-middleware/CHANGELOG.md b/modbus-api-middleware/CHANGELOG.md
+--- a/modbus-api-middleware/CHANGELOG.md
++++ b/modbus-api-middleware/CHANGELOG.md
+@@ -1,3 +1,9 @@
+ # Changelog
+ 
++## v0.2.2
++
++- Guarded optional UI elements before updating their HTML.
++- Kept patch uploads in staged state when Middleware is not running as a service.
++- Applied and restarted automatically only when service mode is available.
++
+ ## v0.2.1
