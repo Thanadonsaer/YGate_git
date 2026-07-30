@@ -31,6 +31,9 @@ Health check:
 
 ## Deploy Production
 
+- [คู่มือ Manual Build และลากไฟล์ไป Deploy](docs/deploy/manual-production.md)
+- [คู่มือ CI/CD ด้วย Jenkins](docs/deploy/jenkins-production.md)
+
 Deploy Central Platform เป็น 3 process ที่ restart แยกกันได้หลัง TLS reverse proxy ขององค์กร ส่วน PostgreSQL และ Site/Edge Middleware มีวงจร deploy แยกต่างหาก
 
 ### 1. Build immutable artifacts
