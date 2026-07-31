@@ -9,6 +9,7 @@ import {
   LogOut,
   MapPinned,
   Menu,
+  Server,
   Settings2,
   ShieldCheck,
   ShieldEllipsis,
@@ -28,6 +29,7 @@ import { api, csrfToken } from "../lib/api";
 import { useRealtimeSocket } from "../lib/realtime";
 import type { AuthMode, ConnectionState, User } from "../lib/types";
 import { AuthScreen } from "./auth-screen";
+import { Toaster } from "./ui/sonner";
 
 type SessionContext = {
   user: User;
@@ -54,6 +56,7 @@ const navigation = [
   { href: "/users", label: "Users", icon: Users },
   { href: "/roles", label: "Roles & Permissions", icon: ShieldEllipsis },
   { href: "/api-keys", label: "API Keys", icon: KeyRound },
+  { href: "/middlewares", label: "Middleware Gateways", icon: Server },
   { href: "/openapi", label: "OpenAPI", icon: FileText },
   { href: "/audit", label: "Audit Log", icon: ShieldCheck },
   { href: "/sessions", label: "Sessions", icon: ShieldCheck },
@@ -70,6 +73,7 @@ const titles: Record<string, string> = {
   "/users": "User Management",
   "/roles": "Roles & Permissions",
   "/api-keys": "API Keys",
+  "/middlewares": "Middleware Gateways",
   "/openapi": "OpenAPI Contract",
   "/audit": "Audit Log",
   "/sessions": "My Sessions",
@@ -122,6 +126,7 @@ export function PlatformShell({ children }: { children: ReactNode }) {
 
   return (
     <PlatformSessionContext.Provider value={{ user, liveState, lastLiveAt, updateCurrentUser: setUser }}>
+      <Toaster />
       <main className="app-shell">
         <aside className={navOpen ? "sidebar sidebar-open" : "sidebar"}>
           <div className="brand-lockup">
