@@ -10,18 +10,23 @@ import (
 )
 
 type updateDeviceRequest struct {
-	Name     string `json:"name"`
-	IsActive *bool  `json:"isActive"`
+	Name                string `json:"name"`
+	DeviceModelID       string `json:"deviceModelId"`
+	ModbusHost          string `json:"modbusHost"`
+	ModbusPort          *int32 `json:"modbusPort"`
+	ModbusUnitID        int32  `json:"modbusUnitId"`
+	PollIntervalSeconds int32  `json:"pollIntervalSeconds"`
+	IsActive            *bool  `json:"isActive"`
 }
 
 type createDeviceRequest struct {
-	ExternalID   string `json:"externalId"`
-	Name         string `json:"name"`
-	Manufacturer string `json:"manufacturer"`
-	Model        string `json:"model"`
-	DeviceType   string `json:"deviceType"`
-	SourceTypeID *int32 `json:"sourceTypeId"`
-	SerialNumber string `json:"serialNumber"`
+	ExternalID          string `json:"externalId"`
+	Name                string `json:"name"`
+	DeviceModelID       string `json:"deviceModelId"`
+	ModbusHost          string `json:"modbusHost"`
+	ModbusPort          *int32 `json:"modbusPort"`
+	ModbusUnitID        int32  `json:"modbusUnitId"`
+	PollIntervalSeconds int32  `json:"pollIntervalSeconds"`
 }
 
 type deviceModelRequest struct {
@@ -43,6 +48,14 @@ type updateRegisterMetadataRequest struct {
 	Decimals    int32   `json:"decimals"`
 	IsEnabled   *bool   `json:"isEnabled"`
 	Notes       string  `json:"notes"`
+}
+
+type updateModelRegisterMetadataRequest struct {
+	updateRegisterMetadataRequest
+	ModbusFunctionCode *int32 `json:"modbusFunctionCode"`
+	ModbusRegister     *int32 `json:"modbusRegister"`
+	ModbusWordOrder    string `json:"modbusWordOrder"`
+	ModbusDataType     string `json:"modbusDataType"`
 }
 
 func listDevicesHandler(service *core.Service) func(http.ResponseWriter, *http.Request, auth.Principal) {
@@ -67,7 +80,11 @@ func createDeviceHandler(service *core.Service) func(http.ResponseWriter, *http.
 		if !decodeJSON(w, r, &request, 16<<10) {
 			return
 		}
-		device, err := service.CreateDevice(r.Context(), principal, r.PathValue("plantId"), core.CreateDeviceInput(request), remoteIP(r.RemoteAddr))
+		device, err := service.CreateDevice(r.Context(), principal, r.PathValue("plantId"), core.CreateDeviceInput{
+			ExternalID: request.ExternalID, Name: request.Name, DeviceModelID: request.DeviceModelID,
+			ModbusHost: request.ModbusHost, ModbusPort: request.ModbusPort,
+			ModbusUnitID: request.ModbusUnitID, PollIntervalSeconds: request.PollIntervalSeconds,
+		}, remoteIP(r.RemoteAddr))
 		switch {
 		case errors.Is(err, core.ErrInvalid):
 			http.Error(w, "invalid device data", http.StatusBadRequest)
@@ -185,7 +202,7 @@ func listModelRegisterMetadataHandler(service *core.Service) func(http.ResponseW
 
 func updateModelRegisterMetadataHandler(service *core.Service) func(http.ResponseWriter, *http.Request, auth.Principal) {
 	return func(w http.ResponseWriter, r *http.Request, principal auth.Principal) {
-		var request updateRegisterMetadataRequest
+		var request updateModelRegisterMetadataRequest
 		if !decodeJSON(w, r, &request, 16<<10) {
 			return
 		}
@@ -194,8 +211,12 @@ func updateModelRegisterMetadataHandler(service *core.Service) func(http.Respons
 			return
 		}
 		item, err := service.SetDeviceModelRegisterMetadata(r.Context(), principal, r.PathValue("modelId"), core.UpdateDeviceModelRegisterMetadataInput{
-			AddressKey: request.AddressKey, DisplayName: request.DisplayName, Unit: request.Unit, DataType: request.DataType,
-			Scale: request.Scale, Offset: request.Offset, Decimals: request.Decimals, IsEnabled: *request.IsEnabled, Notes: request.Notes,
+			UpdateDeviceRegisterMetadataInput: core.UpdateDeviceRegisterMetadataInput{
+				AddressKey: request.AddressKey, DisplayName: request.DisplayName, Unit: request.Unit, DataType: request.DataType,
+				Scale: request.Scale, Offset: request.Offset, Decimals: request.Decimals, IsEnabled: *request.IsEnabled, Notes: request.Notes,
+			},
+			ModbusFunctionCode: request.ModbusFunctionCode, ModbusRegister: request.ModbusRegister,
+			ModbusWordOrder: request.ModbusWordOrder, ModbusDataType: request.ModbusDataType,
 		}, remoteIP(r.RemoteAddr))
 		switch {
 		case errors.Is(err, core.ErrInvalid):
@@ -238,7 +259,11 @@ func updateDeviceHandler(service *core.Service) func(http.ResponseWriter, *http.
 			http.Error(w, "invalid request", http.StatusBadRequest)
 			return
 		}
-		device, err := service.UpdateDevice(r.Context(), principal, r.PathValue("plantId"), r.PathValue("deviceId"), core.UpdateDeviceInput{Name: request.Name, IsActive: *request.IsActive}, remoteIP(r.RemoteAddr))
+		device, err := service.UpdateDevice(r.Context(), principal, r.PathValue("plantId"), r.PathValue("deviceId"), core.UpdateDeviceInput{
+			Name: request.Name, DeviceModelID: request.DeviceModelID, ModbusHost: request.ModbusHost,
+			ModbusPort: request.ModbusPort, ModbusUnitID: request.ModbusUnitID,
+			PollIntervalSeconds: request.PollIntervalSeconds, IsActive: *request.IsActive,
+		}, remoteIP(r.RemoteAddr))
 		switch {
 		case errors.Is(err, core.ErrInvalid):
 			http.Error(w, "invalid device data", http.StatusBadRequest)
@@ -293,5 +318,32 @@ func updateRegisterMetadataHandler(service *core.Service) func(http.ResponseWrit
 		default:
 			writeJSON(w, http.StatusOK, item)
 		}
+	}
+}
+
+// deviceCommandHandler relays a live connect-test/read-now command to
+// whichever Middleware currently serves deviceId's Plant. See
+// core.Service.RunMiddlewareCommand for how the Middleware is resolved.
+func deviceCommandHandler(service *core.Service, kind string) func(http.ResponseWriter, *http.Request, auth.Principal) {
+	return func(w http.ResponseWriter, r *http.Request, principal auth.Principal) {
+		result, err := service.RunMiddlewareCommand(r.Context(), principal, r.PathValue("deviceId"), kind)
+		switch {
+		case errors.Is(err, core.ErrMiddlewareOffline):
+			http.Error(w, "middleware gateway is offline", http.StatusServiceUnavailable)
+			return
+		case errors.Is(err, core.ErrMiddlewareCommandNAK):
+			http.Error(w, "middleware gateway did not respond in time", http.StatusGatewayTimeout)
+			return
+		case errors.Is(err, core.ErrForbidden):
+			http.Error(w, "permission denied", http.StatusForbidden)
+			return
+		case err != nil:
+			log.Printf("device command failed: %v", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(result)
 	}
 }

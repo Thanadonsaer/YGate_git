@@ -19,6 +19,7 @@ import (
 	"ygate/platform-api/internal/auth"
 	"ygate/platform-api/internal/core"
 	"ygate/platform-api/internal/database"
+	"ygate/platform-api/internal/gatewayhub"
 )
 
 func TestIngestionAutoOnboardingAndIdempotencyAgainstPostgreSQL(t *testing.T) {
@@ -120,7 +121,7 @@ func TestIngestionAutoOnboardingAndIdempotencyAgainstPostgreSQL(t *testing.T) {
 	if err = pool.QueryRow(ctx, "SELECT id FROM plant WHERE code='NE=49712672'").Scan(&plantID); err != nil {
 		t.Fatal(err)
 	}
-	registry := core.New(pool)
+	registry := core.New(pool, gatewayhub.New())
 	principal := auth.Principal{UserID: adminID, OrganizationID: organizationID}
 	registered, err := registry.Devices(ctx, principal, uuidString(plantID))
 	if err != nil || len(registered) != 1 || registered[0].ExternalID != "INV-1" {

@@ -11,6 +11,7 @@ import (
 
 	"ygate/platform-api/internal/auth"
 	"ygate/platform-api/internal/database"
+	"ygate/platform-api/internal/gatewayhub"
 )
 
 func TestPlantAuthorizationLifecycleAgainstPostgreSQL(t *testing.T) {
@@ -62,7 +63,7 @@ func TestPlantAuthorizationLifecycleAgainstPostgreSQL(t *testing.T) {
 		}
 	}
 
-	service := New(pool)
+	service := New(pool, gatewayhub.New())
 	admin := auth.Principal{UserID: adminID, OrganizationID: orgA}
 	viewerA := auth.Principal{UserID: viewerAID, OrganizationID: orgA}
 	viewerB := auth.Principal{UserID: viewerBID, OrganizationID: orgB}

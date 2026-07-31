@@ -19,6 +19,7 @@ import (
 
 	"ygate/platform-api/internal/auth"
 	"ygate/platform-api/internal/database/dbgen"
+	"ygate/platform-api/internal/gatewayhub"
 )
 
 var (
@@ -32,10 +33,11 @@ var (
 type Service struct {
 	pool    *pgxpool.Pool
 	queries *dbgen.Queries
+	hub     *gatewayhub.Hub
 }
 
-func New(pool *pgxpool.Pool) *Service {
-	return &Service{pool: pool, queries: dbgen.New(pool)}
+func New(pool *pgxpool.Pool, hub *gatewayhub.Hub) *Service {
+	return &Service{pool: pool, queries: dbgen.New(pool), hub: hub}
 }
 
 type Plant struct {

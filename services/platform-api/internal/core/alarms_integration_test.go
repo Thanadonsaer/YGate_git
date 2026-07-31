@@ -11,6 +11,7 @@ import (
 
 	"ygate/platform-api/internal/auth"
 	"ygate/platform-api/internal/database"
+	"ygate/platform-api/internal/gatewayhub"
 )
 
 func TestAlarmRuleAndEventLifecycleAgainstPostgreSQL(t *testing.T) {
@@ -63,7 +64,7 @@ func TestAlarmRuleAndEventLifecycleAgainstPostgreSQL(t *testing.T) {
 		}
 	}
 
-	service := New(pool)
+	service := New(pool, gatewayhub.New())
 	admin := auth.Principal{UserID: platformAdminID, OrganizationID: orgID}
 	viewer := auth.Principal{UserID: viewerID, OrganizationID: orgID}
 

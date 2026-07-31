@@ -15,6 +15,7 @@ import (
 
 	"ygate/platform-api/internal/auth"
 	"ygate/platform-api/internal/core"
+	"ygate/platform-api/internal/gatewayhub"
 	"ygate/platform-api/internal/ingestion"
 )
 
@@ -33,7 +34,7 @@ type LoginFunc func(context.Context, auth.LoginInput) (auth.LoginResult, error)
 type RequestPasswordResetFunc func(context.Context, string, *netip.Addr) error
 type ResetPasswordFunc func(context.Context, string, string, *netip.Addr) error
 
-func New(version string, ready func(context.Context) error, authService *auth.Service, registryService *core.Service, ingestionService *ingestion.Service, cookieSecure bool, allowedOrigins ...string) http.Handler {
+func New(version string, ready func(context.Context) error, authService *auth.Service, registryService *core.Service, ingestionService *ingestion.Service, hub *gatewayhub.Hub, cookieSecure bool, allowedOrigins ...string) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, healthResponse{Status: "ok", Version: version})
@@ -96,6 +97,13 @@ func New(version string, ready func(context.Context) error, authService *auth.Se
 			mux.HandleFunc("PUT /api/v1/admin/api-keys/{keyId}", authenticated(authService, true, updateAPIKeyHandler(registryService)))
 			mux.HandleFunc("DELETE /api/v1/admin/api-keys/{keyId}", authenticated(authService, true, hardDeleteAPIKeyHandler(registryService)))
 			mux.HandleFunc("POST /api/v1/admin/api-keys/{keyId}/status", authenticated(authService, true, updateAPIKeyStatusHandler(registryService)))
+			mux.HandleFunc("GET /api/v1/admin/middlewares", authenticated(authService, false, listMiddlewaresHandler(registryService)))
+			mux.HandleFunc("POST /api/v1/admin/middlewares", authenticated(authService, true, createMiddlewareHandler(registryService)))
+			mux.HandleFunc("PUT /api/v1/admin/middlewares/{middlewareId}", authenticated(authService, true, updateMiddlewareHandler(registryService)))
+			mux.HandleFunc("GET /api/v1/admin/middlewares/{middlewareId}/config", authenticated(authService, false, getMiddlewareConfigHandler(registryService)))
+			mux.HandleFunc("GET /api/v1/admin/middlewares/{middlewareId}/plants", authenticated(authService, false, listMiddlewarePlantsHandler(registryService)))
+			mux.HandleFunc("POST /api/v1/admin/middlewares/{middlewareId}/plants", authenticated(authService, true, assignMiddlewarePlantHandler(registryService)))
+			mux.HandleFunc("DELETE /api/v1/admin/middlewares/{middlewareId}/plants/{plantId}", authenticated(authService, true, unassignMiddlewarePlantHandler(registryService)))
 			mux.HandleFunc("GET /api/v1/admin/users", authenticated(authService, false, listUsersHandler(registryService)))
 			mux.HandleFunc("POST /api/v1/admin/users", authenticated(authService, true, createUserHandler(registryService)))
 			mux.HandleFunc("PUT /api/v1/admin/users/{userId}", authenticated(authService, true, updateUserHandler(registryService)))
@@ -125,6 +133,8 @@ func New(version string, ready func(context.Context) error, authService *auth.Se
 			mux.HandleFunc("POST /api/v1/plants/{plantId}/devices", authenticated(authService, true, createDeviceHandler(registryService)))
 			mux.HandleFunc("PUT /api/v1/plants/{plantId}/devices/{deviceId}", authenticated(authService, true, updateDeviceHandler(registryService)))
 			mux.HandleFunc("DELETE /api/v1/plants/{plantId}/devices/{deviceId}", authenticated(authService, true, hardDeleteDeviceHandler(registryService)))
+			mux.HandleFunc("POST /api/v1/plants/{plantId}/devices/{deviceId}/test-connection", authenticated(authService, true, deviceCommandHandler(registryService, "connectTest")))
+			mux.HandleFunc("POST /api/v1/plants/{plantId}/devices/{deviceId}/test-read", authenticated(authService, true, deviceCommandHandler(registryService, "readNow")))
 			mux.HandleFunc("GET /api/v1/plants/{plantId}/device-register-metadata/{deviceId}", authenticated(authService, false, listRegisterMetadataHandler(registryService)))
 			mux.HandleFunc("PUT /api/v1/plants/{plantId}/device-register-metadata/{deviceId}", authenticated(authService, true, updateRegisterMetadataHandler(registryService)))
 			mux.HandleFunc("GET /api/v1/plants/{plantId}/telemetry/latest", authenticated(authService, false, latestTelemetryHandler(registryService)))
@@ -155,6 +165,9 @@ func New(version string, ready func(context.Context) error, authService *auth.Se
 		mux.HandleFunc("POST /api/v1/ingestion/telemetry", ingestionHandler(ingestionService))
 		mux.HandleFunc("POST /api/middleware/readings", ingestionHandler(ingestionService))
 		mux.HandleFunc("POST /api/v2/ingestion/register-readings", rawIngestionHandler(ingestionService))
+		if registryService != nil {
+			mux.HandleFunc("GET /api/v1/gateway/realtime", gatewayRealtimeHandler(ingestionService, registryService, hub))
+		}
 	}
 	mux.HandleFunc("POST /api/v1/auth/login", loginHandler(login, cookieSecure))
 	return mux

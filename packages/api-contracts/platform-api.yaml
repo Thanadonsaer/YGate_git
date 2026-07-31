@@ -833,6 +833,210 @@ paths:
           description: Missing global Middleware client hard-delete permission
         "404":
           description: API key client is missing
+  /api/v1/admin/middlewares:
+    get:
+      operationId: listAdminMiddlewares
+      summary: List middleware gateways (site polling agents) without returning secrets
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Permission-scoped middleware gateways
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 200
+                items:
+                  $ref: "#/components/schemas/MiddlewareGateway"
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing Middleware client read permission
+    post:
+      operationId: createAdminMiddleware
+      summary: Register a new middleware gateway and return its API key once
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateMiddlewareRequest"
+      responses:
+        "201":
+          description: Middleware gateway created; apiKey is shown only in this response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatedMiddlewareGateway"
+        "400":
+          description: Invalid middleware gateway data
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing Middleware client create permission
+        "409":
+          description: Middleware gateway name already exists
+  /api/v1/admin/middlewares/{middlewareId}:
+    parameters:
+      - name: middlewareId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    put:
+      operationId: updateAdminMiddleware
+      summary: Update a middleware gateway's name, site name, or active status
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateMiddlewareRequest"
+      responses:
+        "200":
+          description: Middleware gateway updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MiddlewareGateway"
+        "400":
+          description: Invalid middleware gateway data
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing Middleware client update permission
+        "404":
+          description: Middleware gateway is missing or outside scope
+  /api/v1/admin/middlewares/{middlewareId}/config:
+    parameters:
+      - name: middlewareId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getAdminMiddlewareConfig
+      summary: Get a middleware gateway's last computed-and-pushed config snapshot (read-only; computed from assigned Plants' Devices, not admin-authored)
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Last computed config snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MiddlewareConfigSnapshot"
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing middleware config read permission
+        "404":
+          description: Middleware gateway is missing or outside scope
+  /api/v1/admin/middlewares/{middlewareId}/plants:
+    parameters:
+      - name: middlewareId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: listAdminMiddlewarePlants
+      summary: List the Plants currently assigned to a middleware gateway
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Assigned plants
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Plant"
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing middleware plant read permission
+    post:
+      operationId: assignAdminMiddlewarePlant
+      summary: Assign a Plant to a middleware gateway (reassigns it away from any other gateway that held it -- one gateway per Plant)
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [plantId]
+              properties:
+                plantId:
+                  type: string
+                  format: uuid
+      responses:
+        "204":
+          description: Plant assigned; both the newly- and previously-assigned gateway (if different) have their config recomputed and pushed
+        "400":
+          description: Invalid plant id, or plant belongs to a different organization
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing middleware plant update permission
+        "404":
+          description: Middleware gateway is missing or outside scope
+  /api/v1/admin/middlewares/{middlewareId}/plants/{plantId}:
+    parameters:
+      - name: middlewareId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: plantId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    delete:
+      operationId: unassignAdminMiddlewarePlant
+      summary: Unassign a Plant from a middleware gateway
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      responses:
+        "204":
+          description: Plant unassigned; the gateway's config is recomputed and pushed
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing middleware plant update permission
+        "404":
+          description: Middleware gateway, plant, or assignment not found
+  /api/v1/gateway/realtime:
+    get:
+      operationId: connectGatewayRealtime
+      summary: Outbound-initiated WebSocket used by a middleware instance to sync config and relay commands
+      description: Machine-to-machine channel, authenticated like the ingestion endpoints (X-Api-Key), not a browser session.
+      security:
+        - apiKeyAuth: []
+      responses:
+        "101":
+          description: WebSocket connection established; exchanges hello/config.snapshot/config.ack/command.request/command.result frames
+        "401":
+          description: Invalid or missing middleware API key
   /api/v1/realtime:
     get:
       operationId: connectRealtime
@@ -1150,14 +1354,14 @@ paths:
                 type: array
                 maxItems: 1000
                 items:
-                  $ref: "#/components/schemas/RegisterMetadata"
+                  $ref: "#/components/schemas/DeviceModelRegisterMetadata"
         "401":
           description: Authentication required
         "404":
           description: Device Model is missing or outside scope
     put:
       operationId: upsertDeviceModelRegisterMetadata
-      summary: Create or update one reusable register metadata template row
+      summary: Create or update one reusable register metadata template row, optionally with Modbus register-decode config
       security:
         - cookieAuth: []
           csrfToken: []
@@ -1166,14 +1370,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/UpdateRegisterMetadataRequest"
+              $ref: "#/components/schemas/UpdateDeviceModelRegisterMetadataRequest"
       responses:
         "200":
           description: Model-level register metadata saved
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/RegisterMetadata"
+                $ref: "#/components/schemas/DeviceModelRegisterMetadata"
         "400":
           description: Invalid register metadata
         "401":
@@ -1269,6 +1473,68 @@ paths:
           description: Missing global Device hard-delete permission
         "404":
           description: Device is missing
+  /api/v1/plants/{plantId}/devices/{deviceId}/test-connection:
+    parameters:
+      - name: plantId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: deviceId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: testPlantDeviceConnection
+      summary: Relay a live Modbus connect-test to whichever middleware gateway serves this Device's Plant, and wait for the result
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      responses:
+        "200":
+          description: Result relayed back from the gateway
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing middleware config read permission
+        "503":
+          description: No middleware gateway is currently serving this Device's Plant, or it is offline
+        "504":
+          description: Gateway did not respond in time
+  /api/v1/plants/{plantId}/devices/{deviceId}/test-read:
+    parameters:
+      - name: plantId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: deviceId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: testPlantDeviceRead
+      summary: Relay a live Modbus register read to whichever middleware gateway serves this Device's Plant, and wait for the result
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      responses:
+        "200":
+          description: Result relayed back from the gateway
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing middleware config read permission
+        "503":
+          description: No middleware gateway is currently serving this Device's Plant, or it is offline
+        "504":
+          description: Gateway did not respond in time
   /api/v1/plants/{plantId}/device-register-metadata/{deviceId}:
     parameters:
       - name: plantId
@@ -2655,6 +2921,181 @@ components:
           type: boolean
         isActive:
           type: boolean
+    MiddlewareGateway:
+      type: object
+      additionalProperties: false
+      required: [id, organizationId, organizationName, name, siteName, keyPrefix, isActive, isOnline, configVersion, configAppliedVersion, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        organizationId:
+          type: string
+          format: uuid
+        organizationName:
+          type: string
+        name:
+          type: string
+        siteName:
+          type: string
+        keyPrefix:
+          type: string
+          description: Non-secret prefix for identifying the key
+        isActive:
+          type: boolean
+        isOnline:
+          type: boolean
+          description: Whether the gateway currently holds a live realtime connection
+        configVersion:
+          type: integer
+          format: int64
+        configAppliedVersion:
+          type: integer
+          format: int64
+        lastSeenAt:
+          type: [string, "null"]
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    CreatedMiddlewareGateway:
+      allOf:
+        - $ref: "#/components/schemas/MiddlewareGateway"
+        - type: object
+          additionalProperties: false
+          required: [apiKey]
+          properties:
+            apiKey:
+              type: string
+              description: Secret API key shown only once at creation time
+    CreateMiddlewareRequest:
+      type: object
+      additionalProperties: false
+      required: [organizationId, name]
+      properties:
+        organizationId:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        siteName:
+          type: string
+          maxLength: 200
+    UpdateMiddlewareRequest:
+      type: object
+      additionalProperties: false
+      required: [name, siteName, isActive]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        siteName:
+          type: string
+          maxLength: 200
+        isActive:
+          type: boolean
+    MiddlewareAddress:
+      type: object
+      additionalProperties: false
+      required: [addressId, deviceSetId, functionCode, register, description, factor, dataType, enabled]
+      properties:
+        addressId: { type: integer, format: int64 }
+        deviceSetId: { type: integer, format: int64 }
+        functionCode: { type: integer }
+        register: { type: integer }
+        description: { type: string }
+        canonicalKey: { type: string }
+        sourceTag: { type: string }
+        factor: { type: number }
+        offset: { type: number }
+        dataType: { type: string }
+        length: { type: integer }
+        wordOrder: { type: string }
+        sourceUnit: { type: string }
+        remark: { type: string }
+        enabled: { type: boolean }
+    MiddlewareDeviceSet:
+      type: object
+      additionalProperties: false
+      required: [deviceSetId, devType, devModel, addresses]
+      properties:
+        deviceSetId: { type: integer, format: int64 }
+        brandId: { type: integer, format: int64 }
+        brandName: { type: string }
+        devTypeId: { type: integer }
+        devType: { type: string }
+        devModel: { type: string }
+        addressMode: { type: string }
+        byteOrder: { type: string }
+        wordOrder: { type: string }
+        maxBlockSize: { type: integer }
+        addresses:
+          type: array
+          items:
+            $ref: "#/components/schemas/MiddlewareAddress"
+    MiddlewareBrand:
+      type: object
+      additionalProperties: false
+      required: [brandId, brandName]
+      properties:
+        brandId: { type: integer, format: int64 }
+        brandName: { type: string }
+        brandDescription: { type: string }
+    MiddlewareConnection:
+      type: object
+      additionalProperties: false
+      required: [connectionId, connectionName, host, port, deviceSetId, enabled]
+      properties:
+        connectionId: { type: integer, format: int64 }
+        connectionName: { type: string }
+        host: { type: string }
+        port: { type: integer }
+        unitId: { type: integer }
+        deviceSetId: { type: integer, format: int64 }
+        devDn: { type: string }
+        deviceName: { type: string }
+        plantCode:
+          type: string
+          description: Must match an existing Plant code in the same organization
+        plantName: { type: string }
+        enabled: { type: boolean }
+    MiddlewarePlant:
+      type: object
+      additionalProperties: false
+      required: [plantCode, plantName]
+      properties:
+        plantCode: { type: string }
+        plantName: { type: string }
+    MiddlewareConfigSnapshot:
+      type: object
+      additionalProperties: false
+      required: [version, brands, deviceSets, connections, plants]
+      properties:
+        version:
+          type: integer
+          format: int64
+        brands:
+          type: array
+          items:
+            $ref: "#/components/schemas/MiddlewareBrand"
+        deviceSets:
+          type: array
+          items:
+            $ref: "#/components/schemas/MiddlewareDeviceSet"
+        connections:
+          type: array
+          items:
+            $ref: "#/components/schemas/MiddlewareConnection"
+        plants:
+          type: array
+          items:
+            $ref: "#/components/schemas/MiddlewarePlant"
     AuditEvent:
       type: object
       additionalProperties: false
@@ -2828,7 +3269,7 @@ components:
     Device:
       type: object
       additionalProperties: false
-      required: [id, organizationId, plantId, externalId, name, deviceModelId, manufacturer, model, deviceType, isActive, createdAt, updatedAt]
+      required: [id, organizationId, plantId, externalId, name, deviceModelId, manufacturer, model, deviceType, modbusUnitId, pollIntervalSeconds, isActive, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -2854,6 +3295,15 @@ components:
           type: string
         sourceTypeId:
           type: [integer, "null"]
+        modbusHost:
+          type: [string, "null"]
+          description: When set together with modbusPort, this Device is polled by whichever middleware gateway serves its Plant
+        modbusPort:
+          type: [integer, "null"]
+        modbusUnitId:
+          type: integer
+        pollIntervalSeconds:
+          type: integer
         isActive:
           type: boolean
         createdAt:
@@ -2865,7 +3315,7 @@ components:
     CreateDeviceRequest:
       type: object
       additionalProperties: false
-      required: [externalId, name, manufacturer, model, deviceType]
+      required: [externalId, name, deviceModelId]
       properties:
         externalId:
           type: string
@@ -2875,24 +3325,27 @@ components:
           type: string
           minLength: 1
           maxLength: 200
-        manufacturer:
+        deviceModelId:
           type: string
-          minLength: 1
-          maxLength: 200
-        model:
+          format: uuid
+        modbusHost:
           type: string
-          minLength: 1
-          maxLength: 200
-        deviceType:
-          type: string
-          minLength: 1
-          maxLength: 100
-        sourceTypeId:
+          maxLength: 255
+          description: Leave empty for a Device fed by v1/v2 telemetry ingestion instead of a middleware gateway
+        modbusPort:
           type: [integer, "null"]
+          minimum: 1
+          maximum: 65535
+        modbusUnitId:
+          type: integer
           minimum: 0
-        serialNumber:
-          type: string
-          maxLength: 200
+          maximum: 255
+          default: 1
+        pollIntervalSeconds:
+          type: integer
+          minimum: 1
+          maximum: 3600
+          default: 10
     DeviceModelOption:
       type: object
       additionalProperties: false
@@ -3070,6 +3523,77 @@ components:
         notes:
           type: string
           maxLength: 500
+    DeviceModelRegisterMetadata:
+      type: object
+      additionalProperties: false
+      required: [id, organizationId, deviceModelId, addressKey, displayName, unit, dataType, scale, offset, decimals, isEnabled, notes, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        organizationId:
+          type: string
+          format: uuid
+        deviceModelId:
+          type: string
+          format: uuid
+        addressKey:
+          type: string
+        displayName:
+          type: string
+        unit:
+          type: string
+        dataType:
+          type: string
+          enum: [number, boolean, text, enum]
+        scale:
+          type: number
+        offset:
+          type: number
+        decimals:
+          type: integer
+        isEnabled:
+          type: boolean
+        notes:
+          type: string
+        modbusFunctionCode:
+          type: [integer, "null"]
+          enum: [3, 4, null]
+          description: Set together with modbusRegister/modbusDataType to make this row pollable by a middleware gateway; null means display-metadata only
+        modbusRegister:
+          type: [integer, "null"]
+          minimum: 0
+          maximum: 65535
+        modbusWordOrder:
+          type: [string, "null"]
+          enum: [HIGH_LOW, LOW_HIGH, null]
+        modbusDataType:
+          type: [string, "null"]
+          enum: [U16, I16, U32, I32, U64, FLOAT32, null]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    UpdateDeviceModelRegisterMetadataRequest:
+      allOf:
+        - $ref: "#/components/schemas/UpdateRegisterMetadataRequest"
+        - type: object
+          properties:
+            modbusFunctionCode:
+              type: [integer, "null"]
+              enum: [3, 4, null]
+            modbusRegister:
+              type: [integer, "null"]
+              minimum: 0
+              maximum: 65535
+            modbusWordOrder:
+              type: string
+              enum: ["", HIGH_LOW, LOW_HIGH]
+            modbusDataType:
+              type: string
+              enum: ["", U16, I16, U32, I32, U64, FLOAT32]
     TelemetryHistoryPage:
       type: object
       additionalProperties: false
@@ -3754,12 +4278,30 @@ components:
     UpdateDeviceRequest:
       type: object
       additionalProperties: false
-      required: [name, isActive]
+      required: [name, deviceModelId, isActive]
       properties:
         name:
           type: string
           minLength: 1
           maxLength: 200
+        deviceModelId:
+          type: string
+          format: uuid
+        modbusHost:
+          type: string
+          maxLength: 255
+        modbusPort:
+          type: [integer, "null"]
+          minimum: 1
+          maximum: 65535
+        modbusUnitId:
+          type: integer
+          minimum: 0
+          maximum: 255
+        pollIntervalSeconds:
+          type: integer
+          minimum: 1
+          maximum: 3600
         isActive:
           type: boolean
     MiddlewareReading:

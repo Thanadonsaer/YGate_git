@@ -11,6 +11,7 @@ import (
 
 	"ygate/platform-api/internal/auth"
 	"ygate/platform-api/internal/database"
+	"ygate/platform-api/internal/gatewayhub"
 )
 
 func TestRoleAdministrationLifecycleAgainstPostgreSQL(t *testing.T) {
@@ -56,7 +57,7 @@ func TestRoleAdministrationLifecycleAgainstPostgreSQL(t *testing.T) {
 		}
 	}
 
-	service := New(pool)
+	service := New(pool, gatewayhub.New())
 	platformAdmin := auth.Principal{UserID: platformAdminID, OrganizationID: orgA}
 	orgAdmin := auth.Principal{UserID: orgAdminID, OrganizationID: orgA}
 	viewer := auth.Principal{UserID: viewerID, OrganizationID: orgA}

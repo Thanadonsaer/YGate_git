@@ -14,6 +14,7 @@ import (
 	"ygate/platform-api/internal/core"
 	"ygate/platform-api/internal/database"
 	"ygate/platform-api/internal/envfile"
+	"ygate/platform-api/internal/gatewayhub"
 	"ygate/platform-api/internal/httpapi"
 	"ygate/platform-api/internal/ingestion"
 	"ygate/platform-api/internal/notification"
@@ -53,12 +54,13 @@ func main() {
 		resetNotifier = notifier.Notify
 	}
 	authService.ConfigurePasswordRecovery(cfg.PasswordResetTTL, resetNotifier)
-	registryService := core.New(pool)
+	hub := gatewayhub.New()
+	registryService := core.New(pool, hub)
 	ingestionService := ingestion.New(pool)
 
 	server := &http.Server{
 		Addr:              cfg.ListenAddr,
-		Handler:           httpapi.New(version, pool.Ping, authService, registryService, ingestionService, cfg.CookieSecure, cfg.AllowedOrigins...),
+		Handler:           httpapi.New(version, pool.Ping, authService, registryService, ingestionService, hub, cfg.CookieSecure, cfg.AllowedOrigins...),
 		ReadHeaderTimeout: 5 * time.Second,
 		MaxHeaderBytes:    64 << 10,
 	}

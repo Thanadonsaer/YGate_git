@@ -13,6 +13,7 @@ import (
 
 	"ygate/platform-api/internal/auth"
 	"ygate/platform-api/internal/core"
+	"ygate/platform-api/internal/gatewayhub"
 )
 
 func TestRawIngestionPersistsRegisterMapAgainstPostgreSQL(t *testing.T) {
@@ -73,7 +74,7 @@ func TestRawIngestionPersistsRegisterMapAgainstPostgreSQL(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO user_role(id,user_id,role_id) VALUES($1,$2,'00000000-0000-4000-8000-000000000201')`, assignmentID, adminID); err != nil {
 		t.Fatal(err)
 	}
-	latest, err := core.New(pool).LatestTelemetry(ctx, auth.Principal{UserID: adminID, OrganizationID: organizationID}, uuidString(plantID))
+	latest, err := core.New(pool, gatewayhub.New()).LatestTelemetry(ctx, auth.Principal{UserID: adminID, OrganizationID: organizationID}, uuidString(plantID))
 	if err != nil || len(latest) != 1 || latest[0].DeviceID != uuidString(deviceID) || latest[0].DataItemMap["40084"] != 643 {
 		t.Fatalf("latest=%+v err=%v", latest, err)
 	}
