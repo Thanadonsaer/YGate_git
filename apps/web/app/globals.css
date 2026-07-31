@@ -419,11 +419,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .plant-editor .full-field { grid-column: 1 / -1; }
 .plant-editor .toggle-field { width: fit-content; grid-template-columns: 20px auto; align-items: center; gap: 9px; }
 .plant-editor .toggle-field input { width: 18px; height: 18px; accent-color: var(--action); }
-.middleware-editor { width: min(720px, 100%); }
-.address-editor-rows { display: grid; gap: 8px; margin-top: 10px; max-height: 260px; overflow-y: auto; }
-.address-editor-row { display: grid; grid-template-columns: minmax(0, 1.6fr) 70px 90px 100px 80px 80px 60px 32px; align-items: center; gap: 8px; }
-.address-editor-row input, .address-editor-row select { height: 36px; padding: 0 8px; border: 1px solid #b8c3c9; border-radius: var(--radius-sm); color: var(--ink); background: white; font-size: 12px; }
-.address-editor-row .toggle-field { width: fit-content; grid-template-columns: 16px auto; align-items: center; gap: 5px; font-size: 11px; }
 .editor-actions { padding-top: 4px; display: flex; justify-content: flex-end; gap: 9px; }
 .role-editor { width: min(760px, 100%); }
 .permission-picker { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 14px 16px; display: grid; gap: 12px; max-height: 320px; overflow-y: auto; }
