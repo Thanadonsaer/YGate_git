@@ -668,3 +668,15 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .scada-stage { height: calc(min(690px, 72vh) - 46px); min-height: 432px; }
   .scada-conflict { align-items: flex-start; flex-direction: column; }
 }
+
+.live-pulse path { stroke: currentColor; }
+.live-pulse-connected path { stroke-dasharray: 300; stroke-dashoffset: 0; animation: live-pulse-scroll 2.2s linear infinite; }
+.live-pulse-connecting path { stroke-dasharray: 300; stroke-dashoffset: 0; animation: live-pulse-scroll 0.9s linear infinite; opacity: .75; }
+.live-pulse-offline path { opacity: .35; }
+@keyframes live-pulse-scroll {
+  from { stroke-dashoffset: 0; }
+  to { stroke-dashoffset: -224; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .live-pulse-connected path, .live-pulse-connecting path { animation: none; }
+}
