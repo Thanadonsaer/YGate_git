@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"chpp/modbus-api-middleware/internal/configcache"
 	"chpp/modbus-api-middleware/internal/store"
 )
 
@@ -15,7 +16,7 @@ func TestInstallSMAProfileIsIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	handler := (&Server{Store: st}).FullHandler()
+	handler := (&Server{Store: st, Cache: configcache.New()}).FullHandler()
 	for i := 0; i < 2; i++ {
 		res := httptest.NewRecorder()
 		handler.ServeHTTP(res, httptest.NewRequest(http.MethodPost, "/api/device-profiles/sma", nil))

@@ -9,10 +9,22 @@ import (
 	"testing"
 	"time"
 
+	"chpp/modbus-api-middleware/internal/configcache"
 	"chpp/modbus-api-middleware/internal/domain"
 	"chpp/modbus-api-middleware/internal/modbus"
 	"chpp/modbus-api-middleware/internal/store"
 )
+
+func mustCache(t *testing.T, st *store.Store) *configcache.Cache {
+	t.Helper()
+	snapshot, err := configcache.RebuildFromStore(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cache := configcache.New()
+	cache.Swap(snapshot)
+	return cache
+}
 
 func TestPollConnectionUsesTableAddressFields(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -67,7 +79,7 @@ func TestPollConnectionUsesTableAddressFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc := &Service{Store: st, Client: &modbus.Client{Timeout: time.Second}}
+	svc := &Service{Store: st, Client: &modbus.Client{Timeout: time.Second}, Cache: mustCache(t, st)}
 	reading, measurements, err := svc.PollConnection(fmtID(connection.ConnectionID))
 	if err != nil {
 		t.Fatal(err)
@@ -75,12 +87,17 @@ func TestPollConnectionUsesTableAddressFields(t *testing.T) {
 	if reading.DevDn != "AICA-INV-01" || reading.PlantCode != "AICA" || reading.DevTypeID != 1 {
 		t.Fatalf("reading identity=%+v", reading)
 	}
-	if got := reading.RegisterAddressMap["0"]; got != 42000 {
-		t.Fatalf("register 0=%v want 42000", got)
+	// RegisterAddressMap carries scaled values (raw * Factor + Offset): the
+	// middleware applies Factor/Offset before sending, deviating from
+	// ADR-0004 by product decision (see comment in decodeEntry). Raw
+	// register 0 is 42000 with Factor .001 -> 42.
+	if got := reading.RegisterAddressMap["0"]; got != 42 {
+		t.Fatalf("register 0=%v want 42", got)
 	}
 	if got := reading.RegisterAddressMap["1"]; got != 123 {
 		t.Fatalf("register 1=%v want 123", got)
 	}
+	// measurements[].RawValue stays unscaled for debugging in Monitor Live.
 	if len(measurements) != 2 || measurements[0].RawValue != 42000 || measurements[0].Quality != "GOOD" || measurements[1].RegisterAddress != 1 {
 		t.Fatalf("measurements=%+v", measurements)
 	}
@@ -153,7 +170,7 @@ func TestPollSMAContinuesWhenOneAddressIsUnsupported(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reading, measurements, err := (&Service{Store: st, Client: &modbus.Client{Timeout: time.Second}}).PollConnection(fmtID(connection.ConnectionID))
+	reading, measurements, err := (&Service{Store: st, Client: &modbus.Client{Timeout: time.Second}, Cache: mustCache(t, st)}).PollConnection(fmtID(connection.ConnectionID))
 	if err != nil || len(measurements) != 1 || measurements[0].RawValue != 123 {
 		t.Fatalf("reading=%+v measurements=%+v err=%v", reading, measurements, err)
 	}
@@ -214,7 +231,7 @@ func TestPollConnectionFallsBackPerAddressAndKeepsFCAndUnitID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reading, measurements, err := (&Service{Store: st, Client: &modbus.Client{Timeout: time.Second}}).PollConnection(fmtID(connection.ConnectionID))
+	reading, measurements, err := (&Service{Store: st, Client: &modbus.Client{Timeout: time.Second}, Cache: mustCache(t, st)}).PollConnection(fmtID(connection.ConnectionID))
 	if err != nil || len(measurements) != 3 {
 		t.Fatalf("reading=%+v measurements=%+v err=%v", reading, measurements, err)
 	}
@@ -271,7 +288,7 @@ func TestPollConnectionHints40001AddressMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, err = (&Service{Store: st, Client: &modbus.Client{Timeout: time.Second}}).PollConnection(fmtID(connection.ConnectionID))
+	_, _, err = (&Service{Store: st, Client: &modbus.Client{Timeout: time.Second}, Cache: mustCache(t, st)}).PollConnection(fmtID(connection.ConnectionID))
 	if err == nil || !strings.Contains(err.Error(), "fc=03 start=41441 quantity=1 unit=2") {
 		t.Fatalf("err=%v", err)
 	}

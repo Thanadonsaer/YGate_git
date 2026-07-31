@@ -3,8 +3,8 @@ package web
 import (
 	"bytes"
 	"chpp/modbus-api-middleware/internal/app"
+	"chpp/modbus-api-middleware/internal/configcache"
 	"chpp/modbus-api-middleware/internal/domain"
-	"chpp/modbus-api-middleware/internal/modbus"
 	"chpp/modbus-api-middleware/internal/store"
 	"context"
 	"embed"
@@ -24,6 +24,7 @@ var files embed.FS
 type Server struct {
 	Store            *store.Store
 	App              *app.Service
+	Cache            *configcache.Cache
 	GatewayID        string
 	Version          string
 	CanApplyUpdate   bool
@@ -38,7 +39,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/read-now/", s.readNow)
 	mux.HandleFunc("/api/send-api-once/", s.sendAPIOnce)
 	static, _ := fs.Sub(files, "static")
-	mux.Handle("/", http.FileServer(http.FS(static)))
+	fileServer := http.FileServer(http.FS(static))
+	// embed.FS reports a zero ModTime, so browsers fall back to heuristic
+	// caching and can keep serving a stale index.html across binary
+	// updates. This is a single-file embedded UI; never cache it.
+	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		fileServer.ServeHTTP(w, r)
+	}))
 	return mux
 }
 
@@ -59,16 +67,12 @@ func (s *Server) connectTest(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	connection, err := s.connectionFromPath(r.URL.Path, "/api/connect-test/")
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
+	id, err := strconv.ParseInt(strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/api/connect-test/")), 10, 64)
+	if err != nil || id <= 0 {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid connection id"))
 		return
 	}
-	client := s.App.Client
-	if client == nil {
-		client = &modbus.Client{Timeout: 3 * time.Second}
-	}
-	info, latency, err := client.ProbeDetails(connection.Host, connection.Port, connection.UnitID)
+	info, latency, connection, err := s.App.ProbeConnection(id)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
@@ -164,5 +168,9 @@ func (s *Server) connectionFromPath(path, prefix string) (domain.ConnectionConfi
 	if err != nil || id <= 0 {
 		return domain.ConnectionConfig{}, fmt.Errorf("invalid connection id")
 	}
-	return s.Store.Connection(id)
+	connection, ok := s.Cache.Load().Connections[id]
+	if !ok {
+		return domain.ConnectionConfig{}, fmt.Errorf("connection not found")
+	}
+	return connection, nil
 }

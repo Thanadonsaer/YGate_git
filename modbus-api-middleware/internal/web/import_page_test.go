@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"chpp/modbus-api-middleware/internal/configcache"
 	"chpp/modbus-api-middleware/internal/domain"
 	"chpp/modbus-api-middleware/internal/store"
 )
@@ -27,7 +28,7 @@ func TestImportDeviceSetAddressCSV(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/import-device-set-address", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	res := httptest.NewRecorder()
-	(&Server{Store: st}).FullHandler().ServeHTTP(res, req)
+	(&Server{Store: st, Cache: configcache.New()}).FullHandler().ServeHTTP(res, req)
 	if res.Code != http.StatusCreated {
 		t.Fatalf("status=%d body=%s", res.Code, res.Body.String())
 	}

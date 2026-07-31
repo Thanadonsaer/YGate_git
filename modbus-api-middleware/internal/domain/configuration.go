@@ -65,6 +65,19 @@ type DeviceSet struct {
 	Addresses     []Address `json:"addresses"`
 }
 
+// ConfigSnapshot is the full-replace config payload exchanged with the
+// Central Platform over the realtime channel: pushed down as
+// config.snapshot and reported back up during onboarding. Field shapes and
+// JSON names match platform-api's MiddlewareConfigSnapshot exactly, so no
+// translation step is needed on either side.
+type ConfigSnapshot struct {
+	Version     int64              `json:"version"`
+	Brands      []Brand            `json:"brands"`
+	DeviceSets  []DeviceSet        `json:"deviceSets"`
+	Connections []ConnectionConfig `json:"connections"`
+	Plants      []Plant            `json:"plants"`
+}
+
 type ConnectionConfig struct {
 	ConnectionID   int64  `json:"connectionId"`
 	ConnectionName string `json:"connectionName"`

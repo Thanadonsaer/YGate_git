@@ -58,6 +58,7 @@ func (s *Server) importSettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	s.refreshCache()
 	writeJSON(w, http.StatusOK, summary)
 }
 

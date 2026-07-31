@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"chpp/modbus-api-middleware/internal/app"
+	"chpp/modbus-api-middleware/internal/configcache"
 	"chpp/modbus-api-middleware/internal/domain"
 	"chpp/modbus-api-middleware/internal/modbus"
 	"chpp/modbus-api-middleware/internal/store"
@@ -38,7 +39,13 @@ func TestReadNowDoesNotEnqueueAPI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &Server{Store: st, App: &app.Service{Store: st, Client: &modbus.Client{Timeout: time.Second}}}
+	cacheSnapshot, err := configcache.RebuildFromStore(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cache := configcache.New()
+	cache.Swap(cacheSnapshot)
+	s := &Server{Store: st, Cache: cache, App: &app.Service{Store: st, Client: &modbus.Client{Timeout: time.Second}, Cache: cache}}
 	res := httptest.NewRecorder()
 	s.readNow(res, httptest.NewRequest(http.MethodPost, "/api/read-now/1", nil))
 	if res.Code != http.StatusOK {

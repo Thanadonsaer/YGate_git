@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"chpp/modbus-api-middleware/internal/decoder"
 	"chpp/modbus-api-middleware/internal/domain"
 	"chpp/modbus-api-middleware/internal/profile"
 )
@@ -249,7 +250,7 @@ func normalizeAddress(a domain.Address, addressMode string) (domain.Address, err
 		a.SourceTag = a.Description
 	}
 	if a.Length == 0 {
-		a.Length = dataTypeLength(a.DataType)
+		a.Length = decoder.RegisterCount(a.DataType)
 	}
 	a.WordOrder = strings.ToUpper(strings.TrimSpace(a.WordOrder))
 	if !a.EnabledSet {
@@ -279,7 +280,7 @@ func validateAddress(a domain.Address, addressMode string) error {
 	if a.Description == "" || a.DataType == "" {
 		return fmt.Errorf("description and dataType are required")
 	}
-	if dataTypeLength(a.DataType) == 0 {
+	if decoder.RegisterCount(a.DataType) == 0 {
 		return fmt.Errorf("unsupported dataType %q", a.DataType)
 	}
 	if a.Length < 1 || a.Length > 4 {
@@ -447,19 +448,6 @@ func addressIDList(addresses []domain.Address) []int64 {
 		out = append(out, a.AddressID)
 	}
 	return out
-}
-
-func dataTypeLength(value string) int {
-	switch strings.ToUpper(strings.TrimSpace(value)) {
-	case "SHORT", "USHORT", "INT16", "UINT16":
-		return 1
-	case "INT32", "UINT32", "S32", "U32", "LONG", "SLONG", "ULONG", "DWORD", "FLOAT", "FLOAT32", "SW_INT", "SW_UINT", "SW_FLOAT", "SMA_INT32", "SMA_UINT32":
-		return 2
-	case "UINT64", "U64", "SMA_UINT64":
-		return 4
-	default:
-		return 0
-	}
 }
 
 func devTypeID(value string) int {

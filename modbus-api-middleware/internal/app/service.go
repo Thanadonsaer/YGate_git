@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"chpp/modbus-api-middleware/internal/configcache"
 	"chpp/modbus-api-middleware/internal/decoder"
 	"chpp/modbus-api-middleware/internal/domain"
 	"chpp/modbus-api-middleware/internal/modbus"
@@ -20,6 +21,7 @@ import (
 type Service struct {
 	Store  *store.Store
 	Client *modbus.Client
+	Cache  *configcache.Cache
 }
 
 func (s *Service) PollConnection(value string) (domain.Reading, []domain.Measurement, error) {
@@ -27,18 +29,19 @@ func (s *Service) PollConnection(value string) (domain.Reading, []domain.Measure
 	if err != nil {
 		return domain.Reading{}, nil, fmt.Errorf("invalid connection id")
 	}
-	connection, err := s.Store.Connection(id)
-	if err != nil {
-		return domain.Reading{}, nil, err
+	cfg := s.Cache.Load()
+	connection, ok := cfg.Connections[id]
+	if !ok {
+		return domain.Reading{}, nil, fmt.Errorf("connection not found")
 	}
-	set, err := s.Store.DeviceSet(connection.DeviceSetID)
-	if err != nil {
-		return domain.Reading{}, nil, err
+	set, ok := cfg.DeviceSets[connection.DeviceSetID]
+	if !ok {
+		return domain.Reading{}, nil, fmt.Errorf("device set not found")
 	}
 	registers := make([]domain.RegisterDefinition, 0, len(set.Addresses))
 	for _, a := range set.Addresses {
 		key := fmt.Sprintf("%d:%d", a.FunctionCode, a.Register)
-		registers = append(registers, domain.RegisterDefinition{Key: key, SourceTag: first(a.SourceTag, a.Description), DataType: normalizeDataType(a.DataType), SourceUnit: a.SourceUnit, CanonicalUnit: a.CanonicalUnit, RegisterAddress: a.Register, FunctionCode: a.FunctionCode, Length: a.Length, Scale: a.Factor, Offset: a.Offset, WordOrder: a.WordOrder, Enabled: a.Enabled})
+		registers = append(registers, domain.RegisterDefinition{Key: key, SourceTag: first(a.SourceTag, a.Description), DataType: decoder.NormalizeDataType(a.DataType), SourceUnit: a.SourceUnit, CanonicalUnit: a.CanonicalUnit, RegisterAddress: a.Register, FunctionCode: a.FunctionCode, Length: a.Length, Scale: a.Factor, Offset: a.Offset, WordOrder: a.WordOrder, Enabled: a.Enabled})
 	}
 	p := domain.RegisterProfile{ProfileID: fmt.Sprint(set.DeviceSetID), ProfileName: set.BrandName + " " + set.DevModel, AddressMode: first(set.AddressMode, "ZERO_BASED"), ByteOrder: first(set.ByteOrder, "BIG_ENDIAN"), WordOrder: first(set.WordOrder, "HIGH_LOW"), MaxBlockSize: set.MaxBlockSize, DevTypeID: set.DevTypeID, Registers: registers, Enabled: true}
 	blocks, err := profile.BuildBlocks(p)
@@ -96,7 +99,18 @@ func (s *Service) PollConnection(value string) (domain.Reading, []domain.Measure
 		}
 		key := fmt.Sprintf("%d", def.RegisterAddress)
 		sample := domain.RegisterSample{FunctionCode: def.FunctionCode, RegisterAddress: def.RegisterAddress, DataType: def.DataType, RawValue: raw, Quality: "GOOD"}
-		values[key] = raw
+		// Deviates from ADR-0004 ("Central Platform owns scaling"): this
+		// deployment applies each address's Factor/Offset here instead, by
+		// product decision. registerAddressMap therefore carries scaled
+		// values, not raw register values — do not re-apply scale on the
+		// Central Platform side for data from this middleware. Scale 0 is
+		// treated as unset (1), since a configured factor of exactly 0
+		// would otherwise silently zero out every reading.
+		scale := def.Scale
+		if scale == 0 {
+			scale = 1
+		}
+		values[key] = raw*scale + def.Offset
 		measurements = append(measurements, sample)
 	}
 	for _, b := range blocks {
@@ -136,19 +150,6 @@ func (s *Service) PollConnection(value string) (domain.Reading, []domain.Measure
 	return domain.Reading{DevDn: connection.DevDn, DevName: connection.DeviceName, PlantCode: connection.PlantCode, PlantName: connection.PlantName, DevTypeID: set.DevTypeID, Model: set.DevModel, CollectTime: cycle.UnixMilli(), RegisterAddressMap: values}, measurements, nil
 }
 
-func normalizeDataType(value string) string {
-	switch strings.ToUpper(strings.TrimSpace(value)) {
-	case "SHORT":
-		return "INT16"
-	case "USHORT":
-		return "UINT16"
-	case "FLOAT":
-		return "FLOAT32"
-	default:
-		return strings.ToUpper(strings.TrimSpace(value))
-	}
-}
-
 func first(values ...string) string {
 	for _, v := range values {
 		if strings.TrimSpace(v) != "" {
@@ -179,6 +180,24 @@ func PrepareReadingForAPI(r domain.Reading, gatewayID string) (domain.Reading, s
 	}
 	key := fmt.Sprintf("%s|%s|%d|%s|%d", gatewayID, r.PlantCode, r.DevTypeID, r.DevDn, r.CollectTime)
 	return r, key, nil
+}
+
+// ProbeConnection runs a live Modbus connect-test against connectionID.
+// Shared by the local-UI connect-test route (internal/web/server.go) and
+// the remote connectTest command relayed over the realtime channel
+// (internal/realtimeclient), so there is one probe implementation instead
+// of two copies.
+func (s *Service) ProbeConnection(connectionID int64) (modbus.ProbeInfo, time.Duration, domain.ConnectionConfig, error) {
+	connection, ok := s.Cache.Load().Connections[connectionID]
+	if !ok {
+		return modbus.ProbeInfo{}, 0, domain.ConnectionConfig{}, fmt.Errorf("connection not found")
+	}
+	client := s.Client
+	if client == nil {
+		client = &modbus.Client{Timeout: 3 * time.Second}
+	}
+	info, latency, err := client.ProbeDetails(connection.Host, connection.Port, connection.UnitID)
+	return info, latency, connection, err
 }
 
 func (s *Service) Enqueue(r domain.Reading, gatewayID string) (bool, error) {

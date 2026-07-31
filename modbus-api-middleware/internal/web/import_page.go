@@ -66,6 +66,7 @@ func (s *Server) importDeviceSetAddress(w http.ResponseWriter, r *http.Request) 
 		writeError(w, 400, err)
 		return
 	}
+	s.refreshCache()
 	writeJSON(w, 201, summary)
 }
 
@@ -79,6 +80,7 @@ func (s *Server) importConnections(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, err)
 		return
 	}
+	s.refreshCache()
 	writeJSON(w, 201, summary)
 }
 

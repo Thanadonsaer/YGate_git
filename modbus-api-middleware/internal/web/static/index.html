@@ -549,8 +549,8 @@
       .addr-head,
       .addr-row {
         display: grid;
-        grid-template-columns: 70px 105px 180px 145px 160px 85px 85px 120px 75px 110px 90px 100px 90px 180px 38px;
-        min-width: 1650px;
+        grid-template-columns: 70px 105px 180px 160px 85px 85px 120px 75px 110px 90px 90px 180px 38px;
+        min-width: 1400px;
         gap: 8px;
         align-items: center;
       }
@@ -1323,12 +1323,10 @@
 
           <div style="overflow:scroll;max-height:400px">
             <div class="addr-head">
-              <span>FC</span><span>Register</span><span>Description</span><span>Canonical
-                Key</span><span>Source
+              <span>FC</span><span>Register</span><span>Description</span><span>Source
                 Tag</span><span>Factor</span><span>Offset</span><span>Data
                 Type</span><span>Length</span><span>Word
-                Order</span><span>Source Unit</span><span>Canonical
-                Unit</span><span>Enabled</span><span>Remark</span><span></span>
+                Order</span><span>Source Unit</span><span>Enabled</span><span>Remark</span><span></span>
             </div>
             <div id="address-list"></div>
           </div>
@@ -1913,11 +1911,9 @@
                 a.register,
                 a.description,
                 a.sourceTag,
-                a.canonicalKey,
                 a.factor,
                 a.dataType,
                 a.sourceUnit,
-                a.canonicalUnit,
               ]),
             ].some((v) =>
               String(v || "")
@@ -1960,7 +1956,7 @@
         return (
           '<details><summary><span class="chip">' +
           rows.length +
-          ' address</span> ดูรายการ</summary><div class="table-wrap mt-10"><table class="compact"><thead><tr><th>FC</th><th>Register</th><th>Description</th><th>Source Tag</th><th>Canonical Key</th><th>Factor</th><th>Type</th><th>Unit</th></tr></thead><tbody>' +
+          ' address</span> ดูรายการ</summary><div class="table-wrap mt-10"><table class="compact"><thead><tr><th>FC</th><th>Register</th><th>Description</th><th>Source Tag</th><th>Factor</th><th>Type</th><th>Unit</th></tr></thead><tbody>' +
           rows
             .map(
               (a) =>
@@ -1973,13 +1969,11 @@
                 "</td><td>" +
                 esc(a.sourceTag || "-") +
                 "</td><td>" +
-                esc(a.canonicalKey || "-") +
-                "</td><td>" +
                 esc(a.factor ?? "-") +
                 "</td><td>" +
                 esc(a.dataType || "-") +
                 "</td><td>" +
-                esc(a.canonicalUnit || a.sourceUnit || "-") +
+                esc(a.sourceUnit || "-") +
                 "</td></tr>",
             )
             .join("") +
@@ -2096,6 +2090,36 @@
           )
           .join("");
       }
+      // registerAddressMap is keyed by register address (string) -> raw
+      // float64 value directly (see domain.Reading in the Go backend), not
+      // an object with a .rawValue field.
+      function addressMetaMap(connectionId) {
+        const c = state.connections.find(
+            (x) => x.connectionId === +connectionId,
+          ),
+          set =
+            c && state.sets.find((s) => s.deviceSetId === c.deviceSetId);
+        const map = {};
+        (set?.addresses || []).forEach((a) => {
+          map[String(a.register)] = {
+            name: a.description || "-",
+            unit: a.sourceUnit || "",
+            factor: a.factor || a.factor === 0 ? a.factor : 1,
+            offset: a.offset || 0,
+          };
+        });
+        return map;
+      }
+      // Display-only convenience: raw * factor + offset. The middleware
+      // sends raw values only (see Reading.RegisterAddressMap); scaling is
+      // owned by the Central Platform's Register Metadata, this is just to
+      // let a tester read a meaningful number in Monitor Live.
+      function calcValue(raw, meta) {
+        const factor = meta?.factor ?? 1,
+          offset = meta?.offset ?? 0,
+          n = Number(raw);
+        return Number.isFinite(n) ? n * factor + offset : "-";
+      }
       function logSummary(log) {
         try {
           const d = log.detail ? JSON.parse(log.detail) : {},
@@ -2104,7 +2128,7 @@
           return (
             Object.entries(k)
               .slice(0, 4)
-              .map(([key, val]) => key + "=" + val.rawValue)
+              .map(([key, val]) => key + "=" + val)
               .join(" / ") ||
             d.pollError ||
             "-"
@@ -2129,16 +2153,25 @@
         }
         const reading = d.reading || {},
           items = d.measurements || [],
-          kpis = reading.registerAddressMap || {};
-        return `<div class="card"><h3>Summary</h3><div class="table-wrap mt-12"><table><tbody><tr><th>Status</th><td class="${log.status === "OK" ? "ok" : "bad"}">${esc(log.status)}</td></tr><tr><th>Message</th><td>${esc(log.message || "-")}</td></tr><tr><th>Device</th><td>${esc(reading.devName || reading.devDn || log.connectionName || "-")}</td></tr><tr><th>Plant</th><td>${esc(reading.plantName || reading.plantCode || "-")}</td></tr><tr><th>Collect Time</th><td>${dt(reading.collectTime)}</td></tr></tbody></table></div></div><div class="card"><h3>Raw Registers</h3><div class="table-wrap mt-12"><table><thead><tr><th>Address Key</th><th>Raw Value</th></tr></thead><tbody>${
+          kpis = reading.registerAddressMap || {},
+          meta = addressMetaMap(log.connectionId);
+        return `<div class="card"><h3>Summary</h3><div class="table-wrap mt-12"><table><tbody><tr><th>Status</th><td class="${log.status === "OK" ? "ok" : "bad"}">${esc(log.status)}</td></tr><tr><th>Message</th><td>${esc(log.message || "-")}</td></tr><tr><th>Device</th><td>${esc(reading.devName || reading.devDn || log.connectionName || "-")}</td></tr><tr><th>Plant</th><td>${esc(reading.plantName || reading.plantCode || "-")}</td></tr><tr><th>Collect Time</th><td>${dt(reading.collectTime)}</td></tr></tbody></table></div></div><div class="card"><h3>Register Values (ส่งไป Platform)</h3><div class="table-wrap mt-12"><table><thead><tr><th>Address Key</th><th>Name</th><th>Value</th><th>Unit</th></tr></thead><tbody>${
           Object.keys(kpis).length
             ? Object.entries(kpis)
-                .map(
-                  ([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v.rawValue)}</td></tr>`,
-                )
+                .map(([k, v]) => {
+                  // registerAddressMap already has Factor/Offset applied
+                  // by the middleware before sending (see decodeEntry in
+                  // service.go) — do not calcValue() this, that would
+                  // double-apply Factor.
+                  const m = meta[k] || {};
+                  return `<tr><td>${esc(k)}</td><td>${esc(m.name || "-")}</td><td>${esc(v)}</td><td>${esc(m.unit || "-")}</td></tr>`;
+                })
                 .join("")
-            : '<tr><td colspan="2">ไม่มี Raw Register</td></tr>'
-        }</tbody></table></div></div><div class="card"><h3>Measurements</h3><div class="table-wrap mt-12"><table><thead><tr><th>FC</th><th>Register</th><th>Data Type</th><th>Raw</th><th>Quality</th></tr></thead><tbody>${items.length ? items.map((m) => `<tr><td>${esc(m.functionCode || "-")}</td><td>${esc(m.registerAddress ?? "-")}</td><td>${esc(m.dataType || "-")}</td><td>${esc(m.rawValue)}</td><td>${esc(m.quality)}</td></tr>`).join("") : '<tr><td colspan="5">ไม่มี Measurement</td></tr>'}</tbody></table></div></div>`;
+            : '<tr><td colspan="4">ไม่มี Register Value</td></tr>'
+        }</tbody></table></div></div><div class="card"><h3>Measurements</h3><div class="table-wrap mt-12"><table><thead><tr><th>FC</th><th>Register</th><th>Name</th><th>Data Type</th><th>Raw</th><th>Factor</th><th>Calculated Value</th><th>Unit</th><th>Quality</th></tr></thead><tbody>${items.length ? items.map((m) => {
+          const meta2 = meta[String(m.registerAddress)] || {};
+          return `<tr><td>${esc(m.functionCode || "-")}</td><td>${esc(m.registerAddress ?? "-")}</td><td>${esc(meta2.name || "-")}</td><td>${esc(m.dataType || "-")}</td><td>${esc(m.rawValue)}</td><td>${esc(meta2.factor ?? 1)}</td><td>${esc(calcValue(m.rawValue, meta2))}</td><td>${esc(meta2.unit || "-")}</td><td>${esc(m.quality)}</td></tr>`;
+        }).join("") : '<tr><td colspan="9">ไม่มี Measurement</td></tr>'}</tbody></table></div></div>`;
       }
       function renderPlants() {
         const rows = $("plant-rows");
@@ -2453,11 +2486,40 @@
           toast(err.message, true);
         }
       }
+      // Legacy dataType aliases (kept readable by the decoder for existing
+      // device sets) normalized to the canonical names used in the Huawei
+      // Modbus Interface Definitions register tables (U16/I16/U32/I32).
+      const DATA_TYPE_ALIASES = {
+        SHORT: "I16",
+        INT16: "I16",
+        USHORT: "U16",
+        UINT16: "U16",
+        LONG: "I32",
+        SLONG: "I32",
+        INT32: "I32",
+        S32: "I32",
+        SW_INT: "I32",
+        SMA_INT32: "I32",
+        ULONG: "U32",
+        DWORD: "U32",
+        UINT32: "U32",
+        SW_UINT: "U32",
+        SMA_UINT32: "U32",
+        UINT64: "U64",
+        SMA_UINT64: "U64",
+        FLOAT: "FLOAT32",
+        SW_FLOAT: "FLOAT32",
+      };
+      function canonicalDataType(t) {
+        const upper = (t || "").toUpperCase();
+        return DATA_TYPE_ALIASES[upper] || upper || "U16";
+      }
       function addressRow(a = {}) {
         const row = document.createElement("div");
         row.className = "addr-row";
         row._address = a;
-        row.innerHTML = `<select class="fc"><option value="3">03</option><option value="4">04</option></select><input class="reg" type="number" min="0" required value="${a.register ?? ""}"><input class="desc" required value="${esc(a.description || "")}"><input class="key" value="${esc(a.canonicalKey || "")}"><input class="tag" value="${esc(a.sourceTag || "")}"><input class="factor" type="number" step="any" value="${a.factor ?? 1}"><input class="offset" type="number" step="any" value="${a.offset ?? 0}"><select class="type">${["SHORT", "USHORT", "INT32", "UINT32", "LONG", "ULONG", "UINT64", "S32", "U32", "U64", "SW_INT", "SW_UINT", "FLOAT", "SW_FLOAT", "SMA_INT32", "SMA_UINT32", "SMA_UINT64"].map((t) => `<option${(a.dataType || "SHORT") === t ? " selected" : ""}>${t}</option>`).join("")}</select><input class="length" type="number" min="1" max="4" value="${a.length || 1}"><select class="words"><option value="">Device Set</option><option>HIGH_LOW</option><option>LOW_HIGH</option></select><input class="source-unit" value="${esc(a.sourceUnit || "")}"><input class="canonical-unit" value="${esc(a.canonicalUnit || "")}"><select class="enabled"><option value="true">Enabled</option><option value="false">Disabled</option></select><input class="remark" value="${esc(a.remark || "")}"><button class="btn danger" type="button" title="ลบ">×</button>`;
+        const type = canonicalDataType(a.dataType);
+        row.innerHTML = `<select class="fc"><option value="3">03</option><option value="4">04</option></select><input class="reg" type="number" min="0" required value="${a.register ?? ""}"><input class="desc" required value="${esc(a.description || "")}"><input class="tag" value="${esc(a.sourceTag || "")}"><input class="factor" type="number" step="any" value="${a.factor ?? 1}"><input class="offset" type="number" step="any" value="${a.offset ?? 0}"><select class="type">${["U16", "I16", "U32", "I32", "U64", "FLOAT32"].map((t) => `<option${type === t ? " selected" : ""}>${t}</option>`).join("")}</select><input class="length" type="number" min="1" max="4" value="${a.length || 1}"><select class="words"><option value="">Device Set</option><option>HIGH_LOW</option><option>LOW_HIGH</option></select><input class="source-unit" value="${esc(a.sourceUnit || "")}"><select class="enabled"><option value="true">Enabled</option><option value="false">Disabled</option></select><input class="remark" value="${esc(a.remark || "")}"><button class="btn danger" type="button" title="ลบ">×</button>`;
         row.querySelector(".fc").value = a.functionCode || 3;
         row.querySelector(".words").value = a.wordOrder || "";
         row.querySelector(".enabled").value = String(a.enabled !== false);
@@ -2471,7 +2533,9 @@
             functionCode: +r.querySelector(".fc").value,
             register: +r.querySelector(".reg").value,
             description: r.querySelector(".desc").value.trim(),
-            canonicalKey: r.querySelector(".key").value.trim(),
+            // canonicalKey is no longer editable from the UI; leave blank so
+            // the backend auto-fills "fc:register" (see configuration.go).
+            canonicalKey: "",
             sourceTag: r.querySelector(".tag").value.trim(),
             factor: +r.querySelector(".factor").value,
             offset: +r.querySelector(".offset").value,
@@ -2479,7 +2543,7 @@
             length: +r.querySelector(".length").value,
             wordOrder: r.querySelector(".words").value,
             sourceUnit: r.querySelector(".source-unit").value.trim(),
-            canonicalUnit: r.querySelector(".canonical-unit").value.trim(),
+            canonicalUnit: "",
             enabled: r.querySelector(".enabled").value === "true",
             remark: r.querySelector(".remark").value.trim(),
           }))

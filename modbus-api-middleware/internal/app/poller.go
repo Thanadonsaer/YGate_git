@@ -13,10 +13,16 @@ func (s *Service) PollEnabledConnections(gatewayID string, logf func(string, ...
 	if logf == nil {
 		logf = log.Printf
 	}
-	connections, err := s.Store.EnabledConnections()
-	if err != nil {
-		return err
+	connections := []domain.ConnectionConfig{}
+	for _, c := range s.Cache.Load().Connections {
+		if c.Enabled {
+			connections = append(connections, c)
+		}
 	}
+	// GatewayConfig (endpoint/API key/interval) intentionally stays
+	// SQLite-sourced, not cached: it is how the middleware finds and
+	// authenticates to the platform in the first place, so pushing it
+	// centrally would be circular.
 	cfg, err := s.Store.GatewayConfig()
 	if err != nil {
 		return err

@@ -2,9 +2,11 @@ package main
 
 import (
 	"chpp/modbus-api-middleware/internal/app"
+	"chpp/modbus-api-middleware/internal/configcache"
 	"chpp/modbus-api-middleware/internal/delivery"
 	"chpp/modbus-api-middleware/internal/license"
 	"chpp/modbus-api-middleware/internal/modbus"
+	"chpp/modbus-api-middleware/internal/realtimeclient"
 	"chpp/modbus-api-middleware/internal/store"
 	webui "chpp/modbus-api-middleware/internal/web"
 	"context"
@@ -152,7 +154,14 @@ func run(ctx context.Context) error {
 		return nil
 	}
 
-	svc := &app.Service{Store: st, Client: &modbus.Client{Timeout: 3 * time.Second}}
+	cache := configcache.New()
+	snapshot, err := configcache.RebuildFromStore(st)
+	if err != nil {
+		return err
+	}
+	cache.Swap(snapshot)
+
+	svc := &app.Service{Store: st, Client: &modbus.Client{Timeout: 3 * time.Second}, Cache: cache}
 	go runCleanup(ctx, st, *cleanupRetentionDays, *cleanupIntervalHours)
 
 	worker := &delivery.Worker{Store: st, BatchSize: 20, Client: &http.Client{Timeout: 10 * time.Second}, BeforeSend: func() error {
@@ -160,7 +169,12 @@ func run(ctx context.Context) error {
 	}}
 	go runDelivery(ctx, worker)
 
-	server := &webui.Server{Store: st, App: svc, GatewayID: cfg.GatewayID, Version: version, CanApplyUpdate: serviceMode || os.Getenv("INVOCATION_ID") != "", LicensePublicKey: publicKey, LicenseFile: *licenseFile}
+	if cfg.Endpoint != "" && cfg.APIKey != "" {
+		rtClient := &realtimeclient.Client{Store: st, Cache: cache, App: svc, GatewayID: cfg.GatewayID, Endpoint: cfg.Endpoint, APIKey: cfg.APIKey}
+		go rtClient.Run(ctx)
+	}
+
+	server := &webui.Server{Store: st, App: svc, Cache: cache, GatewayID: cfg.GatewayID, Version: version, CanApplyUpdate: serviceMode || os.Getenv("INVOCATION_ID") != "", LicensePublicKey: publicKey, LicenseFile: *licenseFile}
 	httpServer := &http.Server{Addr: *listen, Handler: server.FullHandler()}
 	errCh := make(chan error, 1)
 	if *gui {

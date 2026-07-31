@@ -3,14 +3,54 @@ package web
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 
+	"chpp/modbus-api-middleware/internal/configcache"
 	"chpp/modbus-api-middleware/internal/domain"
 	"chpp/modbus-api-middleware/internal/profile"
 )
+
+// refreshCache rebuilds the in-memory config snapshot from SQLite and
+// swaps it in. Call after every write to brands/device-sets/addresses/
+// connections/plants so a local edit is immediately visible to the poller
+// and other requests -- otherwise SQLite and the cache would silently
+// diverge until the next central push or process restart.
+func (s *Server) refreshCache() {
+	cfg, err := configcache.RebuildFromStore(s.Store)
+	if err != nil {
+		log.Printf("refresh config cache after local edit failed: %v", err)
+		return
+	}
+	s.Cache.Swap(cfg)
+}
+
+func sortedDeviceSets(cfg *configcache.Config) []domain.DeviceSet {
+	out := make([]domain.DeviceSet, 0, len(cfg.DeviceSets))
+	for _, ds := range cfg.DeviceSets {
+		out = append(out, ds)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].BrandName != out[j].BrandName {
+			return out[i].BrandName < out[j].BrandName
+		}
+		return out[i].DevModel < out[j].DevModel
+	})
+	return out
+}
+
+func sortedConnections(cfg *configcache.Config) []domain.ConnectionConfig {
+	out := make([]domain.ConnectionConfig, 0, len(cfg.Connections))
+	for _, c := range cfg.Connections {
+		out = append(out, c)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ConnectionName < out[j].ConnectionName })
+	return out
+}
 
 func (s *Server) FullHandler() http.Handler {
 	mux := http.NewServeMux()
@@ -68,6 +108,7 @@ func (s *Server) installSMAProfile(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 400, err)
 			return
 		}
+		s.refreshCache()
 	}
 	sets, err := s.Store.DeviceSets()
 	if err != nil {
@@ -85,6 +126,7 @@ func (s *Server) installSMAProfile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, err)
 		return
 	}
+	s.refreshCache()
 	writeJSON(w, 201, saved)
 }
 
@@ -105,12 +147,7 @@ func (s *Server) versionInfo(w http.ResponseWriter, r *http.Request) {
 func (s *Server) plants(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		v, err := s.Store.Plants()
-		if err != nil {
-			writeError(w, 500, err)
-			return
-		}
-		writeJSON(w, 200, v)
+		writeJSON(w, 200, s.Cache.Load().Plants)
 	case http.MethodPost:
 		var v domain.Plant
 		if !decode(w, r, &v) {
@@ -121,6 +158,7 @@ func (s *Server) plants(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 400, err)
 			return
 		}
+		s.refreshCache()
 		writeJSON(w, 201, saved)
 	case http.MethodDelete:
 		id, _ := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
@@ -128,6 +166,7 @@ func (s *Server) plants(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 400, err)
 			return
 		}
+		s.refreshCache()
 		writeJSON(w, 200, map[string]any{"deleted": id})
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -211,12 +250,7 @@ func (s *Server) pollLogs(w http.ResponseWriter, r *http.Request) {
 func (s *Server) brands(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		v, err := s.Store.Brands()
-		if err != nil {
-			writeError(w, 500, err)
-			return
-		}
-		writeJSON(w, 200, v)
+		writeJSON(w, 200, s.Cache.Load().Brands)
 	case http.MethodPost:
 		var v domain.Brand
 		if !decode(w, r, &v) {
@@ -227,6 +261,7 @@ func (s *Server) brands(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 400, err)
 			return
 		}
+		s.refreshCache()
 		writeJSON(w, 201, saved)
 	case http.MethodDelete:
 		id, _ := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
@@ -234,6 +269,7 @@ func (s *Server) brands(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 400, err)
 			return
 		}
+		s.refreshCache()
 		writeJSON(w, 200, map[string]any{"deleted": id})
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -243,12 +279,7 @@ func (s *Server) brands(w http.ResponseWriter, r *http.Request) {
 func (s *Server) deviceSets(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		v, err := s.Store.DeviceSets()
-		if err != nil {
-			writeError(w, 500, err)
-			return
-		}
-		writeJSON(w, 200, v)
+		writeJSON(w, 200, sortedDeviceSets(s.Cache.Load()))
 	case http.MethodPost:
 		var v domain.DeviceSet
 		if !decode(w, r, &v) {
@@ -259,6 +290,7 @@ func (s *Server) deviceSets(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 400, err)
 			return
 		}
+		s.refreshCache()
 		writeJSON(w, 201, saved)
 	case http.MethodDelete:
 		id, _ := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
@@ -266,6 +298,7 @@ func (s *Server) deviceSets(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 400, err)
 			return
 		}
+		s.refreshCache()
 		writeJSON(w, 200, map[string]any{"deleted": id})
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -275,12 +308,7 @@ func (s *Server) deviceSets(w http.ResponseWriter, r *http.Request) {
 func (s *Server) connections(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		v, err := s.Store.ConnectionsWithStatus()
-		if err != nil {
-			writeError(w, 500, err)
-			return
-		}
-		writeJSON(w, 200, v)
+		writeJSON(w, 200, sortedConnections(s.Cache.Load()))
 	case http.MethodPost:
 		var v domain.ConnectionConfig
 		if !decode(w, r, &v) {
@@ -304,6 +332,7 @@ func (s *Server) connections(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		saved.Enabled = wantedEnabled
+		s.refreshCache()
 		writeJSON(w, 201, saved)
 	case http.MethodPatch:
 		id, _ := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
@@ -312,6 +341,7 @@ func (s *Server) connections(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 400, err)
 			return
 		}
+		s.refreshCache()
 		writeJSON(w, 200, map[string]any{"connectionId": id, "enabled": enabled})
 	case http.MethodDelete:
 		id, _ := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
@@ -319,6 +349,7 @@ func (s *Server) connections(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 400, err)
 			return
 		}
+		s.refreshCache()
 		writeJSON(w, 200, map[string]any{"deleted": id})
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
