@@ -4,14 +4,14 @@ import { ArrowLeft, Pencil, Plus, RefreshCw, Search, Trash2, X } from "lucide-re
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { iconButtonClass, inputClass, labelClass, primaryButtonClass, secondaryButtonClass } from "../../components/ui";
 import { api, csrfToken } from "../../lib/api";
-import type { DeviceModelOption, RegisterMetadata } from "../../lib/types";
+import { MIDDLEWARE_DATA_TYPES, type DeviceModelOption, type DeviceModelRegisterMetadata } from "../../lib/types";
 
 export function RegisterMetadataPage() {
   const [models, setModels] = useState<DeviceModelOption[]>([]);
   const [selectedModelId, setSelectedModelId] = useState("");
-  const [items, setItems] = useState<RegisterMetadata[]>([]);
+  const [items, setItems] = useState<DeviceModelRegisterMetadata[]>([]);
   const [modelDialog, setModelDialog] = useState<DeviceModelOption | "create" | null>(null);
-  const [addressDialog, setAddressDialog] = useState<RegisterMetadata | "create" | null>(null);
+  const [addressDialog, setAddressDialog] = useState<DeviceModelRegisterMetadata | "create" | null>(null);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -41,7 +41,7 @@ export function RegisterMetadataPage() {
     try {
       const response = await api(`/api/v1/device-models/${encodeURIComponent(modelId)}/register-metadata`);
       if (!response.ok) throw new Error(response.status === 404 ? "ไม่พบ Device Model" : "ไม่สามารถโหลด Address Metadata ได้");
-      setItems((await response.json()) as RegisterMetadata[]);
+      setItems((await response.json()) as DeviceModelRegisterMetadata[]);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
     } finally {
@@ -71,13 +71,13 @@ export function RegisterMetadataPage() {
     setQuery("");
   }
 
-  function addressSaved(item: RegisterMetadata) {
+  function addressSaved(item: DeviceModelRegisterMetadata) {
     setItems((current) => [item, ...current.filter((entry) => entry.addressKey !== item.addressKey)]
       .sort((a, b) => a.addressKey.localeCompare(b.addressKey)));
     setAddressDialog(null);
   }
 
-  async function removeAddress(item: RegisterMetadata) {
+  async function removeAddress(item: DeviceModelRegisterMetadata) {
     if (!selectedModel || !window.confirm(`ลบ Address ${item.addressKey} จาก Model ${selectedModel.model}?`)) return;
     setError("");
     const response = await api(
@@ -254,16 +254,20 @@ function DeviceModelDialog({ model, onClose, onSaved }: { model: DeviceModelOpti
   );
 }
 
-function AddressMetadataDialog({ model, item, onClose, onSaved }: { model: DeviceModelOption; item: RegisterMetadata | null; onClose: () => void; onSaved: (item: RegisterMetadata) => void }) {
+function AddressMetadataDialog({ model, item, onClose, onSaved }: { model: DeviceModelOption; item: DeviceModelRegisterMetadata | null; onClose: () => void; onSaved: (item: DeviceModelRegisterMetadata) => void }) {
   const [addressKey, setAddressKey] = useState(item?.addressKey ?? "");
   const [displayName, setDisplayName] = useState(item?.displayName ?? "");
   const [unit, setUnit] = useState(item?.unit ?? "");
-  const [dataType, setDataType] = useState<RegisterMetadata["dataType"]>(item?.dataType ?? "number");
+  const [dataType, setDataType] = useState<DeviceModelRegisterMetadata["dataType"]>(item?.dataType ?? "number");
   const [scale, setScale] = useState(String(item?.scale ?? 1));
   const [offset, setOffset] = useState(String(item?.offset ?? 0));
   const [decimals, setDecimals] = useState(String(item?.decimals ?? 2));
   const [isEnabled, setIsEnabled] = useState(item?.isEnabled ?? true);
   const [notes, setNotes] = useState(item?.notes ?? "");
+  const [modbusFunctionCode, setModbusFunctionCode] = useState(item?.modbusFunctionCode == null ? "" : String(item.modbusFunctionCode));
+  const [modbusRegister, setModbusRegister] = useState(item?.modbusRegister == null ? "" : String(item.modbusRegister));
+  const [modbusWordOrder, setModbusWordOrder] = useState(item?.modbusWordOrder ?? "");
+  const [modbusDataType, setModbusDataType] = useState(item?.modbusDataType ?? "");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
 
@@ -275,10 +279,15 @@ function AddressMetadataDialog({ model, item, onClose, onSaved }: { model: Devic
       const response = await api(`/api/v1/device-models/${encodeURIComponent(model.id)}/register-metadata`, {
         method: "PUT",
         headers: { "X-CSRF-Token": csrfToken() },
-        body: JSON.stringify({ addressKey, displayName, unit, dataType, scale: Number(scale), offset: Number(offset), decimals: Number(decimals), isEnabled, notes }),
+        body: JSON.stringify({
+          addressKey, displayName, unit, dataType, scale: Number(scale), offset: Number(offset), decimals: Number(decimals), isEnabled, notes,
+          modbusFunctionCode: modbusFunctionCode === "" ? null : Number(modbusFunctionCode),
+          modbusRegister: modbusRegister === "" ? null : Number(modbusRegister),
+          modbusWordOrder, modbusDataType,
+        }),
       });
       if (!response.ok) throw new Error(response.status === 404 ? "ไม่พบ Device Model" : "Address Metadata ไม่ถูกต้องหรือไม่สามารถบันทึกได้");
-      onSaved((await response.json()) as RegisterMetadata);
+      onSaved((await response.json()) as DeviceModelRegisterMetadata);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
     } finally {
@@ -292,11 +301,31 @@ function AddressMetadataDialog({ model, item, onClose, onSaved }: { model: Devic
         <label className={labelClass}>Address / Key<input className={inputClass} autoFocus value={addressKey} onChange={(event) => setAddressKey(event.target.value)} maxLength={200} readOnly={Boolean(item)} required /></label>
         <label className={labelClass}>Display name<input className={inputClass} value={displayName} onChange={(event) => setDisplayName(event.target.value)} maxLength={200} placeholder="Active power" /></label>
         <label className={labelClass}>Unit<input className={inputClass} value={unit} onChange={(event) => setUnit(event.target.value)} maxLength={40} placeholder="kW" /></label>
-        <label className={labelClass}>Data type<select className={inputClass} value={dataType} onChange={(event) => setDataType(event.target.value as RegisterMetadata["dataType"])}><option value="number">number</option><option value="boolean">boolean</option><option value="text">text</option><option value="enum">enum</option></select></label>
+        <label className={labelClass}>Data type<select className={inputClass} value={dataType} onChange={(event) => setDataType(event.target.value as DeviceModelRegisterMetadata["dataType"])}><option value="number">number</option><option value="boolean">boolean</option><option value="text">text</option><option value="enum">enum</option></select></label>
         <label className={labelClass}>Scale<input className={inputClass} type="number" step="any" value={scale} onChange={(event) => setScale(event.target.value)} required /></label>
         <label className={labelClass}>Offset<input className={inputClass} type="number" step="any" value={offset} onChange={(event) => setOffset(event.target.value)} required /></label>
         <label className={labelClass}>Decimals<input className={inputClass} type="number" min="0" max="9" value={decimals} onChange={(event) => setDecimals(event.target.value)} required /></label>
         <label className="flex items-center gap-2 self-end text-sm font-bold text-slate-800"><input className="h-4 w-4 accent-[#174f68]" type="checkbox" checked={isEnabled} onChange={(event) => setIsEnabled(event.target.checked)} /> เปิดใช้งาน</label>
+        <div className={`${labelClass} sm:col-span-2`}>
+          Modbus register (เว้นว่างถ้าเป็น display metadata อย่างเดียว ไม่ใช้ poll จริง)
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <select className={inputClass} value={modbusFunctionCode} onChange={(event) => setModbusFunctionCode(event.target.value)}>
+              <option value="">-</option>
+              <option value="3">FC03</option>
+              <option value="4">FC04</option>
+            </select>
+            <input className={inputClass} type="number" min="0" max="65535" placeholder="Register" value={modbusRegister} onChange={(event) => setModbusRegister(event.target.value)} />
+            <select className={inputClass} value={modbusWordOrder} onChange={(event) => setModbusWordOrder(event.target.value)}>
+              <option value="">Word order (default)</option>
+              <option value="HIGH_LOW">HIGH_LOW</option>
+              <option value="LOW_HIGH">LOW_HIGH</option>
+            </select>
+            <select className={inputClass} value={modbusDataType} onChange={(event) => setModbusDataType(event.target.value)}>
+              <option value="">Modbus type</option>
+              {MIDDLEWARE_DATA_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+        </div>
         <label className={`${labelClass} sm:col-span-2`}>Notes<textarea className={`${inputClass} min-h-24 py-2`} value={notes} onChange={(event) => setNotes(event.target.value)} maxLength={500} /></label>
         {error && <p className="rounded-md bg-rose-50 px-3 py-2 text-sm font-bold text-rose-700 sm:col-span-2">{error}</p>}
         <div className="flex justify-end gap-2 sm:col-span-2"><button type="button" className={secondaryButtonClass} onClick={onClose} disabled={pending}>ยกเลิก</button><button className={primaryButtonClass} disabled={pending}>{pending ? "กำลังบันทึก" : "บันทึก Address"}</button></div>

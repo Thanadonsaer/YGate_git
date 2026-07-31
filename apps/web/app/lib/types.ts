@@ -108,10 +108,15 @@ export type Device = {
   plantId: string;
   externalId: string;
   name: string;
+  deviceModelId: string;
   manufacturer: string;
   model: string;
   deviceType: string;
   sourceTypeId?: number | null;
+  modbusHost?: string | null;
+  modbusPort?: number | null;
+  modbusUnitId: number;
+  pollIntervalSeconds: number;
   isActive: boolean;
   updatedAt: string;
 };
@@ -215,6 +220,27 @@ export type DeviceModelOption = {
   deviceType: string;
   sourceTypeId?: number | null;
   isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type DeviceModelRegisterMetadata = {
+  id: string;
+  organizationId: string;
+  deviceModelId: string;
+  addressKey: string;
+  displayName: string;
+  unit: string;
+  dataType: "number" | "boolean" | "text" | "enum";
+  scale: number;
+  offset: number;
+  decimals: number;
+  isEnabled: boolean;
+  notes: string;
+  modbusFunctionCode?: number | null;
+  modbusRegister?: number | null;
+  modbusWordOrder?: string | null;
+  modbusDataType?: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -324,6 +350,91 @@ export type PublishedDashboardLayout = {
   widgetConfigs: DashboardWidgetConfigs;
   publishedAt?: string | null;
 };
+export type MiddlewareGateway = {
+  id: string;
+  organizationId: string;
+  organizationName: string;
+  name: string;
+  siteName: string;
+  keyPrefix: string;
+  isActive: boolean;
+  isOnline: boolean;
+  configVersion: number;
+  configAppliedVersion: number;
+  lastSeenAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CreatedMiddlewareGateway = MiddlewareGateway & { apiKey: string };
+
+export type MiddlewareAddress = {
+  addressId: number;
+  deviceSetId: number;
+  functionCode: number;
+  register: number;
+  description: string;
+  canonicalKey?: string;
+  sourceTag?: string;
+  factor: number;
+  offset?: number;
+  dataType: string;
+  length?: number;
+  wordOrder?: string;
+  sourceUnit?: string;
+  remark?: string;
+  enabled: boolean;
+};
+
+export type MiddlewareDeviceSet = {
+  deviceSetId: number;
+  brandId: number;
+  brandName?: string;
+  devTypeId?: number;
+  devType: string;
+  devModel: string;
+  addressMode?: string;
+  byteOrder?: string;
+  wordOrder?: string;
+  maxBlockSize?: number;
+  addresses: MiddlewareAddress[];
+};
+
+export type MiddlewareBrand = {
+  brandId: number;
+  brandName: string;
+  brandDescription?: string;
+};
+
+export type MiddlewareConnection = {
+  connectionId: number;
+  connectionName: string;
+  host: string;
+  port: number;
+  unitId?: number;
+  deviceSetId: number;
+  devDn?: string;
+  deviceName?: string;
+  plantCode?: string;
+  plantName?: string;
+  enabled: boolean;
+};
+
+export type MiddlewarePlant = {
+  plantCode: string;
+  plantName: string;
+};
+
+export type MiddlewareConfigSnapshot = {
+  version: number;
+  brands: MiddlewareBrand[];
+  deviceSets: MiddlewareDeviceSet[];
+  connections: MiddlewareConnection[];
+  plants: MiddlewarePlant[];
+};
+
+export const MIDDLEWARE_DATA_TYPES = ["U16", "I16", "U32", "I32", "U64", "FLOAT32"] as const;
+
 export type TelemetryHistoryPage = { data: LatestTelemetry[]; nextCursor?: string | null };
 export type AuthMode = "login" | "forgot" | "reset";
 export type ConnectionState = "connecting" | "connected" | "offline";

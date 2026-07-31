@@ -1,10 +1,10 @@
 "use client";
 
-import { ArchiveX, ArrowLeft, Cpu, Eye, MapPin, Pencil, Plus, RefreshCw, Trash2, Wifi, X } from "lucide-react";
+import { ArchiveX, ArrowLeft, Cpu, Eye, MapPin, Pencil, PlugZap, Plus, RefreshCw, Trash2, Wifi, X } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { api, csrfToken, formatDate } from "../../lib/api";
 import { useRealtimeSocket } from "../../lib/realtime";
-import type { Device, LatestTelemetry, Plant } from "../../lib/types";
+import type { Device, DeviceModelOption, LatestTelemetry, Plant } from "../../lib/types";
 
 export function PlantsPage({ defaultOrganizationId }: { defaultOrganizationId?: string }) {
   const [plants, setPlants] = useState<Plant[]>([]);
@@ -100,6 +100,7 @@ function DeviceManagement({ plant, onBack }: { plant: Plant; onBack: () => void 
   const [error, setError] = useState("");
   const [editor, setEditor] = useState<Device | "create" | null>(null);
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
+  const [testOutcomes, setTestOutcomes] = useState<Record<string, { pending: boolean; ok?: boolean; message?: string }>>({});
 
   const loadDevices = useCallback(async () => {
     setLoading(true);
@@ -134,7 +135,11 @@ function DeviceManagement({ plant, onBack }: { plant: Plant; onBack: () => void 
     const response = await api(`/api/v1/plants/${plant.id}/devices/${device.id}`, {
       method: "PUT",
       headers: { "X-CSRF-Token": csrfToken() },
-      body: JSON.stringify({ name: device.name, isActive: false }),
+      body: JSON.stringify({
+        name: device.name, deviceModelId: device.deviceModelId, modbusHost: device.modbusHost ?? "",
+        modbusPort: device.modbusPort ?? null, modbusUnitId: device.modbusUnitId, pollIntervalSeconds: device.pollIntervalSeconds,
+        isActive: false,
+      }),
     });
     if (response.ok) void loadDevices();
     else setError("ไม่สามารถปิดใช้งาน Device ได้");
@@ -149,6 +154,23 @@ function DeviceManagement({ plant, onBack }: { plant: Plant; onBack: () => void 
     });
     if (response.ok) await loadDevices();
     else setError(response.status === 403 ? "เฉพาะ Platform Admin เท่านั้นที่ลบ Device ถาวรได้" : "ไม่สามารถลบ Device ถาวรได้");
+  }
+
+  async function runCommand(kind: "test-connection" | "test-read", device: Device) {
+    setTestOutcomes((prev) => ({ ...prev, [device.id]: { pending: true } }));
+    try {
+      const response = await api(`/api/v1/plants/${plant.id}/devices/${device.id}/${kind}`, {
+        method: "POST",
+        headers: { "X-CSRF-Token": csrfToken() },
+      });
+      if (response.status === 503) throw new Error("ไม่มี Middleware ดูแล Plant นี้อยู่ หรือออฟไลน์อยู่");
+      if (response.status === 504) throw new Error("Middleware ไม่ตอบสนองภายในเวลาที่กำหนด");
+      if (!response.ok) throw new Error("ทดสอบไม่สำเร็จ");
+      const data = (await response.json()) as { ok?: boolean; error?: string };
+      setTestOutcomes((prev) => ({ ...prev, [device.id]: { pending: false, ok: data.ok !== false, message: data.error || (kind === "test-connection" ? "เชื่อมต่อสำเร็จ" : "อ่านค่าสำเร็จ") } }));
+    } catch (cause) {
+      setTestOutcomes((prev) => ({ ...prev, [device.id]: { pending: false, ok: false, message: cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด" } }));
+    }
   }
 
   const latestReadings = Object.values(latestByDevice);
@@ -178,21 +200,29 @@ function DeviceManagement({ plant, onBack }: { plant: Plant; onBack: () => void 
         <div className="device-row device-head" role="row">
           <span>Device</span><span>รุ่น</span><span>ประเภท</span><span>ค่าล่าสุด</span><span>สถานะ</span><span aria-label="คำสั่ง" />
         </div>
-        {!loading && devices.map((device) => (
-          <div className="device-row" role="row" key={device.id}>
-            <div><strong>{device.name}</strong><small>{device.externalId}</small></div>
-            <div><span>{device.model}</span><small>{device.manufacturer}</small></div>
-            <div><span>{device.deviceType}</span><small>{device.sourceTypeId == null ? "ไม่ระบุ Source Type" : `Source Type ${device.sourceTypeId}`}</small></div>
-            <LatestValues reading={latestByDevice[device.id]} />
-            <span className={device.isActive ? "status active" : "status revoked"}>{device.isActive ? "ใช้งาน" : "ปิดใช้งาน"}</span>
-            <div className="row-actions">
-              <button className="icon-button" onClick={() => setSelectedDevice(device)} title="ดูค่าล่าสุดทั้งหมด" aria-label={`ดูค่าล่าสุดของ ${device.name}`}><Eye size={17} /></button>
-              <button className="icon-button" onClick={() => setEditor(device)} title="แก้ไข Device" aria-label={`แก้ไข ${device.name}`}><Pencil size={17} /></button>
-              {device.isActive && <button className="icon-button" onClick={() => void decommissionDevice(device)} title="ปิดใช้งาน" aria-label={`ปิดใช้งาน ${device.name}`}><ArchiveX size={17} /></button>}
-              <button className="icon-button danger" onClick={() => void hardDeleteDevice(device)} title="ลบถาวร (Platform Admin)" aria-label={`ลบ ${device.name} ถาวร`}><Trash2 size={17} /></button>
+        {!loading && devices.map((device) => {
+          const outcome = testOutcomes[device.id];
+          const canTest = Boolean(device.modbusHost && device.modbusPort);
+          return (
+            <div className="device-row" role="row" key={device.id}>
+              <div><strong>{device.name}</strong><small>{device.externalId}</small></div>
+              <div><span>{device.model}</span><small>{device.manufacturer}</small></div>
+              <div><span>{device.modbusHost ? `${device.modbusHost}:${device.modbusPort}` : "ไม่ใช่ Modbus device"}</span><small>{device.modbusHost ? `unit ${device.modbusUnitId} · poll ${device.pollIntervalSeconds}s` : device.deviceType}</small></div>
+              <LatestValues reading={latestByDevice[device.id]} />
+              <span className={device.isActive ? "status active" : "status revoked"}>{device.isActive ? "ใช้งาน" : "ปิดใช้งาน"}</span>
+              <div className="row-actions">
+                <button className="icon-button" disabled={!canTest || outcome?.pending} onClick={() => void runCommand("test-connection", device)} title={canTest ? "ทดสอบการเชื่อมต่อ" : "ต้องตั้งค่า IP/Port ก่อน"} aria-label={`ทดสอบการเชื่อมต่อ ${device.name}`}><PlugZap size={17} /></button>
+                <button className="icon-button" disabled={!canTest || outcome?.pending} onClick={() => void runCommand("test-read", device)} title="ทดสอบอ่านค่า" aria-label={`ทดสอบอ่านค่า ${device.name}`}><RefreshCw size={17} /></button>
+                <button className="icon-button" onClick={() => setSelectedDevice(device)} title="ดูค่าล่าสุดทั้งหมด" aria-label={`ดูค่าล่าสุดของ ${device.name}`}><Eye size={17} /></button>
+                <button className="icon-button" onClick={() => setEditor(device)} title="แก้ไข Device" aria-label={`แก้ไข ${device.name}`}><Pencil size={17} /></button>
+                {device.isActive && <button className="icon-button" onClick={() => void decommissionDevice(device)} title="ปิดใช้งาน" aria-label={`ปิดใช้งาน ${device.name}`}><ArchiveX size={17} /></button>}
+                <button className="icon-button danger" onClick={() => void hardDeleteDevice(device)} title="ลบถาวร (Platform Admin)" aria-label={`ลบ ${device.name} ถาวร`}><Trash2 size={17} /></button>
+              </div>
+              {outcome?.pending && <p className="form-message" style={{ gridColumn: "1 / -1" }}>กำลังทดสอบ...</p>}
+              {outcome && !outcome.pending && <p className={outcome.ok ? "form-message" : "form-message error"} style={{ gridColumn: "1 / -1" }}>{outcome.message}</p>}
             </div>
-          </div>
-        ))}
+          );
+        })}
         {loading && <div className="table-state">กำลังโหลดข้อมูล</div>}
         {!loading && !error && devices.length === 0 && <div className="table-state">ยังไม่มี Device กดเพิ่ม Device หรือให้ Middleware auto onboard เมื่อส่งข้อมูลเข้ามา</div>}
       </div>
@@ -228,30 +258,52 @@ function LatestValues({ reading }: { reading?: LatestTelemetry }) {
 }
 
 function DeviceEditor({ plant, device, onClose, onSaved }: { plant: Plant; device?: Device; onClose: () => void; onSaved: () => void }) {
+  const [models, setModels] = useState<DeviceModelOption[]>([]);
   const [externalId, setExternalId] = useState(device?.externalId ?? "");
   const [name, setName] = useState(device?.name ?? "");
-  const [manufacturer, setManufacturer] = useState(device?.manufacturer ?? "Middleware");
-  const [model, setModel] = useState(device?.model ?? "");
-  const [deviceType, setDeviceType] = useState(device?.deviceType ?? "INVERTER");
-  const [sourceTypeId, setSourceTypeId] = useState(device?.sourceTypeId?.toString() ?? "");
-  const [serialNumber, setSerialNumber] = useState("");
+  const [deviceModelId, setDeviceModelId] = useState(device?.deviceModelId ?? "");
+  const [modbusHost, setModbusHost] = useState(device?.modbusHost ?? "");
+  const [modbusPort, setModbusPort] = useState(device?.modbusPort?.toString() ?? "502");
+  const [modbusUnitId, setModbusUnitId] = useState(device?.modbusUnitId?.toString() ?? "1");
+  const [pollIntervalSeconds, setPollIntervalSeconds] = useState(device?.pollIntervalSeconds?.toString() ?? "10");
   const [isActive, setIsActive] = useState(device?.isActive ?? true);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    void (async () => {
+      const response = await api("/api/v1/device-models");
+      if (response.ok) {
+        const list = (await response.json()) as DeviceModelOption[];
+        setModels(list);
+        if (!deviceModelId && list.length > 0) setDeviceModelId(list[0].id);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     setPending(true);
     setError("");
+    const host = modbusHost.trim();
+    const body = {
+      externalId, name, deviceModelId,
+      modbusHost: host,
+      modbusPort: host === "" ? null : Number(modbusPort),
+      modbusUnitId: Number(modbusUnitId),
+      pollIntervalSeconds: Number(pollIntervalSeconds),
+      isActive,
+    };
     try {
       const response = await api(device ? `/api/v1/plants/${plant.id}/devices/${device.id}` : `/api/v1/plants/${plant.id}/devices`, {
         method: device ? "PUT" : "POST",
         headers: { "X-CSRF-Token": csrfToken() },
-        body: JSON.stringify(device ? { name, isActive } : { externalId, name, manufacturer, model, deviceType, sourceTypeId: sourceTypeId.trim() === "" ? null : Number(sourceTypeId), serialNumber }),
+        body: JSON.stringify(body),
       });
       if (response.status === 404) throw new Error("ไม่พบ Plant/Device หรือบัญชีนี้ไม่มีสิทธิ์");
       if (response.status === 409) throw new Error("External ID นี้มีอยู่แล้วใน Plant");
-      if (!response.ok) throw new Error("ข้อมูลไม่ถูกต้องหรือไม่สามารถบันทึกได้");
+      if (!response.ok) throw new Error("ข้อมูลไม่ถูกต้องหรือไม่สามารถบันทึกได้ (Model ต้องเลือก, IP ต้องมี Port คู่กัน)");
       onSaved();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
@@ -265,10 +317,17 @@ function DeviceEditor({ plant, device, onClose, onSaved }: { plant: Plant; devic
       <section className="plant-editor device-editor" role="dialog" aria-modal="true" aria-labelledby="device-editor-title">
         <header><div><p>{plant.code}</p><h2 id="device-editor-title">{device ? "แก้ไข Device" : "เพิ่ม Device"}</h2></div><button className="icon-button" onClick={onClose} disabled={pending} title="ปิด" aria-label="ปิด"><X size={19} /></button></header>
         <form onSubmit={submit}>
-          {!device && <label>External ID<input autoFocus value={externalId} onChange={(event) => setExternalId(event.target.value)} maxLength={200} required /></label>}
-          <label className="full-field">ชื่อ Device<input autoFocus value={name} onChange={(event) => setName(event.target.value)} maxLength={200} required /></label>
-          {!device && <><label>Manufacturer<input value={manufacturer} onChange={(event) => setManufacturer(event.target.value)} maxLength={200} required /></label><label>Model<input value={model} onChange={(event) => setModel(event.target.value)} maxLength={200} required /></label><label>Device type<input value={deviceType} onChange={(event) => setDeviceType(event.target.value)} maxLength={100} required /></label><label>Source Type ID<input type="number" min="0" value={sourceTypeId} onChange={(event) => setSourceTypeId(event.target.value)} /></label><label className="full-field">Serial number<input value={serialNumber} onChange={(event) => setSerialNumber(event.target.value)} maxLength={200} /></label></>}
-          {device && <label className="toggle-field full-field"><input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} /><span>เปิดใช้งาน Device</span></label>}
+          <label>Device ID<input autoFocus={!device} value={externalId} onChange={(event) => setExternalId(event.target.value)} maxLength={200} required disabled={Boolean(device)} /></label>
+          <label>ชื่อ Device<input autoFocus={Boolean(device)} value={name} onChange={(event) => setName(event.target.value)} maxLength={200} required /></label>
+          <label className="full-field">Model<select value={deviceModelId} onChange={(event) => setDeviceModelId(event.target.value)} required>
+            {models.length === 0 && <option value="">ยังไม่มี Device Model — สร้างที่หน้า Register Metadata ก่อน</option>}
+            {models.map((m) => <option key={m.id} value={m.id}>{m.manufacturer} / {m.deviceType} / {m.model}</option>)}
+          </select></label>
+          <label>IP<input value={modbusHost} onChange={(event) => setModbusHost(event.target.value)} placeholder="192.168.1.100 (เว้นว่างถ้าไม่ใช่ Modbus device)" /></label>
+          <label>Port<input type="number" min="1" max="65535" value={modbusPort} onChange={(event) => setModbusPort(event.target.value)} /></label>
+          <label>Unit ID<input type="number" min="0" max="255" value={modbusUnitId} onChange={(event) => setModbusUnitId(event.target.value)} /></label>
+          <label>Poll interval (s)<input type="number" min="1" max="3600" value={pollIntervalSeconds} onChange={(event) => setPollIntervalSeconds(event.target.value)} /></label>
+          <label className="toggle-field full-field"><input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} /><span>เปิดใช้งาน Device</span></label>
           {error && <p className="form-message error full-field">{error}</p>}
           <div className="editor-actions full-field"><button type="button" className="secondary-button" onClick={onClose} disabled={pending}>ยกเลิก</button><button className="primary-button" disabled={pending}>{pending ? "กำลังบันทึก" : device ? "บันทึก" : "สร้าง Device"}</button></div>
         </form>
