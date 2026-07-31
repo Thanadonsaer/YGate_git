@@ -84,9 +84,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   gap: 12px;
   color: var(--nav);
   font-weight: 700;
+  font-family: var(--font-display);
 }
-.loading-screen svg { animation: pulse 1.4s ease-in-out infinite; }
-@keyframes pulse { 50% { opacity: .35; } }
+.loading-pulse { width: 84px; height: 18px; color: var(--action); }
 
 .auth-screen {
   position: relative;
@@ -187,7 +187,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .brand-lockup { height: 48px; padding: 0 8px; display: flex; align-items: center; gap: 10px; }
 .brand-mark { width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid rgb(255 255 255 / 28%); border-radius: var(--radius-sm); }
 .brand-lockup div { min-width: 0; display: grid; }
-.brand-lockup strong { font-size: 15px; }
+.brand-lockup strong { font-size: 15px; font-family: var(--font-display); }
 .brand-lockup small { color: rgb(255 255 255 / 60%); font-size: 11px; }
 .sidebar nav { min-height: 0; display: grid; gap: 5px; margin-top: 30px; overflow-y: auto; }
 .nav-item {
@@ -229,7 +229,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 }
 .topbar > div:nth-child(2) { min-width: 0; }
 .topbar p { color: var(--muted); font-size: 10px; margin-bottom: 3px; }
-.topbar h1 { margin: 0; font-size: 20px; line-height: 1.2; }
+.topbar h1 { margin: 0; font-size: 20px; line-height: 1.2; font-family: var(--font-display); }
 .menu-button { display: none; width: 38px; height: 38px; place-items: center; border: 1px solid var(--line); border-radius: var(--radius-sm); background: white; }
 .live-chip { margin-left: auto; min-width: 92px; height: 31px; padding: 0 10px; display: flex; align-items: center; justify-content: center; gap: 7px; border-radius: var(--radius-sm); font-size: 12px; font-weight: 750; }
 .live-chip.connected { color: #0f6c49; background: #eaf7f1; }

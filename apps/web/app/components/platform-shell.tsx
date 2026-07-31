@@ -17,8 +17,6 @@ import {
   UserRound,
   UserCog,
   Users,
-  Wifi,
-  WifiOff,
   Workflow,
   X,
 } from "lucide-react";
@@ -29,6 +27,7 @@ import { api, csrfToken } from "../lib/api";
 import { useRealtimeSocket } from "../lib/realtime";
 import type { AuthMode, ConnectionState, User } from "../lib/types";
 import { AuthScreen } from "./auth-screen";
+import { LivePulse } from "./live-pulse";
 import { Toaster } from "./ui/sonner";
 
 type SessionContext = {
@@ -117,7 +116,7 @@ export function PlatformShell({ children }: { children: ReactNode }) {
   }
 
   if (loading) {
-    return <main className="loading-screen" aria-label="กำลังโหลด"><SunMedium size={30} /><span>YGATE Solar SCADA</span></main>;
+    return <main className="loading-screen" aria-label="กำลังโหลด"><LivePulse state="connecting" className="loading-pulse" /><span>YGATE Solar SCADA</span></main>;
   }
 
   if (!user) {
@@ -154,7 +153,7 @@ export function PlatformShell({ children }: { children: ReactNode }) {
             <button className="menu-button" onClick={() => setNavOpen(true)} title="เปิดเมนู" aria-label="เปิดเมนู"><Menu size={20} /></button>
             <div><p>Solar operations</p><h1>{titles[pathname] ?? "YGATE"}</h1></div>
             <div className={`live-chip ${liveState}`}>
-              {liveState === "connected" ? <Wifi size={15} /> : <WifiOff size={15} />}
+              <LivePulse state={liveState} />
               <span>{liveState === "connected" ? "Live" : liveState === "connecting" ? "Connecting" : "Offline"}</span>
             </div>
           </header>
