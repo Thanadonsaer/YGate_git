@@ -2,7 +2,7 @@ pipeline {
     agent { label 'ygate-linux-build' }
 
     parameters {
-        string(name: 'PUBLIC_GATEWAY_URL', defaultValue: 'https://ygate-api.yokogawasolution.com', description: 'Public same-origin URL baked into the Web build')
+        string(name: 'PUBLIC_GATEWAY_URL', defaultValue: 'https://ygate.yokogawasolution.com', description: 'Public same-origin URL baked into the Web build')
         string(name: 'PRODUCTION_HOST', defaultValue: 'https://ygate.yokogawasolution.com', description: 'SSH host for production deployment')
     }
 

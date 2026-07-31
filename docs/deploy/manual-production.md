@@ -1,151 +1,112 @@
-# คู่มือ Manual Build และ Deploy Production
+# คู่มือ Manual Build และ Deploy บน Windows + PM2
 
-คู่มือนี้ใช้สำหรับ Production ที่เป็น **Linux amd64** โดยไม่ต้องติดตั้ง Jenkins:
-
-```text
-เครื่อง Build (Linux/WSL2)
-  -> ygate-<commit>.tar.gz + .sha256
-  -> ลากไฟล์ด้วย WinSCP/SFTP ไป /tmp
-  -> sudo ygate-deploy
-  -> backup DB, restart, health check และ rollback อัตโนมัติ
-```
-
-> ห้ามลาก source code หรือไฟล์ย่อยไปทับ `/opt/ygate/current` โดยตรง ให้ส่งเฉพาะ release archive และ checksum เท่านั้น
-
-## 1. เตรียมเครื่อง Build
-
-ติดตั้ง:
-
-- Git
-- Go 1.23 ขึ้นไป
-- Node.js 20.9 ขึ้นไป และ npm
-- Bash, tar, gzip และ sha256sum
-- CA certificates สำหรับดาวน์โหลด dependency
-
-ถ้าใช้ Windows ให้ build ผ่าน **WSL2 หรือ Linux VM** เพราะ Next.js อาจมี native dependency ที่ต้องตรงกับระบบ Production
-
-## 2. Build Release
-
-เลือก commit ที่ผ่านการตรวจสอบแล้ว และ worktree ต้องไม่มีไฟล์แก้ค้าง:
-
-```bash
-git fetch --tags origin
-git checkout --detach <approved-commit-sha>
-git status --short
-
-export NEXT_PUBLIC_GATEWAY_URL=https://scada.example.com
-bash deploy/manual/build-release.sh
-```
-
-`NEXT_PUBLIC_GATEWAY_URL` ถูกฝังลงใน Web ตอน build จึงต้องเป็น URL จริงของ Production
-
-ไฟล์ผลลัพธ์อยู่ใน `dist/manual/`:
+Production ใช้ Windows amd64 และ Cloudflare Tunnel โดยเปิด service เฉพาะ localhost:
 
 ```text
-ygate-<40-character-commit-sha>.tar.gz
-ygate-<40-character-commit-sha>.tar.gz.sha256
+Cloudflare Tunnel
+  app hostname -> 127.0.0.1:8080  (Web)
+  API hostname -> 127.0.0.1:44440 (Gateway)
+                                   -> 127.0.0.1:44441 (Platform API)
 ```
 
-หากต้องการวางผลลัพธ์บน Desktop หรือ Shared Folder:
+## Build และ Pack
 
-```bash
-bash deploy/manual/build-release.sh /mnt/c/Users/<user>/Desktop/ygate-release
+เครื่อง Build ต้องมี Git, Go 1.23+, Node.js 20.9+ และ npm จากนั้นเปิด PowerShell:
+
+```powershell
+.\deploy\manual\build-release.ps1
 ```
 
-## 3. เตรียม Production ครั้งแรก
+ค่า Gateway เริ่มต้นคือ `https://ygate.yokogawasolution.com` เปลี่ยนได้ด้วย:
 
-สร้าง user, directory, environment files และ systemd services ตามหัวข้อ Production Services ใน [คู่มือ Jenkins Production](jenkins-production.md)
-
-ลาก `deploy/jenkins/ygate-deploy` จากเครื่อง Build ไปที่ `/tmp/ygate-deploy` หนึ่งครั้ง แล้วติดตั้ง:
-
-```bash
-sudo install -m 0755 /tmp/ygate-deploy /usr/local/sbin/ygate-deploy
+```powershell
+.\deploy\manual\build-release.ps1 -PublicGatewayUrl "https://api.example.com"
 ```
 
-Production ต้องมี Node.js, curl, tar, gzip, sha256sum และ `postgresql-client` สำหรับ `pg_dump` แต่ไม่จำเป็นต้องมี Git, Go หรือ npm
-
-## 4. ลากไฟล์เข้า Production
-
-เปิด WinSCP หรือ SFTP แล้วลาก **ทั้ง 2 ไฟล์** ไปไว้ที่ `/tmp`:
+ผลลัพธ์อยู่ใน `dist\manual`:
 
 ```text
-/tmp/ygate-<commit>.tar.gz
-/tmp/ygate-<commit>.tar.gz.sha256
+ygate-<release>.zip
+ygate-<release>.zip.sha256
 ```
 
-หรือใช้คำสั่ง:
+หาก worktree มีไฟล์ที่ยังไม่ commit ชื่อ release จะมี `-dirty-<timestamp>` เพื่อไม่ให้สับสนกับ commit ปกติ
 
-```bash
-scp dist/manual/ygate-<commit-sha>.tar.gz* <deploy-user>@<production-host>:/tmp/
+## ลากไฟล์และรัน
+
+1. ลาก ZIP ไปเครื่อง Production เช่น `D:\YGATE\packages`
+2. ตรวจ checksum แล้วแตกลง release directory ใหม่ ห้ามแตกทับ release ที่กำลังรันเพราะ Windows ล็อกไฟล์ `.exe`:
+
+```powershell
+$release = "<release>"
+$zip = "D:\YGATE\packages\ygate-$release.zip"
+$target = "D:\YGATE\releases\$release"
+(Get-FileHash $zip -Algorithm SHA256).Hash
+Expand-Archive $zip $target
+Set-Location $target
 ```
 
-## 5. สั่ง Deploy
+## สร้าง PostgreSQL ครั้งแรก
 
-SSH เข้า Production แล้วรัน:
+ติดตั้ง PostgreSQL บน Windows แยกต่างหาก จากนั้นเปิด SQL Shell (`psql`) ด้วย user `postgres`:
 
-```bash
-sudo /usr/local/sbin/ygate-deploy \
-  /tmp/ygate-<commit-sha>.tar.gz \
-  <40-character-commit-sha>
+```powershell
+psql -U postgres -d postgres
 ```
 
-สคริปต์จะทำสิ่งต่อไปนี้:
+สร้าง application user และ database:
 
-1. ตรวจ SHA256 และค่า `VERSION` ใน archive
-2. backup PostgreSQL ด้วย `pg_dump`
-3. แตก release ใหม่ใน `/opt/ygate/releases/`
-4. สลับ symlink `/opt/ygate/current`
-5. restart Platform API, API Gateway และ Web
-6. ตรวจ health endpoint
-7. rollback release เดิมอัตโนมัติถ้า health check ไม่ผ่าน
-
-## 6. ตรวจสอบหลัง Deploy
-
-```bash
-readlink -f /opt/ygate/current
-
-sudo systemctl status ygate-platform-api ygate-api-gateway ygate-web --no-pager
-
-curl --fail http://127.0.0.1:44441/readyz
-curl --fail http://127.0.0.1:44440/gateway/healthz
-curl --fail http://127.0.0.1:44440/readyz
-curl --fail http://127.0.0.1:8080/
+```sql
+CREATE ROLE ygate_app WITH LOGIN PASSWORD '<strong-password>';
+CREATE DATABASE ygate_db OWNER ygate_app;
 ```
 
-ทดสอบจาก URL ภายนอกเพิ่ม:
+ไม่ต้อง copy หรือรันไฟล์ SQL จาก repository เพราะ migrations ถูกฝังใน `platform-api.exe` และทำงานอัตโนมัติตอน start
 
-- Login และเปิดหน้า Web
-- เปิด OpenAPI
-- ทดสอบ WebSocket
-- ส่ง telemetry จาก Middleware
-- เปิด Plant แล้วตรวจ latest telemetry ของ Device
+3. รันครั้งแรกเพื่อสร้าง environment file กลางที่ไม่ถูกทับตอน deploy:
 
-ดู log เมื่อมีปัญหา:
-
-```bash
-sudo journalctl -u ygate-platform-api -u ygate-api-gateway -u ygate-web -n 200 --no-pager
+```powershell
+.\start.ps1 -EnvFile "D:\YGATE\ygate.env"
 ```
 
-## 7. Rollback ด้วยมือ
+4. แก้ PostgreSQL credential และ hostname ใน `ygate.env` แล้วรันซ้ำ:
 
-ดู release ก่อนหน้า:
-
-```bash
-ls -la /opt/ygate/releases
-readlink -f /opt/ygate/current
+```powershell
+.\start.ps1 -EnvFile "D:\YGATE\ygate.env"
+pm2 status
+pm2 logs
 ```
 
-สลับกลับแล้ว restart:
+`start.ps1` จะ start/restart Platform API, Gateway และ Web ผ่าน PM2 จากนั้นบันทึก process list และตรวจ health endpoints
 
-```bash
-sudo ln -sfn /opt/ygate/releases/<previous-commit> /opt/ygate/current
-sudo systemctl restart ygate-platform-api ygate-api-gateway ygate-web
+ค่า database ใน `D:\YGATE\ygate.env`:
+
+```dotenv
+PLATFORM_DATABASE_URL=postgresql://ygate_app:<URL-encoded-password>@127.0.0.1:5432/ygate_db
 ```
 
-จากนั้นตรวจ health endpoint ซ้ำ
+หลัง services พร้อม ให้สร้างผู้ดูแลระบบคนแรกหนึ่งครั้ง:
 
-> Database migration ควรเป็นแบบ backward-compatible เพราะการ rollback application ไม่ได้ย้อน schema อัตโนมัติ และควรกำหนด retention สำหรับ `/opt/ygate/releases` กับ `/opt/ygate/backups`
+```powershell
+.\bootstrap-admin.ps1 `
+  -EnvFile "D:\YGATE\ygate.env" `
+  -Email "admin@example.com" `
+  -DisplayName "Platform Admin" `
+  -OrganizationCode "YGATE" `
+  -OrganizationName "YGATE"
+```
 
-## กรณี Production เป็น Windows
+สคริปต์จะถาม password แบบซ่อน แล้วสร้าง organization, user และ role `Platform Admin`
 
-สคริปต์ชุดนี้รองรับ Linux เท่านั้น หาก Production เป็น Windows ต้องเปลี่ยนเป็น Windows Service/NSSM, PowerShell deploy script และ build Go ด้วย `GOOS=windows` แยกต่างหาก
+## Cloudflare Tunnel
+
+กำหนด Public Hostname อย่างน้อยสองรายการ:
+
+```text
+ygate.yokogawasolution.com     -> http://127.0.0.1:8080
+ygate-api.yokogawasolution.com -> http://127.0.0.1:44440
+```
+
+ไม่ expose port `44441` และไม่ต้องเปิด inbound port `8080`, `44440`, `44441` ที่ Windows Firewall
+
+> PM2 บน Windows ต้องมี startup mechanism เพิ่มเพื่อกลับมาหลัง reboot; Cloudflare Tunnel ควรรันเป็น Windows Service
