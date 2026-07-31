@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-07-29
 - Updated: 2026-07-30 — slimmed `registerAddressMap` (see Amendment below)
+- Updated: 2026-07-31 — middleware now scales values before sending (see Amendment below)
 
 ## Context
 
@@ -72,3 +73,22 @@ per-entry object (`functionCode`, `registerAddress`, `dataType`, `rawValue`,
   device set that mixes FC03 and FC04 on the same numeric address. No
   configured device set does that today (all use `address_mode: VENDOR_RAW`
   with FC03 uniformly). If that ever changes, the key format needs revisiting.
+
+## Amendment (2026-07-31): middleware scales before sending
+
+By product decision, this deployment no longer follows "Central Platform owns
+scaling" for v2. `registerAddressMap` values are now `raw * Factor + Offset`,
+computed per-address in the Middleware (`decodeEntry` in
+`modbus-api-middleware/internal/app/service.go`) using each Address's
+`factor`/`offset` from its own Device Set configuration, not Central Platform
+Register Metadata.
+
+- **The Central Platform must not re-apply scale to v2 data from this
+  Middleware version** — doing so double-scales every value.
+- A configured Factor of exactly `0` is treated as `1` (unset), so a blank/
+  default Factor cannot silently zero out a reading.
+- `measurements[].rawValue` (used only for local debugging in Monitor Live,
+  never sent to the Platform) is intentionally left unscaled.
+- If the Central Platform's own scaling ever ships, this Amendment must be
+  reconciled first — a v2 ingestion source cannot be "raw" per the original
+  Decision and "pre-scaled" per this Amendment at the same time.
