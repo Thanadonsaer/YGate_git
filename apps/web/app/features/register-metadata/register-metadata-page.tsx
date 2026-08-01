@@ -62,7 +62,7 @@ export function RegisterMetadataPage() {
       .some((value) => value.toLocaleLowerCase().includes(normalizedQuery))
   ), [models, normalizedQuery]);
   const filteredItems = useMemo(() => items.filter((item) =>
-    !normalizedQuery || [item.addressKey, item.displayName, item.unit, item.dataType, item.notes]
+    !normalizedQuery || [item.addressKey, item.displayName, item.unit, item.modbusDataType || item.dataType, item.notes]
       .some((value) => value.toLocaleLowerCase().includes(normalizedQuery))
   ), [items, normalizedQuery]);
 
@@ -330,8 +330,8 @@ function AddressMetadataDialog({ model, item, onClose, onSaved }: { model: Devic
           <form className="grid gap-4 sm:grid-cols-2" onSubmit={submit}>
             <label className={`${labelClass} sm:col-span-2`}>Address / Key<input className={inputClass} autoFocus value={addressKey} onChange={(event) => { setAddressKey(event.target.value); setAddressKeyEdited(true); }} maxLength={200} readOnly={Boolean(item)} required /></label>
 
-            <p className="col-span-2 text-xs font-extrabold uppercase text-ink-soft">Modbus Register</p>
-            <div className="col-span-2 grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <p className="sm:col-span-2 text-xs font-extrabold uppercase text-ink-soft">Modbus Register</p>
+            <div className="sm:col-span-2 grid grid-cols-2 gap-4 sm:grid-cols-4">
               <Select value={modbusFunctionCode} onValueChange={setModbusFunctionCode}>
                 <SelectTrigger><SelectValue placeholder="-" /></SelectTrigger>
                 <SelectContent>
@@ -357,9 +357,9 @@ function AddressMetadataDialog({ model, item, onClose, onSaved }: { model: Devic
                 </SelectContent>
               </Select>
             </div>
-            <p className="col-span-2 -mb-2 text-xs text-ink-soft">เว้นว่างทั้งหมดถ้าเป็น display metadata อย่างเดียว ไม่ใช้ poll จริง</p>
+            <p className="sm:col-span-2 -mb-2 text-xs text-ink-soft">เว้นว่างทั้งหมดถ้าเป็น display metadata อย่างเดียว ไม่ใช้ poll จริง</p>
 
-            <p className="col-span-2 text-xs font-extrabold uppercase text-ink-soft">Display</p>
+            <p className="sm:col-span-2 text-xs font-extrabold uppercase text-ink-soft">Display</p>
             <label className={labelClass}>Display name<input className={inputClass} value={displayName} onChange={(event) => setDisplayName(event.target.value)} maxLength={200} placeholder="Active power" /></label>
             <label className={labelClass}>Unit<input className={inputClass} value={unit} onChange={(event) => setUnit(event.target.value)} maxLength={40} placeholder="kW" /></label>
             {modbusDataType === "" && (
