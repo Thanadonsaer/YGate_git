@@ -1,7 +1,10 @@
 "use client";
 
-import { ArrowLeft, Pencil, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
+import { ArrowLeft, Pencil, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody } from "../../components/ui/dialog";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../../components/ui/select";
+import { toast } from "../../components/ui/sonner";
 import { iconButtonClass, inputClass, labelClass, primaryButtonClass, secondaryButtonClass } from "../../components/ui";
 import { api, csrfToken } from "../../lib/api";
 import { MIDDLEWARE_DATA_TYPES, type DeviceModelOption, type DeviceModelRegisterMetadata } from "../../lib/types";
@@ -69,12 +72,14 @@ export function RegisterMetadataPage() {
     setSelectedModelId(model.id);
     setModelDialog(null);
     setQuery("");
+    toast.success(`บันทึก Model ${model.manufacturer} ${model.model} แล้ว`);
   }
 
   function addressSaved(item: DeviceModelRegisterMetadata) {
     setItems((current) => [item, ...current.filter((entry) => entry.addressKey !== item.addressKey)]
       .sort((a, b) => a.addressKey.localeCompare(b.addressKey)));
     setAddressDialog(null);
+    toast.success(`บันทึก Address ${item.addressKey} แล้ว`);
   }
 
   async function removeAddress(item: DeviceModelRegisterMetadata) {
@@ -86,6 +91,7 @@ export function RegisterMetadataPage() {
     );
     if (response.ok) {
       setItems((current) => current.filter((entry) => entry.addressKey !== item.addressKey));
+      toast.success(`ลบ Address ${item.addressKey} แล้ว`);
     } else {
       setError(response.status === 404 ? "ไม่พบ Address Metadata" : "ไม่สามารถลบ Address Metadata ได้");
     }
@@ -102,6 +108,7 @@ export function RegisterMetadataPage() {
       setSelectedModelId("");
       setItems([]);
       await loadModels();
+      toast.success(`ลบ Model ${model.manufacturer} ${model.model} ถาวรแล้ว`);
     } else {
       setError(response.status === 403 ? "เฉพาะ Platform Admin เท่านั้นที่ลบ Device Model ถาวรได้" : "ไม่สามารถลบ Device Model ถาวรได้");
     }
@@ -119,8 +126,8 @@ export function RegisterMetadataPage() {
             </button>
           )}
           <div className="min-w-0">
-            <p className="text-xs font-extrabold uppercase text-slate-500">{selectedModel ? `${selectedModel.manufacturer} / ${selectedModel.deviceType}` : "Configuration registry"}</p>
-            <h2 className="truncate text-2xl font-extrabold text-slate-900">{selectedModel ? selectedModel.model : "Device Models"}</h2>
+            <p className="text-xs font-extrabold uppercase text-ink-soft">{selectedModel ? `${selectedModel.manufacturer} / ${selectedModel.deviceType}` : "Configuration registry"}</p>
+            <h2 className="truncate text-2xl font-extrabold text-ink">{selectedModel ? selectedModel.model : "Device Models"}</h2>
           </div>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">
@@ -139,63 +146,63 @@ export function RegisterMetadataPage() {
       </div>
 
       {selectedModel && (
-        <div className="flex flex-wrap items-center justify-between gap-3 border-y border-slate-200 py-3 text-sm">
-          <div className="flex flex-wrap gap-x-6 gap-y-1 text-slate-600">
-            <span>Brand <strong className="text-slate-900">{selectedModel.manufacturer}</strong></span>
-            <span>ชนิด <strong className="text-slate-900">{selectedModel.deviceType}</strong></span>
-            <span>Source Type <strong className="text-slate-900">{selectedModel.sourceTypeId ?? "-"}</strong></span>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-y border-line py-3 text-sm">
+          <div className="flex flex-wrap gap-x-6 gap-y-1 text-ink-soft">
+            <span>Brand <strong className="text-ink">{selectedModel.manufacturer}</strong></span>
+            <span>ชนิด <strong className="text-ink">{selectedModel.deviceType}</strong></span>
+            <span>Source Type <strong className="text-ink">{selectedModel.sourceTypeId ?? "-"}</strong></span>
           </div>
           <div className="flex flex-wrap gap-2">
             <button className={secondaryButtonClass} type="button" onClick={() => setModelDialog(selectedModel)}><Pencil size={16} /> แก้ไข Model</button>
-            <button className={`${secondaryButtonClass} text-rose-700`} type="button" onClick={() => void hardDeleteModel(selectedModel)}><Trash2 size={16} /> ลบถาวร</button>
+            <button className={`${secondaryButtonClass} text-danger`} type="button" onClick={() => void hardDeleteModel(selectedModel)}><Trash2 size={16} /> ลบถาวร</button>
           </div>
         </div>
       )}
 
-      {error && <p className="rounded-md bg-rose-50 px-3 py-2 text-sm font-bold text-rose-700">{error}</p>}
+      {error && <p className="rounded-md bg-rose-50 px-3 py-2 text-sm font-bold text-danger">{error}</p>}
 
-      <section className="overflow-hidden rounded-md border border-slate-200 bg-white" aria-label={selectedModel ? "Address Metadata" : "Device Models"}>
+      <section className="overflow-hidden rounded-md border border-line bg-white" aria-label={selectedModel ? "Address Metadata" : "Device Models"}>
         {selectedModel ? (
           <>
-            <div className="hidden min-h-11 grid-cols-[minmax(130px,1fr)_minmax(150px,1.2fr)_80px_100px_150px_80px_96px] items-center gap-3 border-b border-slate-200 bg-slate-50 px-4 text-xs font-extrabold text-slate-500 lg:grid">
+            <div className="hidden min-h-11 grid-cols-[minmax(130px,1fr)_minmax(150px,1.2fr)_80px_100px_150px_80px_96px] items-center gap-3 border-b border-line bg-canvas px-4 text-xs font-extrabold text-ink-soft lg:grid">
               <span>Address</span><span>Display name</span><span>Unit</span><span>Type</span><span>Transform</span><span>Status</span><span aria-label="คำสั่ง" />
             </div>
             {filteredItems.map((item) => (
-              <div key={item.addressKey} className="grid grid-cols-[minmax(0,1fr)_88px] gap-3 border-b border-slate-200 px-4 py-3 text-sm last:border-b-0 lg:min-h-16 lg:grid-cols-[minmax(130px,1fr)_minmax(150px,1.2fr)_80px_100px_150px_80px_96px] lg:items-center">
-                <div className="min-w-0"><strong className="block truncate text-slate-900">{item.addressKey}</strong><small className="block truncate text-xs text-slate-500 lg:hidden">{item.displayName || "ยังไม่ระบุชื่อ"} · {item.unit || "ไม่มีหน่วย"}</small></div>
-                <span className="hidden truncate text-slate-700 lg:block">{item.displayName || "-"}</span>
-                <span className="hidden truncate text-slate-700 lg:block">{item.unit || "-"}</span>
-                <span className="hidden truncate text-slate-700 lg:block">{item.dataType}</span>
-                <span className="hidden truncate text-slate-700 lg:block">x{item.scale} + {item.offset}, {item.decimals} dp</span>
-                <span className={`hidden w-fit rounded-full px-2.5 py-1 text-xs font-extrabold lg:block ${item.isEnabled ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>{item.isEnabled ? "เปิด" : "ปิด"}</span>
+              <div key={item.addressKey} className="grid grid-cols-[minmax(0,1fr)_88px] gap-3 border-b border-line px-4 py-3 text-sm last:border-b-0 lg:min-h-16 lg:grid-cols-[minmax(130px,1fr)_minmax(150px,1.2fr)_80px_100px_150px_80px_96px] lg:items-center">
+                <div className="min-w-0"><strong className="block truncate text-ink">{item.addressKey}</strong><small className="block truncate text-xs text-ink-soft lg:hidden">{item.displayName || "ยังไม่ระบุชื่อ"} · {item.unit || "ไม่มีหน่วย"}</small></div>
+                <span className="hidden truncate text-ink lg:block">{item.displayName || "-"}</span>
+                <span className="hidden truncate text-ink lg:block">{item.unit || "-"}</span>
+                <span className="hidden truncate text-ink lg:block">{item.dataType}</span>
+                <span className="hidden truncate text-ink lg:block">x{item.scale} + {item.offset}, {item.decimals} dp</span>
+                <span className={`hidden w-fit rounded-full px-2.5 py-1 text-xs font-extrabold lg:block ${item.isEnabled ? "bg-success/10 text-success" : "bg-danger/10 text-danger"}`}>{item.isEnabled ? "เปิด" : "ปิด"}</span>
                 <div className="row-start-1 flex justify-end gap-1 lg:row-auto">
                   <button className={iconButtonClass} type="button" onClick={() => setAddressDialog(item)} title="แก้ไข Address" aria-label={`แก้ไข ${item.addressKey}`}><Pencil size={16} /></button>
-                  <button className={`${iconButtonClass} text-rose-700 hover:border-rose-200 hover:bg-rose-50`} type="button" onClick={() => void removeAddress(item)} title="ลบ Address" aria-label={`ลบ ${item.addressKey}`}><Trash2 size={16} /></button>
+                  <button className={`${iconButtonClass} text-danger hover:border-danger/30 hover:bg-danger/10`} type="button" onClick={() => void removeAddress(item)} title="ลบ Address" aria-label={`ลบ ${item.addressKey}`}><Trash2 size={16} /></button>
                 </div>
               </div>
             ))}
           </>
         ) : (
           <>
-            <div className="hidden min-h-11 grid-cols-[minmax(150px,1fr)_minmax(120px,.8fr)_minmax(180px,1.2fr)_100px_90px_96px] items-center gap-3 border-b border-slate-200 bg-slate-50 px-4 text-xs font-extrabold text-slate-500 md:grid">
+            <div className="hidden min-h-11 grid-cols-[minmax(150px,1fr)_minmax(120px,.8fr)_minmax(180px,1.2fr)_100px_90px_96px] items-center gap-3 border-b border-line bg-canvas px-4 text-xs font-extrabold text-ink-soft md:grid">
               <span>Brand</span><span>ชนิด</span><span>รุ่น</span><span>Source</span><span>Status</span><span aria-label="คำสั่ง" />
             </div>
             {filteredModels.map((model) => (
-              <div key={model.id} role="button" tabIndex={0} className="grid cursor-pointer grid-cols-[minmax(0,1fr)_88px] gap-3 border-b border-slate-200 px-4 py-3 text-sm transition last:border-b-0 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-cyan-700 md:min-h-16 md:grid-cols-[minmax(150px,1fr)_minmax(120px,.8fr)_minmax(180px,1.2fr)_100px_90px_96px] md:items-center" onClick={() => { setSelectedModelId(model.id); setQuery(""); }} onKeyDown={(event) => {
+              <div key={model.id} role="button" tabIndex={0} className="grid cursor-pointer grid-cols-[minmax(0,1fr)_88px] gap-3 border-b border-line px-4 py-3 text-sm transition last:border-b-0 hover:bg-canvas focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-focus md:min-h-16 md:grid-cols-[minmax(150px,1fr)_minmax(120px,.8fr)_minmax(180px,1.2fr)_100px_90px_96px] md:items-center" onClick={() => { setSelectedModelId(model.id); setQuery(""); }} onKeyDown={(event) => {
                 if (event.key === "Enter" || event.key === " ") {
                   event.preventDefault();
                   setSelectedModelId(model.id);
                   setQuery("");
                 }
               }}>
-                <div className="min-w-0"><strong className="block truncate text-slate-900">{model.manufacturer}</strong><small className="block truncate text-xs text-slate-500 md:hidden">{model.deviceType} · {model.model}</small></div>
-                <span className="hidden truncate text-slate-700 md:block">{model.deviceType}</span>
-                <span className="hidden truncate text-slate-700 md:block">{model.model}</span>
-                <span className="hidden truncate text-slate-700 md:block">{model.sourceTypeId ?? "-"}</span>
-                <span className={`hidden w-fit rounded-full px-2.5 py-1 text-xs font-extrabold md:block ${model.isActive ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>{model.isActive ? "เปิด" : "ปิด"}</span>
+                <div className="min-w-0"><strong className="block truncate text-ink">{model.manufacturer}</strong><small className="block truncate text-xs text-ink-soft md:hidden">{model.deviceType} · {model.model}</small></div>
+                <span className="hidden truncate text-ink md:block">{model.deviceType}</span>
+                <span className="hidden truncate text-ink md:block">{model.model}</span>
+                <span className="hidden truncate text-ink md:block">{model.sourceTypeId ?? "-"}</span>
+                <span className={`hidden w-fit rounded-full px-2.5 py-1 text-xs font-extrabold md:block ${model.isActive ? "bg-success/10 text-success" : "bg-danger/10 text-danger"}`}>{model.isActive ? "เปิด" : "ปิด"}</span>
                 <div className="flex justify-end gap-1">
                   <button className={iconButtonClass} type="button" onClick={(event) => { event.stopPropagation(); setModelDialog(model); }} title="แก้ไข Model" aria-label={`แก้ไข ${model.model}`}><Pencil size={16} /></button>
-                  <button className={`${iconButtonClass} text-rose-700`} type="button" onClick={(event) => { event.stopPropagation(); void hardDeleteModel(model); }} title="ลบ Model ถาวร" aria-label={`ลบ ${model.model} ถาวร`}><Trash2 size={16} /></button>
+                  <button className={`${iconButtonClass} text-danger`} type="button" onClick={(event) => { event.stopPropagation(); void hardDeleteModel(model); }} title="ลบ Model ถาวร" aria-label={`ลบ ${model.model} ถาวร`}><Trash2 size={16} /></button>
                 </div>
               </div>
             ))}
@@ -240,16 +247,23 @@ function DeviceModelDialog({ model, onClose, onSaved }: { model: DeviceModelOpti
   }
 
   return (
-    <Dialog title={model ? "แก้ไข Device Model" : "เพิ่ม Device Model"} eyebrow="Model configuration" onClose={onClose} pending={pending}>
-      <form className="grid gap-4 sm:grid-cols-2" onSubmit={submit}>
-        <label className={labelClass}>Brand<input className={inputClass} autoFocus value={manufacturer} onChange={(event) => setManufacturer(event.target.value)} maxLength={200} required /></label>
-        <label className={labelClass}>ชนิดอุปกรณ์<input className={inputClass} value={deviceType} onChange={(event) => setDeviceType(event.target.value)} maxLength={100} required /></label>
-        <label className={`${labelClass} sm:col-span-2`}>รุ่น<input className={inputClass} value={modelName} onChange={(event) => setModelName(event.target.value)} maxLength={200} required /></label>
-        <label className={labelClass}>Source Type ID<input className={inputClass} type="number" min="0" value={sourceTypeId} onChange={(event) => setSourceTypeId(event.target.value)} /></label>
-        <label className="flex items-center gap-2 self-end text-sm font-bold text-slate-800"><input className="h-4 w-4 accent-[#174f68]" type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} /> เปิดใช้งาน</label>
-        {error && <p className="rounded-md bg-rose-50 px-3 py-2 text-sm font-bold text-rose-700 sm:col-span-2">{error}</p>}
-        <div className="flex justify-end gap-2 sm:col-span-2"><button type="button" className={secondaryButtonClass} onClick={onClose} disabled={pending}>ยกเลิก</button><button className={primaryButtonClass} disabled={pending}>{pending ? "กำลังบันทึก" : "บันทึก"}</button></div>
-      </form>
+    <Dialog open onOpenChange={(open) => { if (!open && !pending) onClose(); }}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <div><DialogDescription>Model configuration</DialogDescription><DialogTitle>{model ? "แก้ไข Device Model" : "เพิ่ม Device Model"}</DialogTitle></div>
+        </DialogHeader>
+        <DialogBody>
+          <form className="grid gap-4 sm:grid-cols-2" onSubmit={submit}>
+            <label className={labelClass}>Brand<input className={inputClass} autoFocus value={manufacturer} onChange={(event) => setManufacturer(event.target.value)} maxLength={200} required /></label>
+            <label className={labelClass}>ชนิดอุปกรณ์<input className={inputClass} value={deviceType} onChange={(event) => setDeviceType(event.target.value)} maxLength={100} required /></label>
+            <label className={`${labelClass} sm:col-span-2`}>รุ่น<input className={inputClass} value={modelName} onChange={(event) => setModelName(event.target.value)} maxLength={200} required /></label>
+            <label className={labelClass}>Source Type ID<input className={inputClass} type="number" min="0" value={sourceTypeId} onChange={(event) => setSourceTypeId(event.target.value)} /></label>
+            <label className="flex items-center gap-2 self-end text-sm font-bold text-slate-800"><input className="h-4 w-4 accent-brand" type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} /> เปิดใช้งาน</label>
+            {error && <p className="rounded-md bg-rose-50 px-3 py-2 text-sm font-bold text-danger sm:col-span-2">{error}</p>}
+            <div className="flex justify-end gap-2 sm:col-span-2"><button type="button" className={secondaryButtonClass} onClick={onClose} disabled={pending}>ยกเลิก</button><button className={primaryButtonClass} disabled={pending}>{pending ? "กำลังบันทึก" : "บันทึก"}</button></div>
+          </form>
+        </DialogBody>
+      </DialogContent>
     </Dialog>
   );
 }
@@ -296,66 +310,66 @@ function AddressMetadataDialog({ model, item, onClose, onSaved }: { model: Devic
   }
 
   return (
-    <Dialog title={item ? `แก้ไข ${item.addressKey}` : "เพิ่ม Address Metadata"} eyebrow={`${model.manufacturer} / ${model.model}`} onClose={onClose} pending={pending}>
-      <form className="grid gap-4 sm:grid-cols-2" onSubmit={submit}>
-        <label className={labelClass}>Address / Key<input className={inputClass} autoFocus value={addressKey} onChange={(event) => setAddressKey(event.target.value)} maxLength={200} readOnly={Boolean(item)} required /></label>
-        <label className={labelClass}>Display name<input className={inputClass} value={displayName} onChange={(event) => setDisplayName(event.target.value)} maxLength={200} placeholder="Active power" /></label>
-        <label className={labelClass}>Unit<input className={inputClass} value={unit} onChange={(event) => setUnit(event.target.value)} maxLength={40} placeholder="kW" /></label>
-        <label className={labelClass}>Data type<select className={inputClass} value={dataType} onChange={(event) => setDataType(event.target.value as DeviceModelRegisterMetadata["dataType"])}><option value="number">number</option><option value="boolean">boolean</option><option value="text">text</option><option value="enum">enum</option></select></label>
-        <label className={labelClass}>Scale<input className={inputClass} type="number" step="any" value={scale} onChange={(event) => setScale(event.target.value)} required /></label>
-        <label className={labelClass}>Offset<input className={inputClass} type="number" step="any" value={offset} onChange={(event) => setOffset(event.target.value)} required /></label>
-        <label className={labelClass}>Decimals<input className={inputClass} type="number" min="0" max="9" value={decimals} onChange={(event) => setDecimals(event.target.value)} required /></label>
-        <label className="flex items-center gap-2 self-end text-sm font-bold text-slate-800"><input className="h-4 w-4 accent-[#174f68]" type="checkbox" checked={isEnabled} onChange={(event) => setIsEnabled(event.target.checked)} /> เปิดใช้งาน</label>
-        <div className={`${labelClass} sm:col-span-2`}>
-          Modbus register (เว้นว่างถ้าเป็น display metadata อย่างเดียว ไม่ใช้ poll จริง)
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-            <select className={inputClass} value={modbusFunctionCode} onChange={(event) => setModbusFunctionCode(event.target.value)}>
-              <option value="">-</option>
-              <option value="3">FC03</option>
-              <option value="4">FC04</option>
-            </select>
-            <input className={inputClass} type="number" min="0" max="65535" placeholder="Register" value={modbusRegister} onChange={(event) => setModbusRegister(event.target.value)} />
-            <select className={inputClass} value={modbusWordOrder} onChange={(event) => setModbusWordOrder(event.target.value)}>
-              <option value="">Word order (default)</option>
-              <option value="HIGH_LOW">HIGH_LOW</option>
-              <option value="LOW_HIGH">LOW_HIGH</option>
-            </select>
-            <select className={inputClass} value={modbusDataType} onChange={(event) => setModbusDataType(event.target.value)}>
-              <option value="">Modbus type</option>
-              {MIDDLEWARE_DATA_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
-          </div>
-        </div>
-        <label className={`${labelClass} sm:col-span-2`}>Notes<textarea className={`${inputClass} min-h-24 py-2`} value={notes} onChange={(event) => setNotes(event.target.value)} maxLength={500} /></label>
-        {error && <p className="rounded-md bg-rose-50 px-3 py-2 text-sm font-bold text-rose-700 sm:col-span-2">{error}</p>}
-        <div className="flex justify-end gap-2 sm:col-span-2"><button type="button" className={secondaryButtonClass} onClick={onClose} disabled={pending}>ยกเลิก</button><button className={primaryButtonClass} disabled={pending}>{pending ? "กำลังบันทึก" : "บันทึก Address"}</button></div>
-      </form>
+    <Dialog open onOpenChange={(open) => { if (!open && !pending) onClose(); }}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <div><DialogDescription>{`${model.manufacturer} / ${model.model}`}</DialogDescription><DialogTitle>{item ? `แก้ไข ${item.addressKey}` : "เพิ่ม Address Metadata"}</DialogTitle></div>
+        </DialogHeader>
+        <DialogBody>
+          <form className="grid gap-4 sm:grid-cols-2" onSubmit={submit}>
+            <label className={labelClass}>Address / Key<input className={inputClass} autoFocus value={addressKey} onChange={(event) => setAddressKey(event.target.value)} maxLength={200} readOnly={Boolean(item)} required /></label>
+            <label className={labelClass}>Display name<input className={inputClass} value={displayName} onChange={(event) => setDisplayName(event.target.value)} maxLength={200} placeholder="Active power" /></label>
+            <label className={labelClass}>Unit<input className={inputClass} value={unit} onChange={(event) => setUnit(event.target.value)} maxLength={40} placeholder="kW" /></label>
+            <label className={labelClass}>Data type
+              <Select value={dataType} onValueChange={(value) => setDataType(value as DeviceModelRegisterMetadata["dataType"])}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="number">number</SelectItem>
+                  <SelectItem value="boolean">boolean</SelectItem>
+                  <SelectItem value="text">text</SelectItem>
+                  <SelectItem value="enum">enum</SelectItem>
+                </SelectContent>
+              </Select>
+            </label>
+            <label className={labelClass}>Scale<input className={inputClass} type="number" step="any" value={scale} onChange={(event) => setScale(event.target.value)} required /></label>
+            <label className={labelClass}>Offset<input className={inputClass} type="number" step="any" value={offset} onChange={(event) => setOffset(event.target.value)} required /></label>
+            <label className={labelClass}>Decimals<input className={inputClass} type="number" min="0" max="9" value={decimals} onChange={(event) => setDecimals(event.target.value)} required /></label>
+            <label className="flex items-center gap-2 self-end text-sm font-bold text-slate-800"><input className="h-4 w-4 accent-brand" type="checkbox" checked={isEnabled} onChange={(event) => setIsEnabled(event.target.checked)} /> เปิดใช้งาน</label>
+            <div className={`${labelClass} sm:col-span-2`}>
+              Modbus register (เว้นว่างถ้าเป็น display metadata อย่างเดียว ไม่ใช้ poll จริง)
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                <Select value={modbusFunctionCode} onValueChange={setModbusFunctionCode}>
+                  <SelectTrigger><SelectValue placeholder="-" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">-</SelectItem>
+                    <SelectItem value="3">FC03</SelectItem>
+                    <SelectItem value="4">FC04</SelectItem>
+                  </SelectContent>
+                </Select>
+                <input className={inputClass} type="number" min="0" max="65535" placeholder="Register" value={modbusRegister} onChange={(event) => setModbusRegister(event.target.value)} />
+                <Select value={modbusWordOrder} onValueChange={setModbusWordOrder}>
+                  <SelectTrigger><SelectValue placeholder="Word order (default)" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">Word order (default)</SelectItem>
+                    <SelectItem value="HIGH_LOW">HIGH_LOW</SelectItem>
+                    <SelectItem value="LOW_HIGH">LOW_HIGH</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={modbusDataType} onValueChange={setModbusDataType}>
+                  <SelectTrigger><SelectValue placeholder="Modbus type" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">Modbus type</SelectItem>
+                    {MIDDLEWARE_DATA_TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <label className={`${labelClass} sm:col-span-2`}>Notes<textarea className={`${inputClass} min-h-24 py-2`} value={notes} onChange={(event) => setNotes(event.target.value)} maxLength={500} /></label>
+            {error && <p className="rounded-md bg-rose-50 px-3 py-2 text-sm font-bold text-danger sm:col-span-2">{error}</p>}
+            <div className="flex justify-end gap-2 sm:col-span-2"><button type="button" className={secondaryButtonClass} onClick={onClose} disabled={pending}>ยกเลิก</button><button className={primaryButtonClass} disabled={pending}>{pending ? "กำลังบันทึก" : "บันทึก Address"}</button></div>
+          </form>
+        </DialogBody>
+      </DialogContent>
     </Dialog>
-  );
-}
-
-function Dialog({ title, eyebrow, onClose, pending, children }: { title: string; eyebrow: string; onClose: () => void; pending: boolean; children: React.ReactNode }) {
-  useEffect(() => {
-    function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === "Escape" && !pending) onClose();
-    }
-    document.body.style.overflow = "hidden";
-    window.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.body.style.overflow = "";
-      window.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [onClose, pending]);
-
-  return (
-    <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-slate-950/55 p-4" role="presentation" onMouseDown={(event) => { if (!pending && event.target === event.currentTarget) onClose(); }}>
-      <section className="max-h-[calc(100vh-2rem)] w-full max-w-2xl overflow-y-auto rounded-md bg-white shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="metadata-dialog-title">
-        <header className="flex items-center justify-between gap-4 border-b border-slate-200 px-5 py-4">
-          <div className="min-w-0"><p className="truncate text-xs font-extrabold uppercase text-slate-500">{eyebrow}</p><h2 id="metadata-dialog-title" className="truncate text-xl font-extrabold text-slate-900">{title}</h2></div>
-          <button className={iconButtonClass} type="button" onClick={onClose} disabled={pending} title="ปิด" aria-label="ปิด"><X size={18} /></button>
-        </header>
-        <div className="p-5">{children}</div>
-      </section>
-    </div>
   );
 }
