@@ -422,6 +422,13 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .plant-editor .full-field { grid-column: 1 / -1; }
 .plant-editor .toggle-field { width: fit-content; grid-template-columns: 20px auto; align-items: center; gap: 9px; }
 .plant-editor .toggle-field input { width: 18px; height: 18px; accent-color: var(--action); }
+.plant-editor-form { padding: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.plant-editor-form label { min-width: 0; display: grid; gap: 7px; color: var(--ink); font-size: 13px; font-weight: 700; }
+.plant-editor-form input, .plant-editor-form select { width: 100%; height: 42px; padding: 0 11px; border: 1px solid #b8c3c9; border-radius: var(--radius-sm); color: var(--ink); background: white; }
+.plant-editor-form input:disabled, .plant-editor-form select:disabled { color: var(--muted); background: #edf0f2; }
+.plant-editor-form .full-field { grid-column: 1 / -1; }
+.plant-editor-form .toggle-field { width: fit-content; grid-template-columns: 20px auto; align-items: center; gap: 9px; }
+.plant-editor-form .toggle-field input { width: 18px; height: 18px; accent-color: var(--action); }
 .editor-actions { padding-top: 4px; display: flex; justify-content: flex-end; gap: 9px; }
 .role-editor { width: min(760px, 100%); }
 .permission-picker { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 14px 16px; display: grid; gap: 12px; max-height: 320px; overflow-y: auto; }

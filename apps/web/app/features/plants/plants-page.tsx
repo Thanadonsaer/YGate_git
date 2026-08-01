@@ -1,10 +1,13 @@
 "use client";
 
-import { ArchiveX, ArrowLeft, Cpu, Eye, MapPin, Pencil, PlugZap, Plus, RefreshCw, Trash2, Wifi, X } from "lucide-react";
+import { ArchiveX, ArrowLeft, Cpu, Eye, MapPin, Pencil, PlugZap, Plus, RefreshCw, Trash2, Wifi } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { api, csrfToken, formatDate } from "../../lib/api";
 import { useRealtimeSocket } from "../../lib/realtime";
 import type { Device, DeviceModelOption, LatestTelemetry, Plant } from "../../lib/types";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody } from "../../components/ui/dialog";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../../components/ui/select";
+import { toast } from "../../components/ui/sonner";
 
 export function PlantsPage({ defaultOrganizationId }: { defaultOrganizationId?: string }) {
   const [plants, setPlants] = useState<Plant[]>([]);
@@ -38,7 +41,7 @@ export function PlantsPage({ defaultOrganizationId }: { defaultOrganizationId?: 
       headers: { "X-CSRF-Token": csrfToken() },
       body: JSON.stringify({ code: plant.code, name: plant.name, timezone: plant.timezone, latitude: plant.latitude, longitude: plant.longitude, installedDcKw: plant.installedDcKw, installedAcKw: plant.installedAcKw, isActive: false }),
     });
-    if (response.ok) void loadPlants();
+    if (response.ok) { toast.success(`ปิดใช้งานโรงไฟฟ้า "${plant.name}" แล้ว`); void loadPlants(); }
     else setError("ไม่สามารถปิดใช้งานโรงไฟฟ้าได้");
   }
 
@@ -49,7 +52,7 @@ export function PlantsPage({ defaultOrganizationId }: { defaultOrganizationId?: 
       method: "DELETE",
       headers: { "X-CSRF-Token": csrfToken(), "X-Hard-Delete-Confirm": expected },
     });
-    if (response.ok) await loadPlants();
+    if (response.ok) { toast.success(`ลบโรงไฟฟ้า "${plant.name}" ถาวรแล้ว`); await loadPlants(); }
     else setError(response.status === 403 ? "เฉพาะ Platform Admin เท่านั้นที่ลบ Plant ถาวรได้" : "ไม่สามารถลบ Plant ถาวรได้");
   }
 
@@ -100,7 +103,7 @@ function DeviceManagement({ plant, onBack }: { plant: Plant; onBack: () => void 
   const [error, setError] = useState("");
   const [editor, setEditor] = useState<Device | "create" | null>(null);
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
-  const [testOutcomes, setTestOutcomes] = useState<Record<string, { pending: boolean; ok?: boolean; message?: string }>>({});
+  const [testOutcomes, setTestOutcomes] = useState<Record<string, { pending: boolean }>>({});
 
   const loadDevices = useCallback(async () => {
     setLoading(true);
@@ -141,7 +144,7 @@ function DeviceManagement({ plant, onBack }: { plant: Plant; onBack: () => void 
         isActive: false,
       }),
     });
-    if (response.ok) void loadDevices();
+    if (response.ok) { toast.success(`ปิดใช้งาน Device "${device.name}" แล้ว`); void loadDevices(); }
     else setError("ไม่สามารถปิดใช้งาน Device ได้");
   }
 
@@ -152,7 +155,7 @@ function DeviceManagement({ plant, onBack }: { plant: Plant; onBack: () => void 
       method: "DELETE",
       headers: { "X-CSRF-Token": csrfToken(), "X-Hard-Delete-Confirm": expected },
     });
-    if (response.ok) await loadDevices();
+    if (response.ok) { toast.success(`ลบ Device "${device.name}" ถาวรแล้ว`); await loadDevices(); }
     else setError(response.status === 403 ? "เฉพาะ Platform Admin เท่านั้นที่ลบ Device ถาวรได้" : "ไม่สามารถลบ Device ถาวรได้");
   }
 
@@ -167,9 +170,13 @@ function DeviceManagement({ plant, onBack }: { plant: Plant; onBack: () => void 
       if (response.status === 504) throw new Error("Middleware ไม่ตอบสนองภายในเวลาที่กำหนด");
       if (!response.ok) throw new Error("ทดสอบไม่สำเร็จ");
       const data = (await response.json()) as { ok?: boolean; error?: string };
-      setTestOutcomes((prev) => ({ ...prev, [device.id]: { pending: false, ok: data.ok !== false, message: data.error || (kind === "test-connection" ? "เชื่อมต่อสำเร็จ" : "อ่านค่าสำเร็จ") } }));
+      const message = data.error || (kind === "test-connection" ? "เชื่อมต่อสำเร็จ" : "อ่านค่าสำเร็จ");
+      setTestOutcomes((prev) => ({ ...prev, [device.id]: { pending: false } }));
+      if (data.ok === false) toast.error(message); else toast.success(message);
     } catch (cause) {
-      setTestOutcomes((prev) => ({ ...prev, [device.id]: { pending: false, ok: false, message: cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด" } }));
+      const message = cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด";
+      setTestOutcomes((prev) => ({ ...prev, [device.id]: { pending: false } }));
+      toast.error(message);
     }
   }
 
@@ -218,8 +225,6 @@ function DeviceManagement({ plant, onBack }: { plant: Plant; onBack: () => void 
                 {device.isActive && <button className="icon-button" onClick={() => void decommissionDevice(device)} title="ปิดใช้งาน" aria-label={`ปิดใช้งาน ${device.name}`}><ArchiveX size={17} /></button>}
                 <button className="icon-button danger" onClick={() => void hardDeleteDevice(device)} title="ลบถาวร (Platform Admin)" aria-label={`ลบ ${device.name} ถาวร`}><Trash2 size={17} /></button>
               </div>
-              {outcome?.pending && <p className="form-message" style={{ gridColumn: "1 / -1" }}>กำลังทดสอบ...</p>}
-              {outcome && !outcome.pending && <p className={outcome.ok ? "form-message" : "form-message error"} style={{ gridColumn: "1 / -1" }}>{outcome.message}</p>}
             </div>
           );
         })}
@@ -233,17 +238,23 @@ function DeviceManagement({ plant, onBack }: { plant: Plant; onBack: () => void 
 }
 
 function DeviceLatestDialog({ device, reading, onClose }: { device: Device; reading?: LatestTelemetry; onClose: () => void }) {
-  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <section className="plant-editor device-editor" role="dialog" aria-modal="true" aria-labelledby="device-latest-title">
-      <header><div><p>{device.externalId}</p><h2 id="device-latest-title">ค่าล่าสุดของ {device.name}</h2></div><button className="icon-button" onClick={onClose} title="ปิด" aria-label="ปิด"><X size={19} /></button></header>
-      {!reading ? <div className="table-state">ยังไม่มี telemetry สำหรับ Device นี้</div> : <>
-        <div className="grid grid-cols-2 gap-3 px-5 py-4 text-sm"><div><small className="block text-slate-500">Observed</small><strong>{formatDate(reading.observedAt)}</strong></div><div><small className="block text-slate-500">Received</small><strong>{formatDate(reading.receivedAt)}</strong></div></div>
-        <div className="max-h-[55vh] overflow-auto border-t border-slate-200 px-5 py-3">
-          {Object.entries(reading.dataItemMap).sort(([a], [b]) => a.localeCompare(b)).map(([key, value]) => <div key={key} className="flex items-center justify-between gap-4 border-b border-slate-100 py-2 text-sm last:border-0"><code className="text-slate-600">{key}</code><strong className="text-slate-900">{Number.isFinite(value) ? value.toLocaleString() : "-"}</strong></div>)}
-        </div>
-      </>}
-    </section>
-  </div>;
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <div><DialogDescription>{device.externalId}</DialogDescription><DialogTitle>ค่าล่าสุดของ {device.name}</DialogTitle></div>
+        </DialogHeader>
+        <DialogBody>
+          {!reading ? <div className="table-state">ยังไม่มี telemetry สำหรับ Device นี้</div> : <>
+            <div className="grid grid-cols-2 gap-3 px-5 py-4 text-sm"><div><small className="block text-slate-500">Observed</small><strong>{formatDate(reading.observedAt)}</strong></div><div><small className="block text-slate-500">Received</small><strong>{formatDate(reading.receivedAt)}</strong></div></div>
+            <div className="max-h-[55vh] overflow-auto border-t border-slate-200 px-5 py-3">
+              {Object.entries(reading.dataItemMap).sort(([a], [b]) => a.localeCompare(b)).map(([key, value]) => <div key={key} className="flex items-center justify-between gap-4 border-b border-slate-100 py-2 text-sm last:border-0"><code className="text-slate-600">{key}</code><strong className="text-slate-900">{Number.isFinite(value) ? value.toLocaleString() : "-"}</strong></div>)}
+            </div>
+          </>}
+        </DialogBody>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 function LatestValues({ reading }: { reading?: LatestTelemetry }) {
@@ -313,26 +324,32 @@ function DeviceEditor({ plant, device, onClose, onSaved }: { plant: Plant; devic
   }
 
   return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (!pending && event.target === event.currentTarget) onClose(); }}>
-      <section className="plant-editor device-editor" role="dialog" aria-modal="true" aria-labelledby="device-editor-title">
-        <header><div><p>{plant.code}</p><h2 id="device-editor-title">{device ? "แก้ไข Device" : "เพิ่ม Device"}</h2></div><button className="icon-button" onClick={onClose} disabled={pending} title="ปิด" aria-label="ปิด"><X size={19} /></button></header>
-        <form onSubmit={submit}>
-          <label>Device ID<input autoFocus={!device} value={externalId} onChange={(event) => setExternalId(event.target.value)} maxLength={200} required disabled={Boolean(device)} /></label>
-          <label>ชื่อ Device<input autoFocus={Boolean(device)} value={name} onChange={(event) => setName(event.target.value)} maxLength={200} required /></label>
-          <label className="full-field">Model<select value={deviceModelId} onChange={(event) => setDeviceModelId(event.target.value)} required>
-            {models.length === 0 && <option value="">ยังไม่มี Device Model — สร้างที่หน้า Register Metadata ก่อน</option>}
-            {models.map((m) => <option key={m.id} value={m.id}>{m.manufacturer} / {m.deviceType} / {m.model}</option>)}
-          </select></label>
-          <label>IP<input value={modbusHost} onChange={(event) => setModbusHost(event.target.value)} placeholder="192.168.1.100 (เว้นว่างถ้าไม่ใช่ Modbus device)" /></label>
-          <label>Port<input type="number" min="1" max="65535" value={modbusPort} onChange={(event) => setModbusPort(event.target.value)} /></label>
-          <label>Unit ID<input type="number" min="0" max="255" value={modbusUnitId} onChange={(event) => setModbusUnitId(event.target.value)} /></label>
-          <label>Poll interval (s)<input type="number" min="1" max="3600" value={pollIntervalSeconds} onChange={(event) => setPollIntervalSeconds(event.target.value)} /></label>
-          <label className="toggle-field full-field"><input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} /><span>เปิดใช้งาน Device</span></label>
-          {error && <p className="form-message error full-field">{error}</p>}
-          <div className="editor-actions full-field"><button type="button" className="secondary-button" onClick={onClose} disabled={pending}>ยกเลิก</button><button className="primary-button" disabled={pending}>{pending ? "กำลังบันทึก" : device ? "บันทึก" : "สร้าง Device"}</button></div>
-        </form>
-      </section>
-    </div>
+    <Dialog open onOpenChange={(open) => { if (!open && !pending) onClose(); }}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <div><DialogDescription>{plant.code}</DialogDescription><DialogTitle>{device ? "แก้ไข Device" : "เพิ่ม Device"}</DialogTitle></div>
+        </DialogHeader>
+        <DialogBody>
+          <form className="plant-editor-form" onSubmit={submit}>
+            <label>Device ID<input autoFocus={!device} value={externalId} onChange={(event) => setExternalId(event.target.value)} maxLength={200} required disabled={Boolean(device)} /></label>
+            <label>ชื่อ Device<input autoFocus={Boolean(device)} value={name} onChange={(event) => setName(event.target.value)} maxLength={200} required /></label>
+            <label className="full-field">Model
+              <Select value={deviceModelId} onValueChange={setDeviceModelId} disabled={models.length === 0}>
+                <SelectTrigger><SelectValue placeholder="ยังไม่มี Device Model — สร้างที่หน้า Register Metadata ก่อน" /></SelectTrigger>
+                <SelectContent>{models.map((m) => <SelectItem key={m.id} value={m.id}>{m.manufacturer} / {m.deviceType} / {m.model}</SelectItem>)}</SelectContent>
+              </Select>
+            </label>
+            <label>IP<input value={modbusHost} onChange={(event) => setModbusHost(event.target.value)} placeholder="192.168.1.100 (เว้นว่างถ้าไม่ใช่ Modbus device)" /></label>
+            <label>Port<input type="number" min="1" max="65535" value={modbusPort} onChange={(event) => setModbusPort(event.target.value)} /></label>
+            <label>Unit ID<input type="number" min="0" max="255" value={modbusUnitId} onChange={(event) => setModbusUnitId(event.target.value)} /></label>
+            <label>Poll interval (s)<input type="number" min="1" max="3600" value={pollIntervalSeconds} onChange={(event) => setPollIntervalSeconds(event.target.value)} /></label>
+            <label className="toggle-field full-field"><input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} /><span>เปิดใช้งาน Device</span></label>
+            {error && <p className="form-message error full-field">{error}</p>}
+            <div className="editor-actions full-field"><button type="button" className="secondary-button" onClick={onClose} disabled={pending}>ยกเลิก</button><button className="primary-button" disabled={pending}>{pending ? "กำลังบันทึก" : device ? "บันทึก" : "สร้าง Device"}</button></div>
+          </form>
+        </DialogBody>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -348,19 +365,6 @@ function PlantEditor({ plant, defaultOrganizationId, onClose, onSaved }: { plant
   const [isActive, setIsActive] = useState(plant?.isActive ?? true);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
-
-  useEffect(() => {
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === "Escape" && !pending) onClose();
-    }
-    window.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [onClose, pending]);
 
   function optionalNumber(value: string) {
     return value.trim() === "" ? null : Number(value);
@@ -399,23 +403,27 @@ function PlantEditor({ plant, defaultOrganizationId, onClose, onSaved }: { plant
   }
 
   return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (!pending && event.target === event.currentTarget) onClose(); }}>
-      <section className="plant-editor" role="dialog" aria-modal="true" aria-labelledby="plant-editor-title">
-        <header><div><p>Plant registry</p><h2 id="plant-editor-title">{plant ? "แก้ไขโรงไฟฟ้า" : "เพิ่มโรงไฟฟ้า"}</h2></div><button className="icon-button" onClick={onClose} disabled={pending} title="ปิด" aria-label="ปิด"><X size={19} /></button></header>
-        <form onSubmit={submit}>
-          {!plant && <label className="full-field">Organization ID<input autoFocus value={organizationId} onChange={(event) => setOrganizationId(event.target.value)} required /></label>}
-          <label>รหัสโรงไฟฟ้า<input autoFocus={Boolean(plant)} value={code} onChange={(event) => setCode(event.target.value)} maxLength={100} required /></label>
-          <label>ชื่อโรงไฟฟ้า<input value={name} onChange={(event) => setName(event.target.value)} maxLength={200} required /></label>
-          <label className="full-field">Timezone<input value={timezone} onChange={(event) => setTimezone(event.target.value)} maxLength={100} required /></label>
-          <label>Latitude<input type="number" min="-90" max="90" step="any" value={latitude} onChange={(event) => setLatitude(event.target.value)} /></label>
-          <label>Longitude<input type="number" min="-180" max="180" step="any" value={longitude} onChange={(event) => setLongitude(event.target.value)} /></label>
-          <label>Installed DC (kW)<input type="number" min="0" step="any" value={installedDcKw} onChange={(event) => setInstalledDcKw(event.target.value)} /></label>
-          <label>Installed AC (kW)<input type="number" min="0" step="any" value={installedAcKw} onChange={(event) => setInstalledAcKw(event.target.value)} /></label>
-          {plant && <label className="toggle-field full-field"><input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} /><span>เปิดใช้งานโรงไฟฟ้า</span></label>}
-          {error && <p className="form-message error full-field">{error}</p>}
-          <div className="editor-actions full-field"><button type="button" className="secondary-button" onClick={onClose} disabled={pending}>ยกเลิก</button><button className="primary-button" disabled={pending}>{pending ? "กำลังบันทึก" : "บันทึก"}</button></div>
-        </form>
-      </section>
-    </div>
+    <Dialog open onOpenChange={(open) => { if (!open && !pending) onClose(); }}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <div><DialogDescription>Plant registry</DialogDescription><DialogTitle>{plant ? "แก้ไขโรงไฟฟ้า" : "เพิ่มโรงไฟฟ้า"}</DialogTitle></div>
+        </DialogHeader>
+        <DialogBody>
+          <form className="plant-editor-form" onSubmit={submit}>
+            {!plant && <label className="full-field">Organization ID<input autoFocus value={organizationId} onChange={(event) => setOrganizationId(event.target.value)} required /></label>}
+            <label>รหัสโรงไฟฟ้า<input autoFocus={Boolean(plant)} value={code} onChange={(event) => setCode(event.target.value)} maxLength={100} required /></label>
+            <label>ชื่อโรงไฟฟ้า<input value={name} onChange={(event) => setName(event.target.value)} maxLength={200} required /></label>
+            <label className="full-field">Timezone<input value={timezone} onChange={(event) => setTimezone(event.target.value)} maxLength={100} required /></label>
+            <label>Latitude<input type="number" min="-90" max="90" step="any" value={latitude} onChange={(event) => setLatitude(event.target.value)} /></label>
+            <label>Longitude<input type="number" min="-180" max="180" step="any" value={longitude} onChange={(event) => setLongitude(event.target.value)} /></label>
+            <label>Installed DC (kW)<input type="number" min="0" step="any" value={installedDcKw} onChange={(event) => setInstalledDcKw(event.target.value)} /></label>
+            <label>Installed AC (kW)<input type="number" min="0" step="any" value={installedAcKw} onChange={(event) => setInstalledAcKw(event.target.value)} /></label>
+            {plant && <label className="toggle-field full-field"><input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} /><span>เปิดใช้งานโรงไฟฟ้า</span></label>}
+            {error && <p className="form-message error full-field">{error}</p>}
+            <div className="editor-actions full-field"><button type="button" className="secondary-button" onClick={onClose} disabled={pending}>ยกเลิก</button><button className="primary-button" disabled={pending}>{pending ? "กำลังบันทึก" : "บันทึก"}</button></div>
+          </form>
+        </DialogBody>
+      </DialogContent>
+    </Dialog>
   );
 }
