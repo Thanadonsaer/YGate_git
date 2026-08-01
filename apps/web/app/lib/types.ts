@@ -433,6 +433,13 @@ export type MiddlewareConfigSnapshot = {
   plants: MiddlewarePlant[];
 };
 
+export type ImportMiddlewareConfigResult = {
+  deviceModelsCreated: number;
+  deviceModelsReused: number;
+  registerMetadataUpserted: number;
+  connectionsFound: Array<{ host: string; port: number; unitId: number; deviceModel: string }>;
+};
+
 export const MIDDLEWARE_DATA_TYPES = ["U16", "I16", "U32", "I32", "U64", "FLOAT32"] as const;
 
 export type TelemetryHistoryPage = { data: LatestTelemetry[]; nextCursor?: string | null };

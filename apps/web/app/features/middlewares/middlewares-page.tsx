@@ -3,7 +3,7 @@
 import { ArchiveX, ArrowLeft, CheckCircle2, Pencil, Plus, RefreshCw, Save, Settings2, Trash2, X } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { api, csrfToken } from "../../lib/api";
-import type { CreatedMiddlewareGateway, MiddlewareConfigSnapshot, MiddlewareGateway, Plant } from "../../lib/types";
+import type { CreatedMiddlewareGateway, ImportMiddlewareConfigResult, MiddlewareConfigSnapshot, MiddlewareGateway, Plant } from "../../lib/types";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody } from "../../components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../../components/ui/select";
 import { toast } from "../../components/ui/sonner";
@@ -158,6 +158,7 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -223,6 +224,26 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
     }
   }
 
+  async function importConfig() {
+    if (!window.confirm(`ดึง Config จาก "${gateway.name}" มาสร้าง/อัปเดต Device Model และ Register Metadata?`)) return;
+    setImporting(true);
+    setError("");
+    try {
+      const response = await api(`/api/v1/admin/middlewares/${encodeURIComponent(gateway.id)}/import-config`, {
+        method: "POST",
+        headers: { "X-CSRF-Token": csrfToken() },
+      });
+      if (response.status === 504) throw new Error("Middleware ไม่ตอบสนองภายในเวลาที่กำหนด");
+      if (!response.ok) throw new Error("ไม่สามารถดึง Config จาก Middleware ได้");
+      const result = (await response.json()) as ImportMiddlewareConfigResult;
+      toast.success(`Import สำเร็จ: ${result.deviceModelsCreated} Model ใหม่, ${result.deviceModelsReused} Model เดิม, ${result.registerMetadataUpserted} Register, พบ ${result.connectionsFound.length} Connection (ไปสร้าง Device เองที่ Plants → Devices)`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+    } finally {
+      setImporting(false);
+    }
+  }
+
   return (
     <div className="content api-keys-content">
       <div className="section-heading">
@@ -258,6 +279,15 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
           <SelectContent>{unassignedPlants.map((p) => <SelectItem key={p.id} value={p.id}>{p.code} - {p.name}</SelectItem>)}</SelectContent>
         </Select>
         <button className="primary-button compact" disabled={!addPlantId || pending} onClick={() => void assignPlant()}><Plus size={16} /> มอบหมาย Plant</button>
+      </div>
+
+      <div className="section-heading">
+        <div><h3>Import from Middleware</h3><p>ดึง config ที่ตั้งไว้บน Middleware เครื่องนี้มาสร้าง Device Model และ Register Metadata ครั้งเดียว (ใช้ตอน onboard Middleware เก่าที่เคยตั้งค่าไว้ก่อนมีระบบนี้)</p></div>
+        <div className="heading-actions">
+          <button className="primary-button compact" disabled={!gateway.isOnline || importing} onClick={() => void importConfig()} title={gateway.isOnline ? "ดึง Config จาก Middleware" : "Middleware ต้อง Online ก่อน"}>
+            {importing ? "กำลังดึง Config..." : "ดึง Config จาก Middleware"}
+          </button>
+        </div>
       </div>
 
       {snapshot && (
