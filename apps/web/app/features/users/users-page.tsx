@@ -1,9 +1,12 @@
 "use client";
 
-import { CheckCircle2, KeyRound, Pencil, Plus, RefreshCw, RotateCcw, Save, Trash2, UserX, X } from "lucide-react";
+import { CheckCircle2, KeyRound, Pencil, Plus, RefreshCw, RotateCcw, Save, Trash2, UserX } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { api, csrfToken, formatDate } from "../../lib/api";
 import type { ManagedUser, Role } from "../../lib/types";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody } from "../../components/ui/dialog";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../../components/ui/select";
+import { toast } from "../../components/ui/sonner";
 
 export function UsersPage({ currentUserId, defaultOrganizationId }: { currentUserId: string; defaultOrganizationId?: string }) {
   const [users, setUsers] = useState<ManagedUser[]>([]);
@@ -38,7 +41,7 @@ export function UsersPage({ currentUserId, defaultOrganizationId }: { currentUse
       headers: { "X-CSRF-Token": csrfToken() },
       body: JSON.stringify({ isActive }),
     });
-    if (response.ok) await loadUsers();
+    if (response.ok) { toast.success(isActive ? `เปิดใช้งาน ${target.displayName} แล้ว` : `ปิดใช้งาน ${target.displayName} แล้ว`); await loadUsers(); }
     else setError(response.status === 403 ? "บัญชีนี้ไม่มีสิทธิ์เปลี่ยนสถานะผู้ใช้" : "ไม่สามารถเปลี่ยนสถานะผู้ใช้ได้");
   }
 
@@ -47,7 +50,7 @@ export function UsersPage({ currentUserId, defaultOrganizationId }: { currentUse
       method: "POST",
       headers: { "X-CSRF-Token": csrfToken() },
     });
-    if (response.ok) await loadUsers();
+    if (response.ok) { toast.success(`ปลดล็อก ${target.displayName} แล้ว`); await loadUsers(); }
     else setError(response.status === 403 ? "บัญชีนี้ไม่มีสิทธิ์ปลดล็อกผู้ใช้" : "ไม่สามารถปลดล็อกผู้ใช้ได้");
   }
 
@@ -134,22 +137,33 @@ function UserEditor({ user, roles, defaultOrganizationId, onClose, onSaved }: { 
     }
   }
 
-  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (!pending && event.target === event.currentTarget) onClose(); }}>
-    <section className="plant-editor user-editor" role="dialog" aria-modal="true" aria-labelledby="user-editor-title">
-      <header><div><p>User management</p><h2 id="user-editor-title">{user ? "แก้ไขผู้ใช้" : "เพิ่มผู้ใช้"}</h2></div><button className="icon-button" onClick={onClose} disabled={pending} title="ปิด" aria-label="ปิด"><X size={18} /></button></header>
-      <form onSubmit={submit}>
-        <label>อีเมล<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} maxLength={320} required /></label>
-        <label>Username<input value={username} onChange={(event) => setUsername(event.target.value)} maxLength={100} /></label>
-        <label className="full-field">ชื่อแสดงผล<input value={displayName} onChange={(event) => setDisplayName(event.target.value)} maxLength={200} required /></label>
-        <label>Organization ID<input value={organizationId} onChange={(event) => setOrganizationId(event.target.value)} required disabled={Boolean(user)} /></label>
-        <label>Role<select value={roleId} onChange={(event) => setRoleId(event.target.value)} required>{roles.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}</select></label>
-        {!user && <label className="full-field">รหัสผ่านเริ่มต้น<input type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={12} maxLength={72} required /></label>}
-        {user && <label className="toggle-field full-field"><input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} /> เปิดใช้งาน User</label>}
-        {error && <p className="form-message error full-field">{error}</p>}
-        <div className="editor-actions full-field"><button type="button" className="secondary-button" onClick={onClose} disabled={pending}>ยกเลิก</button><button className="primary-button" disabled={pending}><Save size={17} /> {pending ? "กำลังบันทึก" : "บันทึกผู้ใช้"}</button></div>
-      </form>
-    </section>
-  </div>;
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open && !pending) onClose(); }}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <div><DialogDescription>User management</DialogDescription><DialogTitle>{user ? "แก้ไขผู้ใช้" : "เพิ่มผู้ใช้"}</DialogTitle></div>
+        </DialogHeader>
+        <DialogBody>
+          <form className="plant-editor-form" onSubmit={submit}>
+            <label>อีเมล<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} maxLength={320} required /></label>
+            <label>Username<input value={username} onChange={(event) => setUsername(event.target.value)} maxLength={100} /></label>
+            <label className="full-field">ชื่อแสดงผล<input value={displayName} onChange={(event) => setDisplayName(event.target.value)} maxLength={200} required /></label>
+            <label>Organization ID<input value={organizationId} onChange={(event) => setOrganizationId(event.target.value)} required disabled={Boolean(user)} /></label>
+            <label>Role
+              <Select value={roleId} onValueChange={setRoleId}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>{roles.map((role) => <SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>)}</SelectContent>
+              </Select>
+            </label>
+            {!user && <label className="full-field">รหัสผ่านเริ่มต้น<input type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={12} maxLength={72} required /></label>}
+            {user && <label className="toggle-field full-field"><input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} /> เปิดใช้งาน User</label>}
+            {error && <p className="form-message error full-field">{error}</p>}
+            <div className="editor-actions full-field"><button type="button" className="secondary-button" onClick={onClose} disabled={pending}>ยกเลิก</button><button className="primary-button" disabled={pending}><Save size={17} /> {pending ? "กำลังบันทึก" : "บันทึกผู้ใช้"}</button></div>
+          </form>
+        </DialogBody>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 function PasswordResetDialog({ user, onClose, onSaved }: { user: ManagedUser; onClose: () => void; onSaved: () => void }) {
@@ -170,5 +184,21 @@ function PasswordResetDialog({ user, onClose, onSaved }: { user: ManagedUser; on
       setPending(false);
     }
   }
-  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (!pending && event.target === event.currentTarget) onClose(); }}><section className="plant-editor user-editor" role="dialog" aria-modal="true" aria-labelledby="reset-user-title"><header><div><p>{user.email}</p><h2 id="reset-user-title">ตั้งรหัสผ่านใหม่</h2></div><button className="icon-button" onClick={onClose} disabled={pending} title="ปิด" aria-label="ปิด"><X size={18} /></button></header><form onSubmit={submit}><label className="full-field">รหัสผ่านใหม่<input type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={12} maxLength={72} required /></label><p className="full-field text-xs text-slate-500">ทุก session และ reset token ของ User จะถูก revoke</p>{error && <p className="form-message error full-field">{error}</p>}<div className="editor-actions full-field"><button type="button" className="secondary-button" onClick={onClose} disabled={pending}>ยกเลิก</button><button className="primary-button" disabled={pending}><KeyRound size={17} /> {pending ? "กำลังบันทึก" : "ตั้งรหัสผ่าน"}</button></div></form></section></div>;
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open && !pending) onClose(); }}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <div><DialogDescription>{user.email}</DialogDescription><DialogTitle>ตั้งรหัสผ่านใหม่</DialogTitle></div>
+        </DialogHeader>
+        <DialogBody>
+          <form className="plant-editor-form" onSubmit={submit}>
+            <label className="full-field">รหัสผ่านใหม่<input type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={12} maxLength={72} required /></label>
+            <p className="full-field text-xs text-slate-500">ทุก session และ reset token ของ User จะถูก revoke</p>
+            {error && <p className="form-message error full-field">{error}</p>}
+            <div className="editor-actions full-field"><button type="button" className="secondary-button" onClick={onClose} disabled={pending}>ยกเลิก</button><button className="primary-button" disabled={pending}><KeyRound size={17} /> {pending ? "กำลังบันทึก" : "ตั้งรหัสผ่าน"}</button></div>
+          </form>
+        </DialogBody>
+      </DialogContent>
+    </Dialog>
+  );
 }
