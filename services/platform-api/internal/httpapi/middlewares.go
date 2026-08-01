@@ -81,6 +81,16 @@ func getMiddlewareConfigHandler(service *core.Service) func(http.ResponseWriter,
 	}
 }
 
+func importMiddlewareConfigHandler(service *core.Service) func(http.ResponseWriter, *http.Request, auth.Principal) {
+	return func(w http.ResponseWriter, r *http.Request, principal auth.Principal) {
+		result, err := service.ImportMiddlewareConfig(r.Context(), principal, r.PathValue("middlewareId"), remoteIP(r.RemoteAddr))
+		if writeMiddlewareError(w, err) {
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
 func listMiddlewarePlantsHandler(service *core.Service) func(http.ResponseWriter, *http.Request, auth.Principal) {
 	return func(w http.ResponseWriter, r *http.Request, principal auth.Principal) {
 		plants, err := service.MiddlewarePlants(r.Context(), principal, r.PathValue("middlewareId"))

@@ -101,6 +101,7 @@ func New(version string, ready func(context.Context) error, authService *auth.Se
 			mux.HandleFunc("POST /api/v1/admin/middlewares", authenticated(authService, true, createMiddlewareHandler(registryService)))
 			mux.HandleFunc("PUT /api/v1/admin/middlewares/{middlewareId}", authenticated(authService, true, updateMiddlewareHandler(registryService)))
 			mux.HandleFunc("GET /api/v1/admin/middlewares/{middlewareId}/config", authenticated(authService, false, getMiddlewareConfigHandler(registryService)))
+			mux.HandleFunc("POST /api/v1/admin/middlewares/{middlewareId}/import-config", authenticated(authService, true, importMiddlewareConfigHandler(registryService)))
 			mux.HandleFunc("GET /api/v1/admin/middlewares/{middlewareId}/plants", authenticated(authService, false, listMiddlewarePlantsHandler(registryService)))
 			mux.HandleFunc("POST /api/v1/admin/middlewares/{middlewareId}/plants", authenticated(authService, true, assignMiddlewarePlantHandler(registryService)))
 			mux.HandleFunc("DELETE /api/v1/admin/middlewares/{middlewareId}/plants/{plantId}", authenticated(authService, true, unassignMiddlewarePlantHandler(registryService)))

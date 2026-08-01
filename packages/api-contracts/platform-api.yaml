@@ -941,6 +941,35 @@ paths:
           description: Missing middleware config read permission
         "404":
           description: Middleware gateway is missing or outside scope
+  /api/v1/admin/middlewares/{middlewareId}/import-config:
+    parameters:
+      - name: middlewareId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: importAdminMiddlewareConfig
+      summary: Pull a middleware gateway's local config live over the realtime channel (config-export command), and upsert Device Models + Register Metadata from it. One-time onboarding import, not an ongoing sync.
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      responses:
+        "200":
+          description: Import result summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportMiddlewareConfigResult"
+        "400":
+          description: Invalid data in the imported config
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing middleware config update permission
+        "404":
+          description: Middleware gateway is missing or outside scope
   /api/v1/admin/middlewares/{middlewareId}/plants:
     parameters:
       - name: middlewareId
@@ -3096,6 +3125,30 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/MiddlewarePlant"
+    ImportedConnectionSummary:
+      type: object
+      additionalProperties: false
+      required: [host, port, unitId, deviceModel]
+      properties:
+        host: { type: string }
+        port: { type: integer }
+        unitId: { type: integer }
+        deviceModel: { type: string }
+    ImportMiddlewareConfigResult:
+      type: object
+      additionalProperties: false
+      required: [deviceModelsCreated, deviceModelsReused, registerMetadataUpserted, connectionsFound]
+      properties:
+        deviceModelsCreated:
+          type: integer
+        deviceModelsReused:
+          type: integer
+        registerMetadataUpserted:
+          type: integer
+        connectionsFound:
+          type: array
+          items:
+            $ref: "#/components/schemas/ImportedConnectionSummary"
     AuditEvent:
       type: object
       additionalProperties: false

@@ -497,6 +497,47 @@ WHERE d.id=$1`, devUUID).Scan(&middlewareID)
 	return result, nil
 }
 
+// ImportMiddlewareConfig sends a config-export command.request to
+// middlewareID over the realtime channel, waits (up to 15s) for its local
+// config, and imports it via importFromSnapshot. One-time onboarding
+// import, not an ongoing sync -- see the design spec.
+func (s *Service) ImportMiddlewareConfig(ctx context.Context, principal auth.Principal, middlewareID string, sourceIP *netip.Addr) (ImportMiddlewareConfigResult, error) {
+	mwUUID, err := parseUUID(middlewareID)
+	if err != nil {
+		return ImportMiddlewareConfigResult{}, ErrMiddlewareNotFound
+	}
+	var mwOrgID pgtype.UUID
+	if err = s.pool.QueryRow(ctx, `SELECT organization_id FROM middleware_client WHERE id=$1`, mwUUID).Scan(&mwOrgID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ImportMiddlewareConfigResult{}, ErrMiddlewareNotFound
+		}
+		return ImportMiddlewareConfigResult{}, fmt.Errorf("lookup middleware organization: %w", err)
+	}
+	if err = s.requireOrganizationPermission(ctx, s.queries, principal, "update", "middleware_config", mwOrgID); err != nil {
+		return ImportMiddlewareConfigResult{}, err
+	}
+
+	commandID, err := newUUID()
+	if err != nil {
+		return ImportMiddlewareConfigResult{}, err
+	}
+	payload, _ := json.Marshal(map[string]any{"type": "command.request", "commandId": uuidString(commandID), "kind": "config-export"})
+	runCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	raw, err := s.hub.RunCommand(runCtx, uuidString(mwUUID), uuidString(commandID), payload)
+	if errors.Is(err, context.DeadlineExceeded) {
+		return ImportMiddlewareConfigResult{}, fmt.Errorf("middleware command timed out: %w", ErrMiddlewareCommandNAK)
+	}
+	if err != nil {
+		return ImportMiddlewareConfigResult{}, ErrMiddlewareOffline
+	}
+	var snapshot MiddlewareConfigSnapshot
+	if err = json.Unmarshal(raw, &snapshot); err != nil {
+		return ImportMiddlewareConfigResult{}, fmt.Errorf("decode config-export response: %w", err)
+	}
+	return s.importFromSnapshot(ctx, principal, uuidString(mwOrgID), snapshot, sourceIP)
+}
+
 // buildConfigSnapshot computes what middlewareID's config.snapshot should
 // currently be: Plants assigned to it (middleware_plant), the Devices in
 // those Plants that have modbus_host/modbus_port set and are active, the
