@@ -970,6 +970,10 @@ paths:
           description: Missing middleware config update permission
         "404":
           description: Middleware gateway is missing or outside scope
+        "503":
+          description: Middleware gateway is offline
+        "504":
+          description: Middleware gateway did not respond in time
   /api/v1/admin/middlewares/{middlewareId}/plants:
     parameters:
       - name: middlewareId

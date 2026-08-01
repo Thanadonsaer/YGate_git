@@ -137,6 +137,10 @@ func writeMiddlewareError(w http.ResponseWriter, err error) bool {
 		http.Error(w, "not found", http.StatusNotFound)
 	case errors.Is(err, core.ErrMiddlewareConflict):
 		http.Error(w, "middleware gateway already exists", http.StatusConflict)
+	case errors.Is(err, core.ErrMiddlewareOffline):
+		http.Error(w, "middleware gateway is offline", http.StatusServiceUnavailable)
+	case errors.Is(err, core.ErrMiddlewareCommandNAK):
+		http.Error(w, "middleware gateway did not respond in time", http.StatusGatewayTimeout)
 	default:
 		log.Printf("middleware write failed: %v", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
