@@ -494,8 +494,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .scada-palette header div, .scada-inspector header div { min-width: 0; display: grid; gap: 3px; }
 .scada-dark .scada-palette header strong, .scada-dark .scada-inspector header strong { font-size: 12px; }
 .scada-dark .scada-palette header small, .scada-dark .scada-inspector header small { color: var(--scada-muted); font-size: 10px; }
-.scada-dark .scada-palette > button { width: calc(100% - 20px); min-height: 58px; margin: 10px 10px 0; padding: 10px; border: 1px solid var(--scada-line); border-radius: var(--radius-sm); display: flex; align-items: center; gap: 10px; color: var(--scada-ink); background: white; text-align: left; }
-.scada-dark .scada-palette > button:hover { border-color: color-mix(in srgb, var(--scada-accent) 45%, var(--scada-line)); background: color-mix(in srgb, var(--scada-accent) 4%, white); }
+.scada-dark .scada-palette > button { width: calc(100% - 20px); min-height: 58px; margin: 10px 10px 0; padding: 10px; border: 1px solid var(--scada-line); border-radius: var(--radius-sm); display: flex; align-items: center; gap: 10px; color: var(--scada-ink); background: var(--scada-surface); text-align: left; }
+.scada-dark .scada-palette > button:hover { border-color: color-mix(in srgb, var(--scada-accent) 45%, var(--scada-line)); background: color-mix(in srgb, var(--scada-accent) 8%, var(--scada-surface)); }
 .scada-palette > button span { min-width: 0; display: grid; gap: 3px; }
 .scada-dark .scada-palette > button strong { font-size: 12px; }
 .scada-dark .scada-palette > button small { color: var(--scada-muted); font-size: 10px; }
