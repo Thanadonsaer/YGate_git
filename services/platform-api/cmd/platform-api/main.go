@@ -46,7 +46,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:              cfg.ListenAddr,
-		Handler:           httpapi.New(version, pool.Ping, pool, registryService, ingestionService, hub, cfg.AllowedOrigins...),
+		Handler:           httpapi.New(version, pool.Ping, pool, cfg.SessionIdleTimeout, registryService, ingestionService, hub, cfg.AllowedOrigins...),
 		ReadHeaderTimeout: 5 * time.Second,
 		MaxHeaderBytes:    64 << 10,
 	}

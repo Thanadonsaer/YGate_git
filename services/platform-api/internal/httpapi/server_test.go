@@ -10,7 +10,7 @@ import (
 )
 
 func TestHealthAndReadiness(t *testing.T) {
-	h := New("test", func(context.Context) error { return nil }, nil, nil, nil, nil)
+	h := New("test", func(context.Context) error { return nil }, nil, 0, nil, nil, nil)
 
 	for _, test := range []struct {
 		path, status string
@@ -26,7 +26,7 @@ func TestHealthAndReadiness(t *testing.T) {
 	}
 
 	res := httptest.NewRecorder()
-	New("test", func(context.Context) error { return errors.New("down") }, nil, nil, nil, nil).ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	New("test", func(context.Context) error { return errors.New("down") }, nil, 0, nil, nil, nil).ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/readyz", nil))
 	if res.Code != http.StatusServiceUnavailable {
 		t.Fatalf("failed readiness status=%d body=%s", res.Code, res.Body.String())
 	}

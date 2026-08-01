@@ -1,12 +1,15 @@
-// Package sessioncheck is platform-api's minimal, read-only mirror of
-// auth-service's internal/auth session-validation logic. platform-api can no
-// longer import auth-service's internal/auth package (they are separate Go
-// modules, and Go's internal/ visibility rule forbids the cross-module
-// import), so this package duplicates just the "validate this session
-// cookie" read path platform-api's own authenticated() middleware needs --
-// see docs/superpowers/plans/2026-08-01-backend-microservices-phase1-auth-service.md
-// for the full rationale. It performs no writes (no TouchSession/idle-expiry
-// extension): that's auth-service's job now.
+// Package sessioncheck is platform-api's minimal mirror of auth-service's
+// internal/auth session-validation logic. platform-api can no longer import
+// auth-service's internal/auth package (they are separate Go modules, and
+// Go's internal/ visibility rule forbids the cross-module import), so this
+// package duplicates just the "validate this session cookie" path
+// platform-api's own authenticated() middleware needs -- see
+// docs/superpowers/plans/2026-08-01-backend-microservices-phase1-auth-service.md
+// for the full rationale. It also replicates the idle-timeout touch/extend
+// write auth.Service.Authenticate used to perform (see auth-service's
+// internal/auth/service.go's TouchSession call): without it, sessions would
+// hit their idle timeout even while a user is continuously making
+// authenticated requests to platform-api's own routes.
 package sessioncheck
 
 import (
@@ -16,6 +19,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -54,13 +58,23 @@ WHERE s.token_hash = $1
   AND u.status = 'ACTIVE'
 LIMIT 1`
 
+// touchSessionQuery matches auth.Service.Authenticate's TouchSession query
+// (see auth-service's internal/auth/service.go and the generated
+// dbgen.TouchSession it wraps) exactly, including the "at most once per
+// minute" guard that caps write amplification on hot sessions.
+const touchSessionQuery = `
+UPDATE user_session
+SET last_seen_at = now(),
+    idle_expires_at = LEAST(expires_at, now() + $1::bigint * interval '1 second')
+WHERE id = $2
+  AND last_seen_at < now() - interval '1 minute'`
+
 // Authenticate looks up the session identified by sessionCookieValue,
 // verifying it hasn't expired or been revoked and that its owning user is
-// still active, then returns the resulting Principal. This is the same
-// lookup auth.Service.Authenticate performs (see auth-service's
-// internal/auth/service.go), minus the idle-timeout TouchSession write,
-// which is out of scope for a read-only check.
-func Authenticate(ctx context.Context, pool *pgxpool.Pool, sessionCookieValue string) (Principal, error) {
+// still active, then returns the resulting Principal. It also extends the
+// session's idle-expiry the same way auth.Service.Authenticate does, using
+// idleTimeout as the extension window.
+func Authenticate(ctx context.Context, pool *pgxpool.Pool, sessionCookieValue string, idleTimeout time.Duration) (Principal, error) {
 	tokenHash, err := hashPresentedToken(sessionCookieValue)
 	if err != nil {
 		return Principal{}, ErrUnauthenticated
@@ -74,6 +88,9 @@ func Authenticate(ctx context.Context, pool *pgxpool.Pool, sessionCookieValue st
 	}
 	if err != nil {
 		return Principal{}, fmt.Errorf("load session: %w", err)
+	}
+	if _, err = pool.Exec(ctx, touchSessionQuery, int64(idleTimeout/time.Second), p.SessionID); err != nil {
+		return Principal{}, fmt.Errorf("touch session: %w", err)
 	}
 	return p, nil
 }
