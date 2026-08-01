@@ -235,7 +235,7 @@ func (s *Service) importFromSnapshot(ctx context.Context, principal auth.Princip
 			register := int32(addr.Register)
 			_, err := s.SetDeviceModelRegisterMetadata(ctx, principal, modelID, UpdateDeviceModelRegisterMetadataInput{
 				UpdateDeviceRegisterMetadataInput: UpdateDeviceRegisterMetadataInput{
-					AddressKey: addressKey, DisplayName: addr.Description, DataType: "number", Scale: addr.Factor, Offset: addr.Offset, Decimals: 2, IsEnabled: addr.Enabled,
+					AddressKey: addressKey, DisplayName: addr.Description, Unit: addr.SourceUnit, DataType: "number", Scale: addr.Factor, Offset: addr.Offset, Decimals: 2, IsEnabled: addr.Enabled,
 				},
 				ModbusFunctionCode: &functionCode,
 				ModbusRegister:     &register,
