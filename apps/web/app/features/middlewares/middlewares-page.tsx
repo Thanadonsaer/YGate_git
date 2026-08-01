@@ -4,6 +4,9 @@ import { ArchiveX, ArrowLeft, CheckCircle2, Pencil, Plus, RefreshCw, Save, Setti
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { api, csrfToken } from "../../lib/api";
 import type { CreatedMiddlewareGateway, MiddlewareConfigSnapshot, MiddlewareGateway, Plant } from "../../lib/types";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody } from "../../components/ui/dialog";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../../components/ui/select";
+import { toast } from "../../components/ui/sonner";
 
 export function MiddlewaresPage({ defaultOrganizationId }: { defaultOrganizationId?: string }) {
   const [gateways, setGateways] = useState<MiddlewareGateway[]>([]);
@@ -37,7 +40,7 @@ export function MiddlewaresPage({ defaultOrganizationId }: { defaultOrganization
       headers: { "X-CSRF-Token": csrfToken() },
       body: JSON.stringify({ name: gateway.name, siteName: gateway.siteName, isActive }),
     });
-    if (response.ok) await loadGateways();
+    if (response.ok) { toast.success(isActive ? `เปิดใช้งาน "${gateway.name}" แล้ว` : `ปิดใช้งาน "${gateway.name}" แล้ว`); await loadGateways(); }
     else setError(response.status === 403 ? "บัญชีนี้ไม่มีสิทธิ์เปลี่ยนสถานะ Middleware" : "ไม่สามารถเปลี่ยนสถานะ Middleware ได้");
   }
 
@@ -127,19 +130,23 @@ function MiddlewareEditor({ gateway, defaultOrganizationId, onClose, onSaved }: 
   }
 
   return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (!pending && event.target === event.currentTarget) onClose(); }}>
-      <section className="plant-editor api-key-editor" role="dialog" aria-modal="true" aria-labelledby="middleware-editor-title">
-        <header><div><p>Middleware gateway</p><h2 id="middleware-editor-title">{gateway ? "แก้ไข Middleware" : "เพิ่ม Middleware"}</h2></div><button className="icon-button" onClick={onClose} disabled={pending} title="ปิด" aria-label="ปิด"><X size={18} /></button></header>
-        <form onSubmit={submit}>
-          <label className="full-field">ชื่อ Gateway<input autoFocus value={name} onChange={(event) => setName(event.target.value)} maxLength={200} required /></label>
-          <label className="full-field">ชื่อ Site<input value={siteName} onChange={(event) => setSiteName(event.target.value)} maxLength={200} placeholder="เช่น VT1 - Vientiane Solar" /></label>
-          {!gateway && <label className="full-field">Organization ID<input value={organizationId} onChange={(event) => setOrganizationId(event.target.value)} required /></label>}
-          {gateway && <label className="toggle-field full-field"><input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} /> เปิดใช้งาน Middleware</label>}
-          {error && <p className="form-message error full-field">{error}</p>}
-          <div className="editor-actions full-field"><button type="button" className="secondary-button" onClick={onClose} disabled={pending}>ยกเลิก</button><button className="primary-button" disabled={pending}><Save size={17} /> {pending ? "กำลังบันทึก" : "บันทึก Middleware"}</button></div>
-        </form>
-      </section>
-    </div>
+    <Dialog open onOpenChange={(open) => { if (!open && !pending) onClose(); }}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <div><DialogDescription>Middleware gateway</DialogDescription><DialogTitle>{gateway ? "แก้ไข Middleware" : "เพิ่ม Middleware"}</DialogTitle></div>
+        </DialogHeader>
+        <DialogBody>
+          <form className="plant-editor-form" onSubmit={submit}>
+            <label className="full-field">ชื่อ Gateway<input autoFocus value={name} onChange={(event) => setName(event.target.value)} maxLength={200} required /></label>
+            <label className="full-field">ชื่อ Site<input value={siteName} onChange={(event) => setSiteName(event.target.value)} maxLength={200} placeholder="เช่น VT1 - Vientiane Solar" /></label>
+            {!gateway && <label className="full-field">Organization ID<input value={organizationId} onChange={(event) => setOrganizationId(event.target.value)} required /></label>}
+            {gateway && <label className="toggle-field full-field"><input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} /> เปิดใช้งาน Middleware</label>}
+            {error && <p className="form-message error full-field">{error}</p>}
+            <div className="editor-actions full-field"><button type="button" className="secondary-button" onClick={onClose} disabled={pending}>ยกเลิก</button><button className="primary-button" disabled={pending}><Save size={17} /> {pending ? "กำลังบันทึก" : "บันทึก Middleware"}</button></div>
+          </form>
+        </DialogBody>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -187,6 +194,7 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
         body: JSON.stringify({ plantId: addPlantId }),
       });
       if (!response.ok) throw new Error("ไม่สามารถมอบหมาย Plant ได้ (Plant นี้อาจถูกมอบหมายให้ Middleware อื่นแล้ว)");
+      toast.success(`มอบหมาย Plant ให้ ${gateway.name} แล้ว`);
       setAddPlantId("");
       await load();
     } catch (cause) {
@@ -206,6 +214,7 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
         headers: { "X-CSRF-Token": csrfToken() },
       });
       if (!response.ok) throw new Error("ไม่สามารถเอา Plant ออกได้");
+      toast.success(`เอา "${plant.name}" ออกจาก ${gateway.name} แล้ว`);
       await load();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
@@ -244,10 +253,10 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
         {!loading && assignedPlants.length === 0 && <div className="table-state">ยังไม่ได้มอบหมาย Plant ให้ Middleware นี้</div>}
       </div>
       <div className="row-actions" style={{ marginTop: 12 }}>
-        <select value={addPlantId} onChange={(event) => setAddPlantId(event.target.value)}>
-          <option value="">เลือก Plant ที่จะมอบหมาย...</option>
-          {unassignedPlants.map((p) => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}
-        </select>
+        <Select value={addPlantId} onValueChange={setAddPlantId} disabled={unassignedPlants.length === 0}>
+          <SelectTrigger className="w-64"><SelectValue placeholder="เลือก Plant ที่จะมอบหมาย..." /></SelectTrigger>
+          <SelectContent>{unassignedPlants.map((p) => <SelectItem key={p.id} value={p.id}>{p.code} - {p.name}</SelectItem>)}</SelectContent>
+        </Select>
         <button className="primary-button compact" disabled={!addPlantId || pending} onClick={() => void assignPlant()}><Plus size={16} /> มอบหมาย Plant</button>
       </div>
 
