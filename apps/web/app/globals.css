@@ -36,6 +36,7 @@
   --color-line: var(--line);
   --color-surface: var(--surface);
   --color-canvas: var(--canvas);
+  --color-nav: var(--nav);
   --color-brand: var(--action);
   --color-success: var(--success);
   --color-warning: var(--warning);
