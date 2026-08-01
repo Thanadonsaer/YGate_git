@@ -1,11 +1,13 @@
 "use client";
 
-import { Building2, ChartLine, Cpu, GripVertical, Pencil, RefreshCw, RotateCcw, Save, Settings2, Trash2, Upload, Wifi, WifiOff, X } from "lucide-react";
+import { Building2, ChartLine, Cpu, GripVertical, Pencil, RefreshCw, RotateCcw, Save, Settings2, Trash2, Upload, Wifi, WifiOff } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { Responsive, useContainerWidth, type Layout, type ResponsiveLayouts } from "react-grid-layout";
 import { api, csrfToken, formatDate } from "../../lib/api";
 import type { DashboardLayout, DashboardLayoutItem, DashboardLayouts, DashboardOverview, DashboardPlantStatus, DashboardWidget, DashboardWidgetConfigs, Device, LatestTelemetry, Plant, PublishedDashboardLayout, TelemetryHistoryPage, TimeseriesWidgetConfig } from "../../lib/types";
 import { usePlatformSession } from "../../components/platform-shell";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody } from "../../components/ui/dialog";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../../components/ui/select";
 
 function dashboardStatusLabel(status: DashboardPlantStatus["communicationStatus"]) {
   return { ONLINE: "Online", DEGRADED: "Degraded", OFFLINE: "Offline", NO_DEVICES: "No devices", DISABLED: "Disabled" }[status];
@@ -371,21 +373,50 @@ function TimeseriesConfigEditor({ initial, onClose, onSave }: { initial?: Timese
     onSave({ version: 1, dataBinding: { plantId, deviceId, pointKey: pointKey.trim(), timeRangeHours }, display: { unit: unit.trim(), decimals } });
   }
 
-  return <div className="modal-backdrop" role="presentation">
-    <section className="plant-editor chart-editor" role="dialog" aria-modal="true" aria-label="ตั้งค่ากราฟ">
-      <header><div><p>Timeseries widget</p><h2>ตั้งค่ากราฟ</h2></div><button className="icon-button" onClick={onClose} title="ปิด" aria-label="ปิด"><X size={18} /></button></header>
-      <form onSubmit={submit}>
-        <label>Plant<select value={plantId} onChange={(event) => { setPlantId(event.target.value); setDeviceId(""); setPointKey(""); }} required><option value="">เลือก Plant</option>{plants.map((plant) => <option key={plant.id} value={plant.id}>{plant.name} ({plant.code})</option>)}</select></label>
-        <label>Device<select value={deviceId} onChange={(event) => { setDeviceId(event.target.value); setPointKey(""); }} required disabled={!plantId}><option value="">เลือก Device</option>{devices.map((device) => <option key={device.id} value={device.id}>{device.name} ({device.externalId})</option>)}</select></label>
-        <label className="full-field">Point key<input list="timeseries-point-keys" value={pointKey} onChange={(event) => setPointKey(event.target.value)} maxLength={200} required /><datalist id="timeseries-point-keys">{pointOptions.map((key) => <option key={key} value={key} />)}</datalist></label>
-        <label>ช่วงเวลา<select value={timeRangeHours} onChange={(event) => setTimeRangeHours(Number(event.target.value) as 1 | 6 | 24 | 168)}><option value={1}>1 ชั่วโมง</option><option value={6}>6 ชั่วโมง</option><option value={24}>24 ชั่วโมง</option><option value={168}>7 วัน</option></select></label>
-        <label>Unit<input value={unit} onChange={(event) => setUnit(event.target.value)} maxLength={20} placeholder="kW" /></label>
-        <label>Decimals<input type="number" min="0" max="6" value={decimals} onChange={(event) => setDecimals(Number(event.target.value))} required /></label>
-        {error && <p className="form-message error full-field">{error}</p>}
-        <div className="editor-actions full-field"><button type="button" className="secondary-button" onClick={onClose}>ยกเลิก</button><button className="primary-button"><Save size={17} /> บันทึกการตั้งค่า</button></div>
-      </form>
-    </section>
-  </div>;
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="max-w-xl">
+        <DialogHeader>
+          <div><DialogDescription>Timeseries widget</DialogDescription><DialogTitle>ตั้งค่ากราฟ</DialogTitle></div>
+        </DialogHeader>
+        <DialogBody>
+          <form className="grid grid-cols-2 gap-4" onSubmit={submit}>
+            <label className="grid gap-1.5 text-xs font-bold text-ink">Plant
+              <Select value={plantId} onValueChange={(value) => { setPlantId(value); setDeviceId(""); setPointKey(""); }}>
+                <SelectTrigger><SelectValue placeholder="เลือก Plant" /></SelectTrigger>
+                <SelectContent>{plants.map((plant) => <SelectItem key={plant.id} value={plant.id}>{plant.name} ({plant.code})</SelectItem>)}</SelectContent>
+              </Select>
+            </label>
+            <label className="grid gap-1.5 text-xs font-bold text-ink">Device
+              <Select value={deviceId} onValueChange={(value) => { setDeviceId(value); setPointKey(""); }} disabled={!plantId}>
+                <SelectTrigger><SelectValue placeholder="เลือก Device" /></SelectTrigger>
+                <SelectContent>{devices.map((device) => <SelectItem key={device.id} value={device.id}>{device.name} ({device.externalId})</SelectItem>)}</SelectContent>
+              </Select>
+            </label>
+            <label className="col-span-2 grid gap-1.5 text-xs font-bold text-ink">Point key
+              <input className="h-10 rounded-[var(--radius-sm)] border border-line px-3 text-sm" list="timeseries-point-keys" value={pointKey} onChange={(event) => setPointKey(event.target.value)} maxLength={200} required />
+              <datalist id="timeseries-point-keys">{pointOptions.map((key) => <option key={key} value={key} />)}</datalist>
+            </label>
+            <label className="grid gap-1.5 text-xs font-bold text-ink">ช่วงเวลา
+              <Select value={String(timeRangeHours)} onValueChange={(value) => setTimeRangeHours(Number(value) as 1 | 6 | 24 | 168)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="1">1 ชั่วโมง</SelectItem>
+                  <SelectItem value="6">6 ชั่วโมง</SelectItem>
+                  <SelectItem value="24">24 ชั่วโมง</SelectItem>
+                  <SelectItem value="168">7 วัน</SelectItem>
+                </SelectContent>
+              </Select>
+            </label>
+            <label className="grid gap-1.5 text-xs font-bold text-ink">Unit<input className="h-10 rounded-[var(--radius-sm)] border border-line px-3 text-sm" value={unit} onChange={(event) => setUnit(event.target.value)} maxLength={20} placeholder="kW" /></label>
+            <label className="grid gap-1.5 text-xs font-bold text-ink">Decimals<input className="h-10 rounded-[var(--radius-sm)] border border-line px-3 text-sm" type="number" min="0" max="6" value={decimals} onChange={(event) => setDecimals(Number(event.target.value))} required /></label>
+            {error && <p className="form-message error col-span-2">{error}</p>}
+            <div className="col-span-2 flex justify-end gap-2"><button type="button" className="secondary-button" onClick={onClose}>ยกเลิก</button><button className="primary-button"><Save size={17} /> บันทึกการตั้งค่า</button></div>
+          </form>
+        </DialogBody>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 function normalizeDashboardLayouts(layouts: ResponsiveLayouts<"lg" | "md" | "sm"> | DashboardLayouts): DashboardLayouts {

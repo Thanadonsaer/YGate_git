@@ -274,6 +274,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .timeseries-stats span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .timeseries-stats strong { color: var(--ink); }
 .timeseries-empty { height: 100%; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 9px; color: var(--muted); font-size: 12px; }
+.dashboard-kpi strong { font-size: 17px; font-family: var(--font-display); }
+.dashboard-kpi { border-radius: var(--radius-md); }
+.dashboard-widget { box-shadow: var(--shadow-sm); }
 .activity-band { margin-top: 14px; min-height: 68px; padding: 13px 18px; border: 1px solid var(--line); background: white; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .activity-band > div { display: flex; align-items: center; gap: 12px; }
 .activity-band strong { display: block; font-size: 13px; }
