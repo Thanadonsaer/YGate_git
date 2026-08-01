@@ -145,14 +145,13 @@ function RoleEditor({ role, permissions, defaultOrganizationId, onClose, onSaved
 
   return (
     <Dialog open={true} onOpenChange={(open) => { if (!open && !pending) onClose(); }}>
-      <DialogContent>
+      <DialogContent className="max-w-2xl">
         <DialogHeader>
           <div>
-            <p>Access management</p>
+            <DialogDescription>Access management</DialogDescription>
             <DialogTitle>{role ? "แก้ไข Role" : "เพิ่ม Role"}</DialogTitle>
           </div>
         </DialogHeader>
-        <DialogDescription>Access management</DialogDescription>
         <DialogBody>
           {loadingDetail ? <div className="table-state">กำลังโหลดข้อมูล</div> : (
             <form className="plant-editor-form" onSubmit={submit}>
