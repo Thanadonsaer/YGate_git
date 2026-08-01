@@ -1,10 +1,14 @@
 "use client";
 
-import { Check, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
+import { Check, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { api, csrfToken, formatDate } from "../../lib/api";
 import { useRealtimeSocket } from "../../lib/realtime";
 import type { AlarmEvent, AlarmRule, Device, Plant } from "../../lib/types";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody } from "../../components/ui/dialog";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../../components/ui/select";
+import { Tabs, TabsList, TabsTrigger } from "../../components/ui/tabs";
+import { toast } from "../../components/ui/sonner";
 
 const severityStatusClass: Record<AlarmRule["severity"], string> = {
   warning: "status no_devices",
@@ -74,7 +78,7 @@ export function AlarmsPage() {
       method: "DELETE",
       headers: { "X-CSRF-Token": csrfToken() },
     });
-    if (response.ok) await loadAlarms();
+    if (response.ok) { toast.success(`ลบกฎ "${rule.label}" แล้ว`); await loadAlarms(); }
     else setError("ไม่สามารถลบกฎแจ้งเตือนได้");
   }
 
@@ -84,7 +88,7 @@ export function AlarmsPage() {
       headers: { "X-CSRF-Token": csrfToken() },
       body: JSON.stringify({ note: "" }),
     });
-    if (response.ok) await loadAlarms();
+    if (response.ok) { toast.success("Acknowledge alarm แล้ว"); await loadAlarms(); }
     else setError("ไม่สามารถ Acknowledge Alarm ได้");
   }
 
@@ -97,13 +101,16 @@ export function AlarmsPage() {
       <div className="section-heading">
         <div><p>Operational alarms</p><h2>Alarm Monitoring</h2></div>
         <div className="heading-actions">
-          <select value={plantId} onChange={(event) => setPlantId(event.target.value)} aria-label="เลือกโรงไฟฟ้า">
-            {plants.map((plant) => <option key={plant.id} value={plant.id}>{plant.name}</option>)}
-          </select>
-          <div className="mode-switch" aria-label="มุมมอง Alarm">
-            <button className={tab === "log" ? "active" : ""} onClick={() => setTab("log")}>Log</button>
-            <button className={tab === "rules" ? "active" : ""} onClick={() => setTab("rules")}>Rules</button>
-          </div>
+          <Select value={plantId} onValueChange={setPlantId}>
+            <SelectTrigger className="w-48" aria-label="เลือกโรงไฟฟ้า"><SelectValue /></SelectTrigger>
+            <SelectContent>{plants.map((plant) => <SelectItem key={plant.id} value={plant.id}>{plant.name}</SelectItem>)}</SelectContent>
+          </Select>
+          <Tabs value={tab} onValueChange={(value) => setTab(value as "log" | "rules")}>
+            <TabsList aria-label="มุมมอง Alarm">
+              <TabsTrigger value="log">Log</TabsTrigger>
+              <TabsTrigger value="rules">Rules</TabsTrigger>
+            </TabsList>
+          </Tabs>
           <button className="icon-button" onClick={() => void loadAlarms()} title="รีเฟรช" aria-label="รีเฟรช Alarm"><RefreshCw size={18} /></button>
           {tab === "rules" && <button className="primary-button compact" onClick={() => setEditor("create")}><Plus size={18} /> เพิ่มกฎ</button>}
         </div>
@@ -199,29 +206,41 @@ function AlarmRuleEditor({ plantId, rule, devices, onClose, onSaved }: { plantId
   }
 
   return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (!pending && event.target === event.currentTarget) onClose(); }}>
-      <section className="plant-editor" role="dialog" aria-modal="true" aria-labelledby="alarm-rule-editor-title">
-        <header><div><p>Alarm rule</p><h2 id="alarm-rule-editor-title">{rule ? "แก้ไขกฎแจ้งเตือน" : "เพิ่มกฎแจ้งเตือน"}</h2></div><button className="icon-button" onClick={onClose} disabled={pending} title="ปิด" aria-label="ปิด"><X size={19} /></button></header>
-        <form onSubmit={submit}>
-          {!rule && (
-            <label className="full-field">Device<select value={deviceId} onChange={(event) => setDeviceId(event.target.value)} required>
-              {devices.map((device) => <option key={device.id} value={device.id}>{device.name}</option>)}
-            </select></label>
-          )}
-          {!rule && <label className="full-field">Point key<input value={pointKey} onChange={(event) => setPointKey(event.target.value)} maxLength={200} required /></label>}
-          <label className="full-field">ชื่อกฎ<input autoFocus value={label} onChange={(event) => setLabel(event.target.value)} maxLength={200} required /></label>
-          <label>Min value<input type="number" step="any" value={minValue} onChange={(event) => setMinValue(event.target.value)} /></label>
-          <label>Max value<input type="number" step="any" value={maxValue} onChange={(event) => setMaxValue(event.target.value)} /></label>
-          <label className="full-field">Severity<select value={severity} onChange={(event) => setSeverity(event.target.value as AlarmRule["severity"])}>
-            <option value="warning">Warning</option>
-            <option value="major">Major</option>
-            <option value="critical">Critical</option>
-          </select></label>
-          {rule && <label className="toggle-field full-field"><input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} /><span>เปิดใช้งานกฎนี้</span></label>}
-          {error && <p className="form-message error full-field">{error}</p>}
-          <div className="editor-actions full-field"><button type="button" className="secondary-button" onClick={onClose} disabled={pending}>ยกเลิก</button><button className="primary-button" disabled={pending}>{pending ? "กำลังบันทึก" : "บันทึก"}</button></div>
-        </form>
-      </section>
-    </div>
+    <Dialog open onOpenChange={(open) => { if (!open && !pending) onClose(); }}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <div><DialogDescription>Alarm rule</DialogDescription><DialogTitle>{rule ? "แก้ไขกฎแจ้งเตือน" : "เพิ่มกฎแจ้งเตือน"}</DialogTitle></div>
+        </DialogHeader>
+        <DialogBody>
+          <form className="plant-editor-form" onSubmit={submit}>
+            {!rule && (
+              <label className="full-field">Device
+                <Select value={deviceId} onValueChange={setDeviceId}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>{devices.map((device) => <SelectItem key={device.id} value={device.id}>{device.name}</SelectItem>)}</SelectContent>
+                </Select>
+              </label>
+            )}
+            {!rule && <label className="full-field">Point key<input value={pointKey} onChange={(event) => setPointKey(event.target.value)} maxLength={200} required /></label>}
+            <label className="full-field">ชื่อกฎ<input autoFocus value={label} onChange={(event) => setLabel(event.target.value)} maxLength={200} required /></label>
+            <label>Min value<input type="number" step="any" value={minValue} onChange={(event) => setMinValue(event.target.value)} /></label>
+            <label>Max value<input type="number" step="any" value={maxValue} onChange={(event) => setMaxValue(event.target.value)} /></label>
+            <label className="full-field">Severity
+              <Select value={severity} onValueChange={(value) => setSeverity(value as AlarmRule["severity"])}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="warning">Warning</SelectItem>
+                  <SelectItem value="major">Major</SelectItem>
+                  <SelectItem value="critical">Critical</SelectItem>
+                </SelectContent>
+              </Select>
+            </label>
+            {rule && <label className="toggle-field full-field"><input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} /><span>เปิดใช้งานกฎนี้</span></label>}
+            {error && <p className="form-message error full-field">{error}</p>}
+            <div className="editor-actions full-field"><button type="button" className="secondary-button" onClick={onClose} disabled={pending}>ยกเลิก</button><button className="primary-button" disabled={pending}>{pending ? "กำลังบันทึก" : "บันทึก"}</button></div>
+          </form>
+        </DialogBody>
+      </DialogContent>
+    </Dialog>
   );
 }
