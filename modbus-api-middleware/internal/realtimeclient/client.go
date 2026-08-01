@@ -170,6 +170,21 @@ func (c *Client) handleCommand(ctx context.Context, conn *websocket.Conn, msg en
 			data, _ := json.Marshal(map[string]any{"connection": connection, "probe": info, "latencyMs": latency.Milliseconds()})
 			result.Ok, result.Data = true, data
 		}
+	case "config-export":
+		cfg := c.Cache.Load()
+		snapshot := domain.ConfigSnapshot{Version: cfg.Version, Brands: cfg.Brands, Plants: cfg.Plants}
+		for _, ds := range cfg.DeviceSets {
+			snapshot.DeviceSets = append(snapshot.DeviceSets, ds)
+		}
+		for _, conn := range cfg.Connections {
+			snapshot.Connections = append(snapshot.Connections, conn)
+		}
+		data, err := json.Marshal(snapshot)
+		if err != nil {
+			result.Ok, result.Error = false, err.Error()
+		} else {
+			result.Ok, result.Data = true, data
+		}
 	default:
 		result.Ok, result.Error = false, "unknown command kind"
 	}
