@@ -70,6 +70,14 @@ try {
         Pop-Location
     }
 
+    Push-Location (Join-Path $root "services\auth-service")
+    try {
+        Invoke-Checked { go test ./... }
+        Invoke-Checked { go build -trimpath -ldflags "-s -w" -o (Join-Path $releaseDirectory "bin\auth-service.exe") ./cmd/auth-service }
+    } finally {
+        Pop-Location
+    }
+
     $env:NEXT_PUBLIC_GATEWAY_URL = $PublicGatewayUrl
     Push-Location (Join-Path $root "apps\web")
     try {
@@ -111,6 +119,14 @@ module.exports = {
       restart_delay: 5000,
     },
     {
+      name: "ygate-auth-service",
+      script: path.join(root, "bin", "auth-service.exe"),
+      interpreter: "none",
+      cwd: root,
+      env: sharedEnv,
+      restart_delay: 5000,
+    },
+    {
       name: "ygate-web",
       script: path.join(root, "web", "server.js"),
       cwd: path.join(root, "web"),
@@ -127,8 +143,12 @@ PLATFORM_DATABASE_URL=postgresql://<user>:<password>@127.0.0.1:5432/<database>
 PLATFORM_HTTP_ADDR=127.0.0.1:44441
 PLATFORM_COOKIE_SECURE=true
 PLATFORM_WEBSOCKET_ORIGINS=ygate.yokogawasolution.com
+AUTH_DATABASE_URL=postgresql://<user>:<password>@127.0.0.1:5432/<database>
+AUTH_HTTP_ADDR=127.0.0.1:44442
+AUTH_COOKIE_SECURE=true
 GATEWAY_HTTP_ADDR=127.0.0.1:44440
 GATEWAY_PLATFORM_URL=http://127.0.0.1:44441
+GATEWAY_AUTH_SERVICE_URL=http://127.0.0.1:44442
 GATEWAY_ALLOWED_ORIGINS=https://ygate.yokogawasolution.com
 '@ | Set-Content -LiteralPath (Join-Path $releaseDirectory "ygate.env.example") -Encoding utf8
 
@@ -189,6 +209,7 @@ if ($LASTEXITCODE -ne 0) { throw "PM2 failed to save the process list." }
 
 $urls = @(
     "http://127.0.0.1:44441/readyz",
+    "http://127.0.0.1:44442/readyz",
     "http://127.0.0.1:44440/gateway/healthz",
     "http://127.0.0.1:44440/readyz",
     "http://127.0.0.1:8080/"

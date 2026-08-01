@@ -46,6 +46,13 @@ pipeline {
                         }
                     }
                 }
+                stage('Auth Service') {
+                    steps {
+                        dir('services/auth-service') {
+                            sh 'go test ./...'
+                        }
+                    }
+                }
                 stage('Web') {
                     steps {
                         dir('apps/web') {
@@ -64,6 +71,7 @@ pipeline {
                     mkdir -p release/bin release/web
                     (cd services/platform-api && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=$RELEASE_SHA" -o ../../release/bin/platform-api ./cmd/platform-api)
                     (cd services/api-gateway && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o ../../release/bin/api-gateway ./cmd/api-gateway)
+                    (cd services/auth-service && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o ../../release/bin/auth-service ./cmd/auth-service)
                     (cd apps/web && NEXT_PUBLIC_GATEWAY_URL="$PUBLIC_GATEWAY_URL" npm run build)
                     cp -R apps/web/.next/standalone/. release/web/
                     cp packages/api-contracts/platform-api.yaml release/platform-api.yaml
