@@ -2,6 +2,7 @@
 
 import { RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { toast } from "../../components/ui/sonner";
 import { api, csrfToken, formatDate } from "../../lib/api";
 import type { AuditEvent } from "../../lib/types";
 
@@ -34,7 +35,7 @@ export function AuditPage() {
       method: "DELETE",
       headers: { "X-CSRF-Token": csrfToken(), "X-Hard-Delete-Confirm": expected },
     });
-    if (response.ok) await loadEvents();
+    if (response.ok) { toast.success("Clear Audit Log แล้ว"); await loadEvents(); }
     else setError(response.status === 403 ? "เฉพาะ Platform Admin เท่านั้นที่ clear Audit view ได้" : "ไม่สามารถ clear Audit Log ได้");
   }
 

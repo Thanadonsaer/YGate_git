@@ -2,6 +2,7 @@
 
 import { RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { toast } from "../../components/ui/sonner";
 import { api, csrfToken, formatDate } from "../../lib/api";
 import type { Session } from "../../lib/types";
 
@@ -31,7 +32,7 @@ export function SessionsPage() {
       method: "DELETE",
       headers: { "X-CSRF-Token": csrfToken() },
     });
-    if (response.ok) await loadSessions();
+    if (response.ok) { toast.success("ยกเลิกเซสชันแล้ว"); await loadSessions(); }
     else setError("ไม่สามารถยกเลิกเซสชันได้");
   }
 
