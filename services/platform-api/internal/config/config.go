@@ -22,6 +22,8 @@ type Config struct {
 	SMTPUsername           string
 	SMTPPassword           string
 	AllowedOrigins         []string
+	MiddlewarePatchDir     string
+	PublicBaseURL          string
 }
 
 func Load() (Config, error) {
@@ -72,6 +74,11 @@ func Load() (Config, error) {
 		"localhost:8080",
 		"127.0.0.1:8080",
 	})
+	cfg.MiddlewarePatchDir = strings.TrimSpace(os.Getenv("PLATFORM_MIDDLEWARE_PATCH_DIR"))
+	if cfg.MiddlewarePatchDir == "" {
+		cfg.MiddlewarePatchDir = "./data/middleware-patches"
+	}
+	cfg.PublicBaseURL = strings.TrimRight(strings.TrimSpace(os.Getenv("PLATFORM_PUBLIC_BASE_URL")), "/")
 	return cfg, nil
 }
 

@@ -12,7 +12,7 @@ export async function api(path: string, init?: RequestInit) {
       ...init,
       credentials: "include",
       headers: {
-        ...(init?.body ? { "Content-Type": "application/json" } : {}),
+        ...(init?.body && !(init.body instanceof FormData) ? { "Content-Type": "application/json" } : {}),
         ...init?.headers,
       },
     });

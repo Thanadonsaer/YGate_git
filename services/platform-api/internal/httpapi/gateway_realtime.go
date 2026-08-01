@@ -18,9 +18,10 @@ import (
 // gatewayEnvelope is the generic shape of every message on the gateway
 // realtime socket; unused fields for a given type are simply left zero.
 type gatewayEnvelope struct {
-	Type           string `json:"type"`
-	AppliedVersion int64  `json:"appliedVersion,omitempty"`
-	Version        int64  `json:"version,omitempty"`
+	Type            string `json:"type"`
+	AppliedVersion  int64  `json:"appliedVersion,omitempty"`
+	SoftwareVersion string `json:"softwareVersion,omitempty"`
+	Version         int64  `json:"version,omitempty"`
 	Status         string `json:"status,omitempty"`
 	Reason         string `json:"reason,omitempty"`
 	CommandID      string `json:"commandId,omitempty"`
@@ -98,7 +99,7 @@ func gatewayRealtimeHandler(ingestionService *ingestion.Service, registryService
 				}
 				switch envelope.Type {
 				case "hello":
-					payload, shouldPush, err := registryService.HandleGatewayHello(ctx, client.ID, envelope.AppliedVersion)
+					payload, shouldPush, err := registryService.HandleGatewayHello(ctx, client.ID, envelope.AppliedVersion, envelope.SoftwareVersion)
 					if err != nil {
 						log.Printf("gateway hello failed for %s: %v", gatewayID, err)
 						continue

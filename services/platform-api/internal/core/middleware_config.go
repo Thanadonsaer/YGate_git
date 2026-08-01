@@ -38,6 +38,7 @@ type MiddlewareGateway struct {
 	Name                 string     `json:"name"`
 	SiteName             string     `json:"siteName"`
 	KeyPrefix            string     `json:"keyPrefix"`
+	SoftwareVersion      *string    `json:"softwareVersion"`
 	IsActive             bool       `json:"isActive"`
 	IsOnline             bool       `json:"isOnline"`
 	ConfigVersion        int64      `json:"configVersion"`
@@ -273,7 +274,7 @@ func (s *Service) Middlewares(ctx context.Context, principal auth.Principal) ([]
 		return nil, ErrForbidden
 	}
 	rows, err := s.pool.Query(ctx, `
-SELECT mc.id, mc.organization_id, o.name, mc.name, mc.site_name, mc.key_prefix,
+SELECT mc.id, mc.organization_id, o.name, mc.name, mc.site_name, mc.key_prefix, mc.software_version,
        mc.is_active, mc.config_version, mc.config_applied_version, mc.last_seen_at, mc.created_at, mc.updated_at
 FROM middleware_client mc
 JOIN organization o ON o.id = mc.organization_id
@@ -835,8 +836,9 @@ func brandWireID(manufacturer string) int64 {
 // yet via "Import from Middleware") must never be silently overwritten just
 // because it connected. Config only ever gets pushed via the explicit
 // "Push Config" admin action (see PushMiddlewareConfig).
-func (s *Service) HandleGatewayHello(ctx context.Context, clientID pgtype.UUID, appliedVersion int64) (payload []byte, shouldPush bool, err error) {
-	_ = s.queries.TouchMiddlewareClient(ctx, clientID)
+func (s *Service) HandleGatewayHello(ctx context.Context, clientID pgtype.UUID, appliedVersion int64, softwareVersion string) (payload []byte, shouldPush bool, err error) {
+	softwareVersion = strings.TrimSpace(softwareVersion)
+	_, _ = s.pool.Exec(ctx, `UPDATE middleware_client SET last_seen_at=now(), updated_at=now(), software_version=COALESCE(NULLIF($2,''), software_version) WHERE id=$1`, clientID, softwareVersion)
 	return nil, false, nil
 }
 
@@ -880,7 +882,7 @@ func pushEnvelope(msgType string, snapshot MiddlewareConfigSnapshot) []byte {
 
 func (s *Service) getMiddlewareInTx(ctx context.Context, tx pgx.Tx, id pgtype.UUID) (MiddlewareGateway, error) {
 	row := tx.QueryRow(ctx, `
-SELECT mc.id, mc.organization_id, o.name, mc.name, mc.site_name, mc.key_prefix,
+SELECT mc.id, mc.organization_id, o.name, mc.name, mc.site_name, mc.key_prefix, mc.software_version,
        mc.is_active, mc.config_version, mc.config_applied_version, mc.last_seen_at, mc.created_at, mc.updated_at
 FROM middleware_client mc
 JOIN organization o ON o.id = mc.organization_id
@@ -899,13 +901,17 @@ type middlewareScanner interface{ Scan(...any) error }
 func scanMiddlewareGateway(row middlewareScanner) (MiddlewareGateway, error) {
 	var gateway MiddlewareGateway
 	var id, organizationID pgtype.UUID
+	var softwareVersion pgtype.Text
 	var lastSeenAt, createdAt, updatedAt pgtype.Timestamptz
-	if err := row.Scan(&id, &organizationID, &gateway.OrganizationName, &gateway.Name, &gateway.SiteName, &gateway.KeyPrefix,
+	if err := row.Scan(&id, &organizationID, &gateway.OrganizationName, &gateway.Name, &gateway.SiteName, &gateway.KeyPrefix, &softwareVersion,
 		&gateway.IsActive, &gateway.ConfigVersion, &gateway.ConfigAppliedVersion, &lastSeenAt, &createdAt, &updatedAt); err != nil {
 		return MiddlewareGateway{}, fmt.Errorf("scan middleware gateway: %w", err)
 	}
 	gateway.ID = uuidString(id)
 	gateway.OrganizationID = uuidString(organizationID)
+	if softwareVersion.Valid {
+		gateway.SoftwareVersion = &softwareVersion.String
+	}
 	gateway.LastSeenAt = timePointer(lastSeenAt)
 	gateway.CreatedAt = createdAt.Time
 	gateway.UpdatedAt = updatedAt.Time

@@ -31,13 +31,35 @@ var (
 )
 
 type Service struct {
-	pool    *pgxpool.Pool
-	queries *dbgen.Queries
-	hub     *gatewayhub.Hub
+	pool          *pgxpool.Pool
+	queries       *dbgen.Queries
+	hub           *gatewayhub.Hub
+	patchDir      string
+	publicBaseURL string
 }
 
 func New(pool *pgxpool.Pool, hub *gatewayhub.Hub) *Service {
-	return &Service{pool: pool, queries: dbgen.New(pool), hub: hub}
+	return &Service{pool: pool, queries: dbgen.New(pool), hub: hub, patchDir: "./data/middleware-patches"}
+}
+
+// WithMiddlewarePatchDir overrides the directory uploaded middleware patch
+// zips are stored under (see middleware_patch.go). Optional -- New already
+// sets a sane default; production wires this from PLATFORM_MIDDLEWARE_PATCH_DIR.
+func (s *Service) WithMiddlewarePatchDir(dir string) *Service {
+	if dir != "" {
+		s.patchDir = dir
+	}
+	return s
+}
+
+// WithPublicBaseURL sets the externally-reachable base URL (e.g.
+// https://ygate.example.com) middleware patch download links are built
+// against -- must be the same host a Middleware's realtime WS connection
+// already reaches. Empty by default; StageMiddlewareUpdate errors clearly
+// if a Stage is attempted without it configured.
+func (s *Service) WithPublicBaseURL(url string) *Service {
+	s.publicBaseURL = url
+	return s
 }
 
 type Plant struct {

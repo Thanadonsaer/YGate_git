@@ -3,7 +3,7 @@
 import { ArchiveX, ArrowLeft, CheckCircle2, Pencil, Plus, RefreshCw, Save, Settings2, Trash2, X } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { api, csrfToken } from "../../lib/api";
-import type { CreatedMiddlewareGateway, ImportMiddlewareConfigResult, MiddlewareConfigSnapshot, MiddlewareGateway, Plant } from "../../lib/types";
+import type { CreatedMiddlewareGateway, ImportMiddlewareConfigResult, MiddlewareConfigSnapshot, MiddlewareGateway, MiddlewarePatch, Plant } from "../../lib/types";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody } from "../../components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../../components/ui/select";
 import { toast } from "../../components/ui/sonner";
@@ -160,20 +160,30 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
   const [pending, setPending] = useState(false);
   const [importing, setImporting] = useState(false);
   const [pushing, setPushing] = useState(false);
+  const [patches, setPatches] = useState<MiddlewarePatch[]>([]);
+  const [selectedPatchId, setSelectedPatchId] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [staging, setStaging] = useState(false);
+  const [applying, setApplying] = useState(false);
+  const [rollingBack, setRollingBack] = useState(false);
+  const [restarting, setRestarting] = useState(false);
+  const lifecycleBusy = uploading || staging || applying || rollingBack || restarting;
 
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const [configResponse, plantsResponse, allPlantsResponse] = await Promise.all([
+      const [configResponse, plantsResponse, allPlantsResponse, patchesResponse] = await Promise.all([
         api(`/api/v1/admin/middlewares/${encodeURIComponent(gateway.id)}/config`),
         api(`/api/v1/admin/middlewares/${encodeURIComponent(gateway.id)}/plants`),
         api("/api/v1/plants"),
+        api("/api/v1/admin/middleware-patches"),
       ]);
       if (!configResponse.ok || !plantsResponse.ok || !allPlantsResponse.ok) throw new Error("ไม่สามารถโหลดข้อมูล Middleware ได้");
       setSnapshot((await configResponse.json()) as MiddlewareConfigSnapshot);
       setAssignedPlants((await plantsResponse.json()) as Plant[]);
       setAllPlants((await allPlantsResponse.json()) as Plant[]);
+      if (patchesResponse.ok) setPatches((await patchesResponse.json()) as MiddlewarePatch[]);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
     } finally {
@@ -266,6 +276,105 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
     }
   }
 
+  async function uploadPatch(file: File) {
+    setUploading(true);
+    setError("");
+    try {
+      const form = new FormData();
+      form.append("patch", file);
+      const response = await api("/api/v1/admin/middleware-patches", {
+        method: "POST",
+        headers: { "X-CSRF-Token": csrfToken() },
+        body: form,
+      });
+      if (response.status === 403) throw new Error("เฉพาะ Platform Admin เท่านั้นที่ upload patch ได้");
+      if (response.status === 409) throw new Error("มี patch สำหรับ version/os/arch นี้อยู่แล้ว");
+      if (!response.ok) throw new Error("Upload patch ไม่สำเร็จ (ตรวจสอบ manifest/signature ในไฟล์)");
+      toast.success("Upload patch สำเร็จ");
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function stageUpdate() {
+    if (!selectedPatchId) return;
+    setStaging(true);
+    setError("");
+    try {
+      const response = await api(`/api/v1/admin/middlewares/${encodeURIComponent(gateway.id)}/update/stage`, {
+        method: "POST",
+        headers: { "X-CSRF-Token": csrfToken() },
+        body: JSON.stringify({ patchId: selectedPatchId }),
+      });
+      if (!response.ok) throw new Error("Stage patch ไม่สำเร็จ (Middleware อาจ offline หรือไม่ตอบสนอง)");
+      toast.success(`Stage patch บน ${gateway.name} แล้ว — กด "Apply" เพื่อติดตั้งจริง`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+    } finally {
+      setStaging(false);
+    }
+  }
+
+  async function applyUpdate() {
+    if (!window.confirm(`Apply patch ที่ stage ไว้บน "${gateway.name}"? Service จะ restart`)) return;
+    setApplying(true);
+    setError("");
+    try {
+      const response = await api(`/api/v1/admin/middlewares/${encodeURIComponent(gateway.id)}/update/apply`, {
+        method: "POST",
+        headers: { "X-CSRF-Token": csrfToken() },
+      });
+      if (!response.ok) throw new Error("Apply ไม่สำเร็จ (ตรวจสอบว่า stage patch ไว้แล้วหรือยัง)");
+      toast.success("Apply เริ่มแล้ว — Middleware จะ offline ชั่วครู่ระหว่าง restart");
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+    } finally {
+      setApplying(false);
+    }
+  }
+
+  async function rollbackUpdate() {
+    if (!window.confirm(`Rollback "${gateway.name}" กลับไป version ก่อนหน้า? Service จะ restart`)) return;
+    setRollingBack(true);
+    setError("");
+    try {
+      const response = await api(`/api/v1/admin/middlewares/${encodeURIComponent(gateway.id)}/update/rollback`, {
+        method: "POST",
+        headers: { "X-CSRF-Token": csrfToken() },
+      });
+      if (!response.ok) throw new Error("Rollback ไม่สำเร็จ (อาจไม่มี backup)");
+      toast.success("Rollback เริ่มแล้ว — Middleware จะ offline ชั่วครู่ระหว่าง restart");
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+    } finally {
+      setRollingBack(false);
+    }
+  }
+
+  async function restartMiddlewareService() {
+    if (!window.confirm(`Restart service ของ "${gateway.name}"? ไม่เปลี่ยน binary แค่ restart`)) return;
+    setRestarting(true);
+    setError("");
+    try {
+      const response = await api(`/api/v1/admin/middlewares/${encodeURIComponent(gateway.id)}/restart`, {
+        method: "POST",
+        headers: { "X-CSRF-Token": csrfToken() },
+      });
+      if (!response.ok) throw new Error("Restart ไม่สำเร็จ (Middleware อาจไม่ได้รันเป็น Service)");
+      toast.success("Restart เริ่มแล้ว");
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+    } finally {
+      setRestarting(false);
+    }
+  }
+
   return (
     <div className="content api-keys-content">
       <div className="section-heading">
@@ -313,6 +422,49 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
             {importing ? "กำลังดึง Config..." : "ดึง Config จาก Middleware"}
           </button>
         </div>
+      </div>
+
+      <div className="section-heading">
+        <div>
+          <h3>Software Update (Platform Admin)</h3>
+          <p>Version ปัจจุบัน: {gateway.softwareVersion || "ไม่ทราบ (Middleware ยังไม่เคยส่ง version มา)"} — upload patch, stage ไปที่เครื่องนี้, แล้วค่อย Apply แยกกัน (ไม่ auto)</p>
+        </div>
+        <div className="heading-actions">
+          <label className="secondary-button compact" style={{ cursor: "pointer" }}>
+            {uploading ? "กำลัง Upload..." : "Upload Patch (.zip)"}
+            <input
+              type="file"
+              accept=".zip"
+              disabled={lifecycleBusy}
+              style={{ display: "none" }}
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (file) void uploadPatch(file);
+              }}
+            />
+          </label>
+        </div>
+      </div>
+      <div className="row-actions" style={{ marginTop: 12 }}>
+        <Select value={selectedPatchId} onValueChange={setSelectedPatchId} disabled={patches.length === 0}>
+          <SelectTrigger className="w-64"><SelectValue placeholder="เลือก Patch..." /></SelectTrigger>
+          <SelectContent>
+            {patches.map((p) => <SelectItem key={p.id} value={p.id}>{p.version} ({p.os}/{p.arch})</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <button className="secondary-button compact" disabled={!selectedPatchId || lifecycleBusy} onClick={() => void stageUpdate()}>
+          {staging ? "กำลัง Stage..." : "Stage"}
+        </button>
+        <button className="secondary-button compact" disabled={lifecycleBusy} onClick={() => void applyUpdate()}>
+          {applying ? "กำลัง Apply..." : "Apply"}
+        </button>
+        <button className="secondary-button compact" disabled={lifecycleBusy} onClick={() => void rollbackUpdate()}>
+          {rollingBack ? "กำลัง Rollback..." : "Rollback"}
+        </button>
+        <button className="secondary-button compact" disabled={lifecycleBusy} onClick={() => void restartMiddlewareService()}>
+          {restarting ? "กำลัง Restart..." : "Restart Service"}
+        </button>
       </div>
 
       {snapshot && (

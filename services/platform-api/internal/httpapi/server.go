@@ -71,6 +71,13 @@ func New(version string, ready func(context.Context) error, pool *pgxpool.Pool, 
 		mux.HandleFunc("GET /api/v1/admin/middlewares/{middlewareId}/plants", authenticated(pool, sessionIdleTimeout, false, listMiddlewarePlantsHandler(registryService)))
 		mux.HandleFunc("POST /api/v1/admin/middlewares/{middlewareId}/plants", authenticated(pool, sessionIdleTimeout, true, assignMiddlewarePlantHandler(registryService)))
 		mux.HandleFunc("DELETE /api/v1/admin/middlewares/{middlewareId}/plants/{plantId}", authenticated(pool, sessionIdleTimeout, true, unassignMiddlewarePlantHandler(registryService)))
+		mux.HandleFunc("POST /api/v1/admin/middlewares/{middlewareId}/update/stage", authenticated(pool, sessionIdleTimeout, true, stageMiddlewareUpdateHandler(registryService)))
+		mux.HandleFunc("POST /api/v1/admin/middlewares/{middlewareId}/update/apply", authenticated(pool, sessionIdleTimeout, true, applyMiddlewareUpdateHandler(registryService)))
+		mux.HandleFunc("POST /api/v1/admin/middlewares/{middlewareId}/update/rollback", authenticated(pool, sessionIdleTimeout, true, rollbackMiddlewareUpdateHandler(registryService)))
+		mux.HandleFunc("POST /api/v1/admin/middlewares/{middlewareId}/restart", authenticated(pool, sessionIdleTimeout, true, restartMiddlewareHandler(registryService)))
+		mux.HandleFunc("GET /api/v1/admin/middleware-patches", authenticated(pool, sessionIdleTimeout, false, listMiddlewarePatchesHandler(registryService)))
+		mux.HandleFunc("POST /api/v1/admin/middleware-patches", authenticated(pool, sessionIdleTimeout, true, uploadMiddlewarePatchHandler(registryService)))
+		mux.HandleFunc("DELETE /api/v1/admin/middleware-patches/{patchId}", authenticated(pool, sessionIdleTimeout, true, deleteMiddlewarePatchHandler(registryService)))
 		mux.HandleFunc("GET /api/v1/plants", authenticated(pool, sessionIdleTimeout, false, listPlantsHandler(registryService)))
 		mux.HandleFunc("POST /api/v1/plants", authenticated(pool, sessionIdleTimeout, true, createPlantHandler(registryService)))
 		mux.HandleFunc("GET /api/v1/device-models", authenticated(pool, sessionIdleTimeout, false, listDeviceModelsHandler(registryService)))
@@ -120,6 +127,7 @@ func New(version string, ready func(context.Context) error, pool *pgxpool.Pool, 
 		mux.HandleFunc("POST /api/v2/ingestion/register-readings", rawIngestionHandler(ingestionService))
 		if registryService != nil {
 			mux.HandleFunc("GET /api/v1/gateway/realtime", gatewayRealtimeHandler(ingestionService, registryService, hub))
+			mux.HandleFunc("GET /api/v1/admin/middleware-patches/{patchId}/download", downloadMiddlewarePatchHandler(ingestionService, registryService))
 		}
 	}
 	return mux

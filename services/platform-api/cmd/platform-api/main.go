@@ -41,7 +41,7 @@ func main() {
 	defer pool.Close()
 
 	hub := gatewayhub.New()
-	registryService := core.New(pool, hub)
+	registryService := core.New(pool, hub).WithMiddlewarePatchDir(cfg.MiddlewarePatchDir).WithPublicBaseURL(cfg.PublicBaseURL)
 	ingestionService := ingestion.New(pool)
 
 	server := &http.Server{

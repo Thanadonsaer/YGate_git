@@ -170,7 +170,8 @@ func run(ctx context.Context) error {
 	go runDelivery(ctx, worker)
 
 	if cfg.Endpoint != "" && cfg.APIKey != "" {
-		rtClient := &realtimeclient.Client{Store: st, Cache: cache, App: svc, GatewayID: cfg.GatewayID, Endpoint: cfg.Endpoint, APIKey: cfg.APIKey}
+		rtClient := &realtimeclient.Client{Store: st, Cache: cache, App: svc, GatewayID: cfg.GatewayID, Endpoint: cfg.Endpoint, APIKey: cfg.APIKey,
+			Version: version, CanApplyUpdate: serviceMode || os.Getenv("INVOCATION_ID") != ""}
 		go rtClient.Run(ctx)
 	}
 

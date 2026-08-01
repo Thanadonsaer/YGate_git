@@ -14,12 +14,14 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"chpp/modbus-api-middleware/internal/updater"
 )
 
 func TestUpdateUploadStagesValidPatch(t *testing.T) {
 	root := t.TempDir()
 	s := &Server{Version: "0.1.1", UpdateRoot: root}
-	body, contentType := updatePatchBody(t, updateManifest{App: updateAppName, Version: "0.1.1", OS: runtime.GOOS, Arch: runtime.GOARCH, Binary: binaryName(), SHA256: shaHex([]byte("binary"))}, []byte("binary"), "")
+	body, contentType := updatePatchBody(t, updater.Manifest{App: updateAppName, Version: "0.1.1", OS: runtime.GOOS, Arch: runtime.GOARCH, Binary: binaryName(), SHA256: shaHex([]byte("binary"))}, []byte("binary"), "")
 	req := httptest.NewRequest(http.MethodPost, "/api/update/upload", body)
 	req.Header.Set("Content-Type", contentType)
 	res := httptest.NewRecorder()
@@ -35,13 +37,13 @@ func TestUpdateUploadStagesValidPatch(t *testing.T) {
 func TestUpdateUploadRejectsBadInputs(t *testing.T) {
 	cases := []struct {
 		name      string
-		manifest  updateManifest
+		manifest  updater.Manifest
 		bin       []byte
 		extraName string
 	}{
-		{"wrong target", updateManifest{App: updateAppName, Version: "0.1.1", OS: "other", Arch: runtime.GOARCH, Binary: binaryName(), SHA256: shaHex([]byte("binary"))}, []byte("binary"), ""},
-		{"wrong hash", updateManifest{App: updateAppName, Version: "0.1.1", OS: runtime.GOOS, Arch: runtime.GOARCH, Binary: binaryName(), SHA256: shaHex([]byte("nope"))}, []byte("binary"), ""},
-		{"db included", updateManifest{App: updateAppName, Version: "0.1.1", OS: runtime.GOOS, Arch: runtime.GOARCH, Binary: binaryName(), SHA256: shaHex([]byte("binary"))}, []byte("binary"), "middleware.db"},
+		{"wrong target", updater.Manifest{App: updateAppName, Version: "0.1.1", OS: "other", Arch: runtime.GOARCH, Binary: binaryName(), SHA256: shaHex([]byte("binary"))}, []byte("binary"), ""},
+		{"wrong hash", updater.Manifest{App: updateAppName, Version: "0.1.1", OS: runtime.GOOS, Arch: runtime.GOARCH, Binary: binaryName(), SHA256: shaHex([]byte("nope"))}, []byte("binary"), ""},
+		{"db included", updater.Manifest{App: updateAppName, Version: "0.1.1", OS: runtime.GOOS, Arch: runtime.GOARCH, Binary: binaryName(), SHA256: shaHex([]byte("binary"))}, []byte("binary"), "middleware.db"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -58,7 +60,7 @@ func TestUpdateUploadRejectsBadInputs(t *testing.T) {
 	}
 }
 
-func updatePatchBody(t *testing.T, manifest updateManifest, bin []byte, extraName string) (*bytes.Buffer, string) {
+func updatePatchBody(t *testing.T, manifest updater.Manifest, bin []byte, extraName string) (*bytes.Buffer, string) {
 	t.Helper()
 	var zipBuf bytes.Buffer
 	zw := zip.NewWriter(&zipBuf)
@@ -113,17 +115,6 @@ func binaryName() string {
 	return "middleware"
 }
 
-func TestWindowsUpdaterWaitsForServiceAndReportsResult(t *testing.T) {
-	for _, required := range []string{"WaitForStatus(\"Stopped\"", "Copy-Item -LiteralPath", "WaitForStatus(\"Running\"", "$ResultFile"} {
-		if !strings.Contains(windowsUpdaterScript, required) {
-			t.Fatalf("updater script missing %q", required)
-		}
-	}
-	if strings.Contains(windowsUpdaterScript, "timeout /t") {
-		t.Fatal("updater must not use timeout in a non-interactive service")
-	}
-}
-
 func TestUpdatePageGuardsOptionalElementsAndStandaloneApply(t *testing.T) {
 	page, err := files.ReadFile("static/index.html")
 	if err != nil {
@@ -145,7 +136,7 @@ func TestUpdatePageGuardsOptionalElementsAndStandaloneApply(t *testing.T) {
 func TestUpdateUploadAcceptsManifestBOM(t *testing.T) {
 	root := t.TempDir()
 	s := &Server{Version: "0.1.1", UpdateRoot: root}
-	body, contentType := updatePatchBodyWithBOM(t, updateManifest{App: updateAppName, Version: "0.1.1", OS: runtime.GOOS, Arch: runtime.GOARCH, Binary: binaryName(), SHA256: shaHex([]byte("binary"))}, []byte("binary"))
+	body, contentType := updatePatchBodyWithBOM(t, updater.Manifest{App: updateAppName, Version: "0.1.1", OS: runtime.GOOS, Arch: runtime.GOARCH, Binary: binaryName(), SHA256: shaHex([]byte("binary"))}, []byte("binary"))
 	req := httptest.NewRequest(http.MethodPost, "/api/update/upload", body)
 	req.Header.Set("Content-Type", contentType)
 	res := httptest.NewRecorder()
@@ -154,7 +145,7 @@ func TestUpdateUploadAcceptsManifestBOM(t *testing.T) {
 		t.Fatalf("status=%d body=%s", res.Code, res.Body.String())
 	}
 }
-func updatePatchBodyWithBOM(t *testing.T, manifest updateManifest, bin []byte) (*bytes.Buffer, string) {
+func updatePatchBodyWithBOM(t *testing.T, manifest updater.Manifest, bin []byte) (*bytes.Buffer, string) {
 	t.Helper()
 	var zipBuf bytes.Buffer
 	zw := zip.NewWriter(&zipBuf)

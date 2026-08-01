@@ -357,6 +357,7 @@ export type MiddlewareGateway = {
   name: string;
   siteName: string;
   keyPrefix: string;
+  softwareVersion?: string | null;
   isActive: boolean;
   isOnline: boolean;
   configVersion: number;
@@ -439,6 +440,18 @@ export type ImportMiddlewareConfigResult = {
   registerMetadataUpserted: number;
   registerMetadataSkipped: number;
   connectionsFound: Array<{ host: string; port: number; unitId: number; deviceModel: string }>;
+};
+
+export type MiddlewarePatch = {
+  id: string;
+  version: string;
+  os: string;
+  arch: string;
+  binaryFilename: string;
+  sha256: string;
+  fileSizeBytes: number;
+  uploadedBy?: string | null;
+  createdAt: string;
 };
 
 export const MIDDLEWARE_DATA_TYPES = ["U16", "I16", "U32", "I32", "U64", "FLOAT32"] as const;

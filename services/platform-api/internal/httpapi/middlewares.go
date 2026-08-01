@@ -143,7 +143,7 @@ func writeMiddlewareError(w http.ResponseWriter, err error) bool {
 		http.Error(w, "invalid request data", http.StatusBadRequest)
 	case errors.Is(err, core.ErrForbidden):
 		http.Error(w, "permission denied", http.StatusForbidden)
-	case errors.Is(err, core.ErrMiddlewareNotFound), errors.Is(err, core.ErrNotFound):
+	case errors.Is(err, core.ErrMiddlewareNotFound), errors.Is(err, core.ErrNotFound), errors.Is(err, core.ErrMiddlewarePatchNotFound):
 		http.Error(w, "not found", http.StatusNotFound)
 	case errors.Is(err, core.ErrMiddlewareConflict):
 		http.Error(w, "middleware gateway already exists", http.StatusConflict)

@@ -997,6 +997,210 @@ paths:
           description: Missing middleware config update permission
         "404":
           description: Middleware gateway is missing or outside scope
+  /api/v1/admin/middlewares/{middlewareId}/update/stage:
+    parameters:
+      - name: middlewareId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      operationId: stageAdminMiddlewareUpdate
+      summary: Tell a connected middleware gateway to download and stage a previously-uploaded patch, ready for Apply. Platform Admin only.
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [patchId]
+              properties:
+                patchId: { type: string, format: uuid }
+      responses:
+        "204":
+          description: Patch staged on the middleware
+        "400":
+          description: Invalid patch id, or PLATFORM_PUBLIC_BASE_URL is not configured
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing middleware_patch update permission
+        "404":
+          description: Middleware gateway or patch not found
+        "503":
+          description: Middleware gateway is offline
+        "504":
+          description: Middleware gateway did not respond in time
+  /api/v1/admin/middlewares/{middlewareId}/update/apply:
+    parameters:
+      - name: middlewareId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      operationId: applyAdminMiddlewareUpdate
+      summary: Apply whatever patch is currently staged on the middleware gateway -- backs up the running binary, restarts the service with the staged one. Platform Admin only.
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      responses:
+        "204":
+          description: Update started; the gateway will restart
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing middleware_patch update permission
+        "404":
+          description: Middleware gateway not found
+        "503":
+          description: Middleware gateway is offline
+        "504":
+          description: Middleware gateway did not respond in time
+  /api/v1/admin/middlewares/{middlewareId}/update/rollback:
+    parameters:
+      - name: middlewareId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      operationId: rollbackAdminMiddlewareUpdate
+      summary: Roll a middleware gateway back to its last backed-up binary. Platform Admin only.
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      responses:
+        "204":
+          description: Rollback started; the gateway will restart
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing middleware_patch update permission
+        "404":
+          description: Middleware gateway not found
+        "503":
+          description: Middleware gateway is offline
+        "504":
+          description: Middleware gateway did not respond in time
+  /api/v1/admin/middlewares/{middlewareId}/restart:
+    parameters:
+      - name: middlewareId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      operationId: restartAdminMiddleware
+      summary: Restart a middleware gateway's service without changing its binary. Platform Admin only.
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      responses:
+        "204":
+          description: Restart started
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing middleware_patch update permission
+        "404":
+          description: Middleware gateway not found
+        "503":
+          description: Middleware gateway is offline
+        "504":
+          description: Middleware gateway did not respond in time
+  /api/v1/admin/middleware-patches:
+    get:
+      operationId: listAdminMiddlewarePatches
+      summary: List uploaded middleware software patches. Platform Admin only.
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Patch list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MiddlewarePatch"
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing middleware_patch read permission
+    post:
+      operationId: uploadAdminMiddlewarePatch
+      summary: Upload a middleware software patch zip (update-manifest.json + signed binary). Platform Admin only.
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                patch: { type: string, format: binary }
+      responses:
+        "200":
+          description: Patch stored
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MiddlewarePatch"
+        "400":
+          description: Invalid patch zip (manifest, signature, or sha256 mismatch)
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing middleware_patch create permission
+        "409":
+          description: A patch for this version/os/arch already exists
+  /api/v1/admin/middleware-patches/{patchId}:
+    parameters:
+      - name: patchId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    delete:
+      operationId: deleteAdminMiddlewarePatch
+      summary: Delete an uploaded middleware software patch. Platform Admin only.
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      responses:
+        "204":
+          description: Patch deleted
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing middleware_patch delete permission
+        "404":
+          description: Patch not found
+  /api/v1/admin/middleware-patches/{patchId}/download:
+    parameters:
+      - name: patchId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      operationId: downloadAdminMiddlewarePatch
+      summary: Download a patch zip. Called by a Middleware gateway itself (X-Api-Key auth, not a browser session) after receiving an update.stage command.
+      security:
+        - middlewareApiKey: []
+      responses:
+        "200":
+          description: Patch zip bytes
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        "401":
+          description: Authentication required
+        "404":
+          description: Patch not found
   /api/v1/admin/middlewares/{middlewareId}/plants:
     parameters:
       - name: middlewareId
@@ -3176,6 +3380,20 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ImportedConnectionSummary"
+    MiddlewarePatch:
+      type: object
+      additionalProperties: false
+      required: [id, version, os, arch, binaryFilename, sha256, fileSizeBytes, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        version: { type: string }
+        os: { type: string }
+        arch: { type: string }
+        binaryFilename: { type: string }
+        sha256: { type: string }
+        fileSizeBytes: { type: integer, format: int64 }
+        uploadedBy: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
     AuditEvent:
       type: object
       additionalProperties: false

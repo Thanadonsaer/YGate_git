@@ -46,6 +46,17 @@ SELECT EXISTS (
 	return allowed, err
 }
 
+func (s *Service) requireGlobalPermission(ctx context.Context, principal auth.Principal, action, resource string) error {
+	allowed, err := hasGlobalPermissionQuery(ctx, s.pool, principal, action, resource)
+	if err != nil {
+		return fmt.Errorf("check global %s %s permission: %w", resource, action, err)
+	}
+	if !allowed {
+		return ErrForbidden
+	}
+	return nil
+}
+
 // orgPointer used to live in roles.go; alarms.go also needs it to render a
 // nullable organization id as *string, so it stays here too.
 func orgPointer(id pgtype.UUID) *string {
