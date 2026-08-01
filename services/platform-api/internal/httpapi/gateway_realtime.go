@@ -49,6 +49,7 @@ func gatewayRealtimeHandler(ingestionService *ingestion.Service, registryService
 		if err != nil {
 			return
 		}
+		connection.SetReadLimit(8 << 20) // 8MiB -- config-export can carry a full legacy register catalog (~1450 addresses, ~545KB observed)
 		defer connection.CloseNow()
 		ctx := r.Context()
 		gatewayID := gatewayIDString(client.ID)

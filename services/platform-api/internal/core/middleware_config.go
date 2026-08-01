@@ -141,6 +141,7 @@ type ImportMiddlewareConfigResult struct {
 	DeviceModelsCreated      int                         `json:"deviceModelsCreated"`
 	DeviceModelsReused       int                         `json:"deviceModelsReused"`
 	RegisterMetadataUpserted int                         `json:"registerMetadataUpserted"`
+	RegisterMetadataSkipped  int                         `json:"registerMetadataSkipped"`
 	ConnectionsFound         []ImportedConnectionSummary `json:"connectionsFound"`
 }
 
@@ -192,6 +193,9 @@ func (s *Service) importFromSnapshot(ctx context.Context, principal auth.Princip
 	type modelKey struct{ manufacturer, deviceType, model string }
 	byKey := make(map[modelKey]string, len(existing))
 	for _, m := range existing {
+		if m.OrganizationID != organizationID {
+			continue
+		}
 		byKey[modelKey{m.Manufacturer, m.DeviceType, m.Model}] = m.ID
 	}
 
@@ -232,7 +236,7 @@ func (s *Service) importFromSnapshot(ctx context.Context, principal auth.Princip
 			register := int32(addr.Register)
 			_, err := s.SetDeviceModelRegisterMetadata(ctx, principal, modelID, UpdateDeviceModelRegisterMetadataInput{
 				UpdateDeviceRegisterMetadataInput: UpdateDeviceRegisterMetadataInput{
-					AddressKey: addressKey, DisplayName: addr.Description, DataType: "number", Scale: addr.Factor, Offset: addr.Offset, Decimals: 2, IsEnabled: true,
+					AddressKey: addressKey, DisplayName: addr.Description, DataType: "number", Scale: addr.Factor, Offset: addr.Offset, Decimals: 2, IsEnabled: addr.Enabled,
 				},
 				ModbusFunctionCode: &functionCode,
 				ModbusRegister:     &register,
@@ -240,7 +244,8 @@ func (s *Service) importFromSnapshot(ctx context.Context, principal auth.Princip
 				ModbusDataType:     normalizeModbusDataType(addr.DataType),
 			}, sourceIP)
 			if err != nil {
-				return result, fmt.Errorf("upsert register metadata %s: %w", addressKey, err)
+				result.RegisterMetadataSkipped++
+				continue
 			}
 			result.RegisterMetadataUpserted++
 		}
@@ -531,8 +536,19 @@ func (s *Service) ImportMiddlewareConfig(ctx context.Context, principal auth.Pri
 	if err != nil {
 		return ImportMiddlewareConfigResult{}, ErrMiddlewareOffline
 	}
+	var envelope struct {
+		Ok    bool            `json:"ok"`
+		Data  json.RawMessage `json:"data"`
+		Error string          `json:"error"`
+	}
+	if err = json.Unmarshal(raw, &envelope); err != nil {
+		return ImportMiddlewareConfigResult{}, fmt.Errorf("decode command result: %w", err)
+	}
+	if !envelope.Ok {
+		return ImportMiddlewareConfigResult{}, fmt.Errorf("middleware config-export failed: %s: %w", envelope.Error, ErrMiddlewareCommandNAK)
+	}
 	var snapshot MiddlewareConfigSnapshot
-	if err = json.Unmarshal(raw, &snapshot); err != nil {
+	if err = json.Unmarshal(envelope.Data, &snapshot); err != nil {
 		return ImportMiddlewareConfigResult{}, fmt.Errorf("decode config-export response: %w", err)
 	}
 	return s.importFromSnapshot(ctx, principal, uuidString(mwOrgID), snapshot, sourceIP)

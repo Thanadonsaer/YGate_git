@@ -437,6 +437,7 @@ export type ImportMiddlewareConfigResult = {
   deviceModelsCreated: number;
   deviceModelsReused: number;
   registerMetadataUpserted: number;
+  registerMetadataSkipped: number;
   connectionsFound: Array<{ host: string; port: number; unitId: number; deviceModel: string }>;
 };
 

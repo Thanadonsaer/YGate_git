@@ -236,7 +236,9 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
       if (response.status === 504) throw new Error("Middleware ไม่ตอบสนองภายในเวลาที่กำหนด");
       if (!response.ok) throw new Error("ไม่สามารถดึง Config จาก Middleware ได้");
       const result = (await response.json()) as ImportMiddlewareConfigResult;
-      toast.success(`Import สำเร็จ: ${result.deviceModelsCreated} Model ใหม่, ${result.deviceModelsReused} Model เดิม, ${result.registerMetadataUpserted} Register, พบ ${result.connectionsFound.length} Connection (ไปสร้าง Device เองที่ Plants → Devices)`);
+      toast.success(
+        `Import สำเร็จ: ${result.deviceModelsCreated} Model ใหม่, ${result.deviceModelsReused} Model เดิม, ${result.registerMetadataUpserted} Register, พบ ${result.connectionsFound.length} Connection (ไปสร้าง Device เองที่ Plants → Devices)${result.registerMetadataSkipped > 0 ? `, ข้าม ${result.registerMetadataSkipped} Register ที่ import ไม่ได้` : ""}`,
+      );
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
     } finally {

@@ -94,6 +94,7 @@ func (c *Client) runOnce(ctx context.Context) (connected bool, err error) {
 	if err != nil {
 		return false, fmt.Errorf("dial %s: %w", wsURL, err)
 	}
+	conn.SetReadLimit(8 << 20) // 8MiB -- matches platform-api's gateway_realtime.go limit
 	defer conn.CloseNow()
 
 	version, err := c.Store.CurrentConfigVersion()
