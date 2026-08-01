@@ -22,7 +22,7 @@ func TestGatewayHealthAndProxy(t *testing.T) {
 	}))
 	defer upstream.Close()
 	upstreamURL, _ := url.Parse(upstream.URL)
-	handler := New(upstreamURL, []string{"http://localhost:8080"})
+	handler := New(upstreamURL, upstreamURL, []string{"http://localhost:8080"})
 
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/gateway/healthz", nil))
@@ -41,7 +41,7 @@ func TestGatewayHealthAndProxy(t *testing.T) {
 
 func TestGatewayCORS(t *testing.T) {
 	upstreamURL, _ := url.Parse("http://127.0.0.1:44441")
-	handler := New(upstreamURL, []string{"http://localhost:8080"})
+	handler := New(upstreamURL, upstreamURL, []string{"http://localhost:8080"})
 
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil)
 	request.Header.Set("Origin", "https://unknown.example")
@@ -60,6 +60,48 @@ func TestGatewayCORS(t *testing.T) {
 	}
 }
 
+func TestGatewayRoutesByPathPrefix(t *testing.T) {
+	platform := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer platform.Close()
+	auth := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer auth.Close()
+	platformURL, _ := url.Parse(platform.URL)
+	authURL, _ := url.Parse(auth.URL)
+	handler := New(platformURL, authURL, []string{"http://localhost:8080"})
+
+	for _, test := range []struct {
+		method, path string
+		wantAuth     bool
+	}{
+		{http.MethodPost, "/api/v1/auth/login", true},
+		{http.MethodGet, "/api/v1/admin/users", true},
+		{http.MethodGet, "/api/v1/admin/roles", true},
+		{http.MethodGet, "/api/v1/admin/permissions", true},
+		{http.MethodGet, "/api/v1/admin/api-keys", true},
+		{http.MethodPut, "/api/v1/admin/api-keys/abc", true},
+		{http.MethodGet, "/api/v1/admin/openapi", true},
+		{http.MethodDelete, "/api/v1/admin/api-keys/abc", false}, // hard-delete stayed on platform-api
+		{http.MethodGet, "/api/v1/plants", false},
+		{http.MethodGet, "/api/v1/realtime", false},
+	} {
+		request := httptest.NewRequest(test.method, test.path, nil)
+		request.Header.Set("Origin", "http://localhost:8080")
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		wantCode := http.StatusOK
+		if test.wantAuth {
+			wantCode = http.StatusCreated
+		}
+		if response.Code != wantCode {
+			t.Fatalf("%s %s: got status=%d want=%d", test.method, test.path, response.Code, wantCode)
+		}
+	}
+}
+
 func TestGatewayProxiesWebSocketUpgrade(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		connection, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
@@ -71,7 +113,7 @@ func TestGatewayProxiesWebSocketUpgrade(t *testing.T) {
 	}))
 	defer upstream.Close()
 	upstreamURL, _ := url.Parse(upstream.URL)
-	proxy := httptest.NewServer(New(upstreamURL, []string{"http://localhost:8080"}))
+	proxy := httptest.NewServer(New(upstreamURL, upstreamURL, []string{"http://localhost:8080"}))
 	defer proxy.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

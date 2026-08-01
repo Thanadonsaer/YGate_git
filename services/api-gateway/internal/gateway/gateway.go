@@ -8,29 +8,67 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strings"
 )
 
 type healthResponse struct {
 	Status string `json:"status"`
 }
 
-func New(platformURL *url.URL, allowedOrigins []string) http.Handler {
-	proxy := &httputil.ReverseProxy{
-		Rewrite: func(request *httputil.ProxyRequest) {
-			request.SetURL(platformURL)
-			request.SetXForwarded()
-		},
-		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
-			log.Printf("platform proxy failed: %v", err)
-			http.Error(w, "upstream unavailable", http.StatusBadGateway)
-		},
-	}
+// authPrefixes are the path prefixes whose business logic lives in
+// auth-service (see services/auth-service/internal/httpapi/server.go's
+// route registrations): session/credential management under /api/v1/auth/,
+// plus the users/roles/permissions/api-keys admin CRUD and the openapi doc
+// endpoint that moved there too. Everything else still goes to platform-api.
+var authPrefixes = []string{
+	"/api/v1/auth/",
+	"/api/v1/admin/users",
+	"/api/v1/admin/roles",
+	"/api/v1/admin/permissions",
+	"/api/v1/admin/api-keys",
+	"/api/v1/admin/openapi",
+}
+
+func New(platformURL, authServiceURL *url.URL, allowedOrigins []string) http.Handler {
+	platformProxy := newProxy(platformURL)
+	authProxy := newProxy(authServiceURL)
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /gateway/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, healthResponse{Status: "ok"})
 	})
-	mux.Handle("/", proxy)
+	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// DELETE /api/v1/admin/api-keys/{keyId} is a hard-delete endpoint that
+		// stayed on platform-api even though the rest of the api-keys CRUD
+		// (list/create/update/status) moved to auth-service -- so it needs a
+		// method-aware exception to the prefix rule below, or it would 405 on
+		// auth-service instead of reaching platform-api's handler.
+		if r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/api/v1/admin/api-keys/") {
+			platformProxy.ServeHTTP(w, r)
+			return
+		}
+		for _, prefix := range authPrefixes {
+			if strings.HasPrefix(r.URL.Path, prefix) {
+				authProxy.ServeHTTP(w, r)
+				return
+			}
+		}
+		platformProxy.ServeHTTP(w, r)
+	}))
 	return middleware(mux, allowedOrigins)
+}
+
+func newProxy(target *url.URL) *httputil.ReverseProxy {
+	return &httputil.ReverseProxy{
+		Rewrite: func(request *httputil.ProxyRequest) {
+			request.SetURL(target)
+			request.SetXForwarded()
+		},
+		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
+			log.Printf("proxy to %s failed: %v", target, err)
+			http.Error(w, "upstream unavailable", http.StatusBadGateway)
+		},
+	}
 }
 
 func middleware(next http.Handler, allowedOrigins []string) http.Handler {

@@ -26,7 +26,7 @@ func main() {
 	defer stop()
 
 	server := &http.Server{
-		Addr: cfg.ListenAddr, Handler: gateway.New(cfg.PlatformURL, cfg.AllowedOrigins),
+		Addr: cfg.ListenAddr, Handler: gateway.New(cfg.PlatformURL, cfg.AuthServiceURL, cfg.AllowedOrigins),
 		ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 64 << 10,
 	}
 	go func() {

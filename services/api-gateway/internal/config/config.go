@@ -10,6 +10,7 @@ import (
 type Config struct {
 	ListenAddr     string
 	PlatformURL    *url.URL
+	AuthServiceURL *url.URL
 	AllowedOrigins []string
 }
 
@@ -18,20 +19,32 @@ func Load() (Config, error) {
 	if listenAddr == "" {
 		listenAddr = "127.0.0.1:44440"
 	}
-	platformValue := strings.TrimSpace(os.Getenv("GATEWAY_PLATFORM_URL"))
-	if platformValue == "" {
-		platformValue = "http://127.0.0.1:44441"
+	platformURL, err := parseUpstreamURL("GATEWAY_PLATFORM_URL", "http://127.0.0.1:44441")
+	if err != nil {
+		return Config{}, err
 	}
-	platformURL, err := url.Parse(platformValue)
-	if err != nil || (platformURL.Scheme != "http" && platformURL.Scheme != "https") || platformURL.Host == "" {
-		return Config{}, fmt.Errorf("GATEWAY_PLATFORM_URL must be an absolute HTTP URL")
+	authServiceURL, err := parseUpstreamURL("GATEWAY_AUTH_SERVICE_URL", "http://127.0.0.1:44442")
+	if err != nil {
+		return Config{}, err
 	}
 	return Config{
-		ListenAddr: listenAddr, PlatformURL: platformURL,
+		ListenAddr: listenAddr, PlatformURL: platformURL, AuthServiceURL: authServiceURL,
 		AllowedOrigins: csvEnv("GATEWAY_ALLOWED_ORIGINS", []string{
 			"http://localhost:8080", "http://127.0.0.1:8080",
 		}),
 	}, nil
+}
+
+func parseUpstreamURL(name, fallback string) (*url.URL, error) {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		value = fallback
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		return nil, fmt.Errorf("%s must be an absolute HTTP URL", name)
+	}
+	return parsed, nil
 }
 
 func csvEnv(name string, fallback []string) []string {
