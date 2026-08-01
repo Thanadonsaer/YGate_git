@@ -160,7 +160,10 @@ func (s *Service) HardDeleteAPIKey(ctx context.Context, principal auth.Principal
 	// calling code that no longer lives in this module.
 	var organizationID pgtype.UUID
 	var name, keyPrefix string
-	if err = tx.QueryRow(ctx, `SELECT organization_id, name, key_prefix FROM middleware_client WHERE id=$1 FOR UPDATE`, id).Scan(&organizationID, &name, &keyPrefix); errors.Is(err, pgx.ErrNoRows) {
+	var autoOnboard, isActive bool
+	var createdAt pgtype.Timestamptz
+	if err = tx.QueryRow(ctx, `SELECT organization_id, name, key_prefix, auto_onboard, is_active, created_at FROM middleware_client WHERE id=$1 FOR UPDATE`, id).
+		Scan(&organizationID, &name, &keyPrefix, &autoOnboard, &isActive, &createdAt); errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	} else if err != nil {
 		return fmt.Errorf("lock api key for hard delete: %w", err)
@@ -168,7 +171,14 @@ func (s *Service) HardDeleteAPIKey(ctx context.Context, principal auth.Principal
 	if !validHardDeleteConfirmation(confirmation, "DELETE API KEY "+name) {
 		return ErrInvalid
 	}
-	if err = appendHardDeleteAudit(ctx, s.queries.WithTx(tx), principal, organizationID, id, "middleware_client", map[string]any{"name": name, "keyPrefix": keyPrefix}, sourceIP); err != nil {
+	if err = appendHardDeleteAudit(ctx, s.queries.WithTx(tx), principal, organizationID, id, "middleware_client", map[string]any{
+		"organizationId": uuidString(organizationID),
+		"name":           name,
+		"keyPrefix":      keyPrefix,
+		"autoOnboard":    autoOnboard,
+		"isActive":       isActive,
+		"createdAt":      createdAt.Time,
+	}, sourceIP); err != nil {
 		return err
 	}
 	if _, err = tx.Exec(ctx, `DELETE FROM telemetry_latest WHERE organization_id=$1 AND telemetry_reading_id IN (SELECT id FROM telemetry_reading WHERE middleware_client_id=$2)`, organizationID, id); err != nil {
