@@ -25,3 +25,13 @@ SELECT EXISTS (
       AND (r.organization_id IS NULL OR r.organization_id = ur.organization_id)
       AND (rp.organization_id IS NULL OR rp.organization_id = ur.organization_id)
 )::boolean;
+
+-- name: CreateAuditEventFull :exec
+INSERT INTO audit_log (
+    organization_id, actor_user_id, action, target_type, target_id,
+    before_data, after_data, source_ip, correlation_id
+) VALUES (
+    sqlc.arg(organization_id), sqlc.arg(actor_user_id), sqlc.arg(action),
+    sqlc.arg(target_type), sqlc.arg(target_id), sqlc.arg(before_data),
+    sqlc.arg(after_data), sqlc.arg(source_ip), sqlc.arg(correlation_id)
+);

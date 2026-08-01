@@ -14,8 +14,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"ygate/platform-api/internal/auth"
-	"ygate/platform-api/internal/database/dbgen"
+	"ygate/auth-service/internal/auth"
+	"ygate/auth-service/internal/database/dbgen"
 )
 
 var (
@@ -579,37 +579,8 @@ func validateUserProfile(email, username, displayName string) (string, string, s
 	return email, username, displayName, nil
 }
 
-func (s *Service) requireOrganizationPermission(ctx context.Context, q *dbgen.Queries, principal auth.Principal, action, resource string, organizationID pgtype.UUID) error {
-	allowed, err := q.HasOrganizationPermission(ctx, dbgen.HasOrganizationPermissionParams{UserID: principal.UserID, Action: action, ResourceType: resource, OrganizationID: organizationID})
-	if err != nil {
-		return fmt.Errorf("check %s %s permission: %w", resource, action, err)
-	}
-	if !allowed {
-		return ErrForbidden
-	}
-	return nil
-}
-
 func (s *Service) hasGlobalPermission(ctx context.Context, principal auth.Principal, action, resource string) (bool, error) {
 	return hasGlobalPermissionQuery(ctx, s.pool, principal, action, resource)
-}
-
-func hasGlobalPermissionQuery(ctx context.Context, querier rowQuerier, principal auth.Principal, action, resource string) (bool, error) {
-	var allowed bool
-	err := querier.QueryRow(ctx, `
-SELECT EXISTS (
-    SELECT 1 FROM user_role ur
-    JOIN role r ON r.id = ur.role_id
-    JOIN role_permission rp ON rp.role_id = ur.role_id
-    JOIN permission pm ON pm.id = rp.permission_id
-    WHERE ur.user_id = $1
-      AND ur.organization_id IS NULL
-      AND pm.action = $2
-      AND pm.resource_type = $3
-      AND r.organization_id IS NULL
-      AND rp.organization_id IS NULL
-)`, principal.UserID, action, resource).Scan(&allowed)
-	return allowed, err
 }
 
 func (s *Service) authorizedRoleName(ctx context.Context, tx pgx.Tx, principal auth.Principal, organizationID, roleID pgtype.UUID) (string, error) {

@@ -7,9 +7,48 @@ package dbgen
 
 import (
 	"context"
+	"net/netip"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
+
+const createAuditEventFull = `-- name: CreateAuditEventFull :exec
+INSERT INTO audit_log (
+    organization_id, actor_user_id, action, target_type, target_id,
+    before_data, after_data, source_ip, correlation_id
+) VALUES (
+    $1, $2, $3,
+    $4, $5, $6,
+    $7, $8, $9
+)
+`
+
+type CreateAuditEventFullParams struct {
+	OrganizationID pgtype.UUID
+	ActorUserID    pgtype.UUID
+	Action         string
+	TargetType     string
+	TargetID       pgtype.UUID
+	BeforeData     []byte
+	AfterData      []byte
+	SourceIp       *netip.Addr
+	CorrelationID  pgtype.UUID
+}
+
+func (q *Queries) CreateAuditEventFull(ctx context.Context, arg CreateAuditEventFullParams) error {
+	_, err := q.db.Exec(ctx, createAuditEventFull,
+		arg.OrganizationID,
+		arg.ActorUserID,
+		arg.Action,
+		arg.TargetType,
+		arg.TargetID,
+		arg.BeforeData,
+		arg.AfterData,
+		arg.SourceIp,
+		arg.CorrelationID,
+	)
+	return err
+}
 
 const hasOrganizationPermission = `-- name: HasOrganizationPermission :one
 SELECT EXISTS (

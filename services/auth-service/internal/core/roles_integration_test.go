@@ -9,9 +9,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"ygate/platform-api/internal/auth"
-	"ygate/platform-api/internal/database"
-	"ygate/platform-api/internal/gatewayhub"
+	"ygate/auth-service/internal/auth"
+	"ygate/auth-service/internal/database"
 )
 
 func TestRoleAdministrationLifecycleAgainstPostgreSQL(t *testing.T) {
@@ -57,7 +56,7 @@ func TestRoleAdministrationLifecycleAgainstPostgreSQL(t *testing.T) {
 		}
 	}
 
-	service := New(pool, gatewayhub.New())
+	service := New(pool)
 	platformAdmin := auth.Principal{UserID: platformAdminID, OrganizationID: orgA}
 	orgAdmin := auth.Principal{UserID: orgAdminID, OrganizationID: orgA}
 	viewer := auth.Principal{UserID: viewerID, OrganizationID: orgA}

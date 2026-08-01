@@ -16,8 +16,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"ygate/platform-api/internal/auth"
-	"ygate/platform-api/internal/database/dbgen"
+	"ygate/auth-service/internal/auth"
+	"ygate/auth-service/internal/database/dbgen"
 )
 
 var (

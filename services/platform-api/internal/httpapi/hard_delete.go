@@ -37,11 +37,11 @@ func hardDeleteHandler(resource string, remove func(*http.Request, auth.Principa
 	return func(w http.ResponseWriter, r *http.Request, principal auth.Principal) {
 		err := remove(r, principal)
 		switch {
-		case errors.Is(err, core.ErrInvalid), errors.Is(err, core.ErrAPIKeyInvalid):
+		case errors.Is(err, core.ErrInvalid):
 			http.Error(w, "invalid confirmation", http.StatusBadRequest)
 		case errors.Is(err, core.ErrForbidden):
 			http.Error(w, "permission denied", http.StatusForbidden)
-		case errors.Is(err, core.ErrNotFound), errors.Is(err, core.ErrAPIKeyNotFound):
+		case errors.Is(err, core.ErrNotFound):
 			http.Error(w, resource+" not found", http.StatusNotFound)
 		case err != nil:
 			log.Printf("hard delete %s failed: %v", resource, err)

@@ -144,7 +144,7 @@ func (s *Service) HardDeleteDeviceModel(ctx context.Context, principal auth.Prin
 func (s *Service) HardDeleteAPIKey(ctx context.Context, principal auth.Principal, keyID, confirmation string, sourceIP *netip.Addr) error {
 	id, err := parseUUID(keyID)
 	if err != nil {
-		return ErrAPIKeyNotFound
+		return ErrNotFound
 	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -154,21 +154,21 @@ func (s *Service) HardDeleteAPIKey(ctx context.Context, principal auth.Principal
 	if err = requireGlobalHardDelete(ctx, tx, principal, "middleware_client"); err != nil {
 		return err
 	}
-	client, err := s.getAPIKeyInTx(ctx, tx, id)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return ErrAPIKeyNotFound
+	// api_keys.go (getAPIKeyInTx/APIKeyClient) moved to auth-service's core
+	// package; the middleware_client row lock + lookup needed here for the
+	// confirmation phrase and audit trail is inlined directly instead of
+	// calling code that no longer lives in this module.
+	var organizationID pgtype.UUID
+	var name, keyPrefix string
+	if err = tx.QueryRow(ctx, `SELECT organization_id, name, key_prefix FROM middleware_client WHERE id=$1 FOR UPDATE`, id).Scan(&organizationID, &name, &keyPrefix); errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	} else if err != nil {
+		return fmt.Errorf("lock api key for hard delete: %w", err)
 	}
-	if err != nil {
-		return err
+	if !validHardDeleteConfirmation(confirmation, "DELETE API KEY "+name) {
+		return ErrInvalid
 	}
-	if !validHardDeleteConfirmation(confirmation, "DELETE API KEY "+client.Name) {
-		return ErrAPIKeyInvalid
-	}
-	organizationID, err := parseUUID(client.OrganizationID)
-	if err != nil {
-		return ErrAPIKeyNotFound
-	}
-	if err = appendHardDeleteAudit(ctx, s.queries.WithTx(tx), principal, organizationID, id, "middleware_client", client, sourceIP); err != nil {
+	if err = appendHardDeleteAudit(ctx, s.queries.WithTx(tx), principal, organizationID, id, "middleware_client", map[string]any{"name": name, "keyPrefix": keyPrefix}, sourceIP); err != nil {
 		return err
 	}
 	if _, err = tx.Exec(ctx, `DELETE FROM telemetry_latest WHERE organization_id=$1 AND telemetry_reading_id IN (SELECT id FROM telemetry_reading WHERE middleware_client_id=$2)`, organizationID, id); err != nil {
