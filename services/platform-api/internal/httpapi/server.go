@@ -13,28 +13,30 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"ygate/platform-api/internal/auth"
 	"ygate/platform-api/internal/core"
 	"ygate/platform-api/internal/gatewayhub"
 	"ygate/platform-api/internal/ingestion"
+	"ygate/platform-api/internal/sessioncheck"
 )
 
-const (
-	sessionCookieName = "platform_session"
-	csrfCookieName    = "platform_csrf"
-)
+const sessionCookieName = "platform_session"
 
 type healthResponse struct {
 	Status  string `json:"status"`
 	Version string `json:"version"`
 }
 
-type LoginFunc func(context.Context, auth.LoginInput) (auth.LoginResult, error)
-
-type RequestPasswordResetFunc func(context.Context, string, *netip.Addr) error
-type ResetPasswordFunc func(context.Context, string, string, *netip.Addr) error
-
-func New(version string, ready func(context.Context) error, authService *auth.Service, registryService *core.Service, ingestionService *ingestion.Service, hub *gatewayhub.Hub, cookieSecure bool, allowedOrigins ...string) http.Handler {
+// New constructs platform-api's HTTP handler. Login/logout/password
+// management/session listing and the users/roles/permissions/api-keys/
+// profile admin CRUD moved to auth-service (see
+// services/auth-service/internal/httpapi) -- this service now only
+// validates existing sessions (via internal/sessioncheck, read-only) to
+// authorize its own plants/devices/scada/alarms/dashboard/audit/middleware/
+// telemetry routes and the remaining hard-delete endpoints that stayed here.
+func New(version string, ready func(context.Context) error, pool *pgxpool.Pool, registryService *core.Service, ingestionService *ingestion.Service, hub *gatewayhub.Hub, allowedOrigins ...string) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, healthResponse{Status: "ok", Version: version})
@@ -52,115 +54,64 @@ func New(version string, ready func(context.Context) error, authService *auth.Se
 		}
 		writeJSON(w, http.StatusOK, healthResponse{Status: "ready", Version: version})
 	})
-	var login LoginFunc
-	if authService != nil {
-		login = authService.Login
-		if len(allowedOrigins) == 0 {
-			allowedOrigins = []string{"localhost:8080", "127.0.0.1:8080"}
-		}
-		mux.HandleFunc("GET /api/v1/auth/me", authenticated(authService, false, func(w http.ResponseWriter, _ *http.Request, principal auth.Principal) {
-			writeJSON(w, http.StatusOK, principal.User())
-		}))
-		mux.HandleFunc("POST /api/v1/auth/logout", authenticated(authService, true, func(w http.ResponseWriter, r *http.Request, principal auth.Principal) {
-			if err := authService.Logout(r.Context(), principal, remoteIP(r.RemoteAddr)); err != nil {
-				log.Printf("logout failed: %v", err)
-				http.Error(w, "internal server error", http.StatusInternalServerError)
-				return
-			}
-			clearAuthCookies(w, cookieSecure)
-			w.WriteHeader(http.StatusNoContent)
-		}))
-		mux.HandleFunc("POST /api/v1/auth/logout-all", authenticated(authService, true, func(w http.ResponseWriter, r *http.Request, principal auth.Principal) {
-			if err := authService.LogoutAll(r.Context(), principal, remoteIP(r.RemoteAddr)); err != nil {
-				log.Printf("logout all failed: %v", err)
-				http.Error(w, "internal server error", http.StatusInternalServerError)
-				return
-			}
-			clearAuthCookies(w, cookieSecure)
-			w.WriteHeader(http.StatusNoContent)
-		}))
-		mux.HandleFunc("POST /api/v1/auth/change-password", authenticated(authService, true, changePasswordHandler(authService)))
-		mux.HandleFunc("POST /api/v1/auth/forgot-password", forgotPasswordHandler(authService.RequestPasswordReset))
-		mux.HandleFunc("POST /api/v1/auth/reset-password", resetPasswordHandler(authService.ResetPassword, cookieSecure))
-		mux.HandleFunc("GET /api/v1/auth/sessions", authenticated(authService, false, sessionsHandler(authService)))
-		mux.HandleFunc("DELETE /api/v1/auth/sessions", authenticated(authService, true, clearSessionsHandler(authService, cookieSecure)))
-		mux.HandleFunc("GET /api/v1/realtime", authenticated(authService, false, realtimeHandler(allowedOrigins, registryService, registryService)))
-		mux.HandleFunc("DELETE /api/v1/auth/sessions/{sessionId}", authenticated(authService, true, revokeSessionHandler(authService, cookieSecure)))
-		if registryService != nil {
-			mux.HandleFunc("GET /api/v1/auth/profile", authenticated(authService, false, ownProfileHandler(registryService)))
-			mux.HandleFunc("PUT /api/v1/auth/profile", authenticated(authService, true, updateOwnProfileHandler(registryService)))
-			mux.HandleFunc("GET /api/v1/admin/openapi", authenticated(authService, false, openAPIHandler(registryService)))
-			mux.HandleFunc("GET /api/v1/admin/audit", authenticated(authService, false, auditEventsHandler(registryService)))
-			mux.HandleFunc("DELETE /api/v1/admin/audit", authenticated(authService, true, clearAuditEventsHandler(registryService)))
-			mux.HandleFunc("GET /api/v1/admin/api-keys", authenticated(authService, false, listAPIKeysHandler(registryService)))
-			mux.HandleFunc("POST /api/v1/admin/api-keys", authenticated(authService, true, createAPIKeyHandler(registryService)))
-			mux.HandleFunc("PUT /api/v1/admin/api-keys/{keyId}", authenticated(authService, true, updateAPIKeyHandler(registryService)))
-			mux.HandleFunc("DELETE /api/v1/admin/api-keys/{keyId}", authenticated(authService, true, hardDeleteAPIKeyHandler(registryService)))
-			mux.HandleFunc("POST /api/v1/admin/api-keys/{keyId}/status", authenticated(authService, true, updateAPIKeyStatusHandler(registryService)))
-			mux.HandleFunc("GET /api/v1/admin/middlewares", authenticated(authService, false, listMiddlewaresHandler(registryService)))
-			mux.HandleFunc("POST /api/v1/admin/middlewares", authenticated(authService, true, createMiddlewareHandler(registryService)))
-			mux.HandleFunc("PUT /api/v1/admin/middlewares/{middlewareId}", authenticated(authService, true, updateMiddlewareHandler(registryService)))
-			mux.HandleFunc("GET /api/v1/admin/middlewares/{middlewareId}/config", authenticated(authService, false, getMiddlewareConfigHandler(registryService)))
-			mux.HandleFunc("POST /api/v1/admin/middlewares/{middlewareId}/import-config", authenticated(authService, true, importMiddlewareConfigHandler(registryService)))
-			mux.HandleFunc("GET /api/v1/admin/middlewares/{middlewareId}/plants", authenticated(authService, false, listMiddlewarePlantsHandler(registryService)))
-			mux.HandleFunc("POST /api/v1/admin/middlewares/{middlewareId}/plants", authenticated(authService, true, assignMiddlewarePlantHandler(registryService)))
-			mux.HandleFunc("DELETE /api/v1/admin/middlewares/{middlewareId}/plants/{plantId}", authenticated(authService, true, unassignMiddlewarePlantHandler(registryService)))
-			mux.HandleFunc("GET /api/v1/admin/users", authenticated(authService, false, listUsersHandler(registryService)))
-			mux.HandleFunc("POST /api/v1/admin/users", authenticated(authService, true, createUserHandler(registryService)))
-			mux.HandleFunc("PUT /api/v1/admin/users/{userId}", authenticated(authService, true, updateUserHandler(registryService)))
-			mux.HandleFunc("DELETE /api/v1/admin/users/{userId}", authenticated(authService, true, hardDeleteUserHandler(registryService)))
-			mux.HandleFunc("GET /api/v1/admin/roles", authenticated(authService, false, listRolesHandler(registryService)))
-			mux.HandleFunc("GET /api/v1/admin/roles/{roleId}", authenticated(authService, false, getRoleHandler(registryService)))
-			mux.HandleFunc("POST /api/v1/admin/roles", authenticated(authService, true, createRoleHandler(registryService)))
-			mux.HandleFunc("PUT /api/v1/admin/roles/{roleId}", authenticated(authService, true, updateRoleHandler(registryService)))
-			mux.HandleFunc("DELETE /api/v1/admin/roles/{roleId}", authenticated(authService, true, deleteRoleHandler(registryService)))
-			mux.HandleFunc("GET /api/v1/admin/permissions", authenticated(authService, false, listPermissionsHandler(registryService)))
-			mux.HandleFunc("POST /api/v1/admin/users/{userId}/status", authenticated(authService, true, updateUserStatusHandler(registryService)))
-			mux.HandleFunc("POST /api/v1/admin/users/{userId}/unlock", authenticated(authService, true, unlockUserHandler(registryService)))
-			mux.HandleFunc("POST /api/v1/admin/users/{userId}/reset-password", authenticated(authService, true, resetUserPasswordHandler(registryService)))
-			mux.HandleFunc("GET /api/v1/plants", authenticated(authService, false, listPlantsHandler(registryService)))
-			mux.HandleFunc("POST /api/v1/plants", authenticated(authService, true, createPlantHandler(registryService)))
-			mux.HandleFunc("GET /api/v1/device-models", authenticated(authService, false, listDeviceModelsHandler(registryService)))
-			mux.HandleFunc("POST /api/v1/device-models", authenticated(authService, true, createDeviceModelHandler(registryService)))
-			mux.HandleFunc("PUT /api/v1/device-models/{modelId}", authenticated(authService, true, updateDeviceModelHandler(registryService)))
-			mux.HandleFunc("DELETE /api/v1/device-models/{modelId}", authenticated(authService, true, hardDeleteDeviceModelHandler(registryService)))
-			mux.HandleFunc("GET /api/v1/device-models/{modelId}/register-metadata", authenticated(authService, false, listModelRegisterMetadataHandler(registryService)))
-			mux.HandleFunc("PUT /api/v1/device-models/{modelId}/register-metadata", authenticated(authService, true, updateModelRegisterMetadataHandler(registryService)))
-			mux.HandleFunc("DELETE /api/v1/device-models/{modelId}/register-metadata/{addressKey}", authenticated(authService, true, deleteModelRegisterMetadataHandler(registryService)))
-			mux.HandleFunc("GET /api/v1/plants/{plantId}", authenticated(authService, false, getPlantHandler(registryService)))
-			mux.HandleFunc("PUT /api/v1/plants/{plantId}", authenticated(authService, true, updatePlantHandler(registryService)))
-			mux.HandleFunc("DELETE /api/v1/plants/{plantId}", authenticated(authService, true, hardDeletePlantHandler(registryService)))
-			mux.HandleFunc("GET /api/v1/plants/{plantId}/devices", authenticated(authService, false, listDevicesHandler(registryService)))
-			mux.HandleFunc("POST /api/v1/plants/{plantId}/devices", authenticated(authService, true, createDeviceHandler(registryService)))
-			mux.HandleFunc("PUT /api/v1/plants/{plantId}/devices/{deviceId}", authenticated(authService, true, updateDeviceHandler(registryService)))
-			mux.HandleFunc("DELETE /api/v1/plants/{plantId}/devices/{deviceId}", authenticated(authService, true, hardDeleteDeviceHandler(registryService)))
-			mux.HandleFunc("POST /api/v1/plants/{plantId}/devices/{deviceId}/test-connection", authenticated(authService, true, deviceCommandHandler(registryService, "connectTest")))
-			mux.HandleFunc("POST /api/v1/plants/{plantId}/devices/{deviceId}/test-read", authenticated(authService, true, deviceCommandHandler(registryService, "readNow")))
-			mux.HandleFunc("GET /api/v1/plants/{plantId}/device-register-metadata/{deviceId}", authenticated(authService, false, listRegisterMetadataHandler(registryService)))
-			mux.HandleFunc("PUT /api/v1/plants/{plantId}/device-register-metadata/{deviceId}", authenticated(authService, true, updateRegisterMetadataHandler(registryService)))
-			mux.HandleFunc("GET /api/v1/plants/{plantId}/telemetry/latest", authenticated(authService, false, latestTelemetryHandler(registryService)))
-			mux.HandleFunc("GET /api/v1/plants/{plantId}/devices/{deviceId}/telemetry/history", authenticated(authService, false, telemetryHistoryHandler(registryService)))
-			mux.HandleFunc("GET /api/v1/plants/{plantId}/alarms/rules", authenticated(authService, false, listAlarmRulesHandler(registryService)))
-			mux.HandleFunc("POST /api/v1/plants/{plantId}/alarms/rules", authenticated(authService, true, createAlarmRuleHandler(registryService)))
-			mux.HandleFunc("PUT /api/v1/plants/{plantId}/alarms/rules/{ruleId}", authenticated(authService, true, updateAlarmRuleHandler(registryService)))
-			mux.HandleFunc("DELETE /api/v1/plants/{plantId}/alarms/rules/{ruleId}", authenticated(authService, true, deleteAlarmRuleHandler(registryService)))
-			mux.HandleFunc("GET /api/v1/plants/{plantId}/alarms/events", authenticated(authService, false, listAlarmEventsHandler(registryService)))
-			mux.HandleFunc("POST /api/v1/plants/{plantId}/alarms/events/{eventId}/ack", authenticated(authService, true, acknowledgeAlarmEventHandler(registryService)))
-			mux.HandleFunc("GET /api/v1/dashboard/overview", authenticated(authService, false, dashboardOverviewHandler(registryService)))
-			mux.HandleFunc("GET /api/v1/scada/screens", authenticated(authService, false, listScadaScreensHandler(registryService)))
-			mux.HandleFunc("POST /api/v1/scada/screens", authenticated(authService, true, createScadaScreenHandler(registryService)))
-			mux.HandleFunc("GET /api/v1/scada/screens/{screenId}", authenticated(authService, false, getScadaScreenHandler(registryService)))
-			mux.HandleFunc("PUT /api/v1/scada/screens/{screenId}", authenticated(authService, true, saveScadaScreenHandler(registryService)))
-			mux.HandleFunc("DELETE /api/v1/scada/screens/{screenId}", authenticated(authService, true, hardDeleteScadaScreenHandler(registryService)))
-			mux.HandleFunc("GET /api/v1/scada/screens/{screenId}/published", authenticated(authService, false, getPublishedScadaScreenHandler(registryService)))
-			mux.HandleFunc("GET /api/v1/scada/screens/{screenId}/versions", authenticated(authService, false, listScadaVersionsHandler(registryService)))
-			mux.HandleFunc("POST /api/v1/scada/screens/{screenId}/publish", authenticated(authService, true, publishScadaScreenHandler(registryService)))
-			mux.HandleFunc("POST /api/v1/scada/screens/{screenId}/rollback", authenticated(authService, true, rollbackScadaScreenHandler(registryService)))
-			mux.HandleFunc("GET /api/v1/dashboard/layout", authenticated(authService, false, dashboardLayoutHandler(registryService)))
-			mux.HandleFunc("PUT /api/v1/dashboard/layout", authenticated(authService, true, updateDashboardLayoutHandler(registryService)))
-			mux.HandleFunc("GET /api/v1/dashboard/layout/published", authenticated(authService, false, publishedDashboardLayoutHandler(registryService)))
-			mux.HandleFunc("POST /api/v1/dashboard/layout/publish", authenticated(authService, true, publishDashboardLayoutHandler(registryService)))
-		}
+	if len(allowedOrigins) == 0 {
+		allowedOrigins = []string{"localhost:8080", "127.0.0.1:8080"}
+	}
+	if registryService != nil {
+		mux.HandleFunc("GET /api/v1/realtime", authenticated(pool, false, realtimeHandler(allowedOrigins, registryService, registryService)))
+		mux.HandleFunc("GET /api/v1/admin/audit", authenticated(pool, false, auditEventsHandler(registryService)))
+		mux.HandleFunc("DELETE /api/v1/admin/audit", authenticated(pool, true, clearAuditEventsHandler(registryService)))
+		mux.HandleFunc("DELETE /api/v1/admin/api-keys/{keyId}", authenticated(pool, true, hardDeleteAPIKeyHandler(registryService)))
+		mux.HandleFunc("GET /api/v1/admin/middlewares", authenticated(pool, false, listMiddlewaresHandler(registryService)))
+		mux.HandleFunc("POST /api/v1/admin/middlewares", authenticated(pool, true, createMiddlewareHandler(registryService)))
+		mux.HandleFunc("PUT /api/v1/admin/middlewares/{middlewareId}", authenticated(pool, true, updateMiddlewareHandler(registryService)))
+		mux.HandleFunc("GET /api/v1/admin/middlewares/{middlewareId}/config", authenticated(pool, false, getMiddlewareConfigHandler(registryService)))
+		mux.HandleFunc("POST /api/v1/admin/middlewares/{middlewareId}/import-config", authenticated(pool, true, importMiddlewareConfigHandler(registryService)))
+		mux.HandleFunc("GET /api/v1/admin/middlewares/{middlewareId}/plants", authenticated(pool, false, listMiddlewarePlantsHandler(registryService)))
+		mux.HandleFunc("POST /api/v1/admin/middlewares/{middlewareId}/plants", authenticated(pool, true, assignMiddlewarePlantHandler(registryService)))
+		mux.HandleFunc("DELETE /api/v1/admin/middlewares/{middlewareId}/plants/{plantId}", authenticated(pool, true, unassignMiddlewarePlantHandler(registryService)))
+		mux.HandleFunc("GET /api/v1/plants", authenticated(pool, false, listPlantsHandler(registryService)))
+		mux.HandleFunc("POST /api/v1/plants", authenticated(pool, true, createPlantHandler(registryService)))
+		mux.HandleFunc("GET /api/v1/device-models", authenticated(pool, false, listDeviceModelsHandler(registryService)))
+		mux.HandleFunc("POST /api/v1/device-models", authenticated(pool, true, createDeviceModelHandler(registryService)))
+		mux.HandleFunc("PUT /api/v1/device-models/{modelId}", authenticated(pool, true, updateDeviceModelHandler(registryService)))
+		mux.HandleFunc("DELETE /api/v1/device-models/{modelId}", authenticated(pool, true, hardDeleteDeviceModelHandler(registryService)))
+		mux.HandleFunc("GET /api/v1/device-models/{modelId}/register-metadata", authenticated(pool, false, listModelRegisterMetadataHandler(registryService)))
+		mux.HandleFunc("PUT /api/v1/device-models/{modelId}/register-metadata", authenticated(pool, true, updateModelRegisterMetadataHandler(registryService)))
+		mux.HandleFunc("DELETE /api/v1/device-models/{modelId}/register-metadata/{addressKey}", authenticated(pool, true, deleteModelRegisterMetadataHandler(registryService)))
+		mux.HandleFunc("GET /api/v1/plants/{plantId}", authenticated(pool, false, getPlantHandler(registryService)))
+		mux.HandleFunc("PUT /api/v1/plants/{plantId}", authenticated(pool, true, updatePlantHandler(registryService)))
+		mux.HandleFunc("DELETE /api/v1/plants/{plantId}", authenticated(pool, true, hardDeletePlantHandler(registryService)))
+		mux.HandleFunc("GET /api/v1/plants/{plantId}/devices", authenticated(pool, false, listDevicesHandler(registryService)))
+		mux.HandleFunc("POST /api/v1/plants/{plantId}/devices", authenticated(pool, true, createDeviceHandler(registryService)))
+		mux.HandleFunc("PUT /api/v1/plants/{plantId}/devices/{deviceId}", authenticated(pool, true, updateDeviceHandler(registryService)))
+		mux.HandleFunc("DELETE /api/v1/plants/{plantId}/devices/{deviceId}", authenticated(pool, true, hardDeleteDeviceHandler(registryService)))
+		mux.HandleFunc("POST /api/v1/plants/{plantId}/devices/{deviceId}/test-connection", authenticated(pool, true, deviceCommandHandler(registryService, "connectTest")))
+		mux.HandleFunc("POST /api/v1/plants/{plantId}/devices/{deviceId}/test-read", authenticated(pool, true, deviceCommandHandler(registryService, "readNow")))
+		mux.HandleFunc("GET /api/v1/plants/{plantId}/device-register-metadata/{deviceId}", authenticated(pool, false, listRegisterMetadataHandler(registryService)))
+		mux.HandleFunc("PUT /api/v1/plants/{plantId}/device-register-metadata/{deviceId}", authenticated(pool, true, updateRegisterMetadataHandler(registryService)))
+		mux.HandleFunc("GET /api/v1/plants/{plantId}/telemetry/latest", authenticated(pool, false, latestTelemetryHandler(registryService)))
+		mux.HandleFunc("GET /api/v1/plants/{plantId}/devices/{deviceId}/telemetry/history", authenticated(pool, false, telemetryHistoryHandler(registryService)))
+		mux.HandleFunc("GET /api/v1/plants/{plantId}/alarms/rules", authenticated(pool, false, listAlarmRulesHandler(registryService)))
+		mux.HandleFunc("POST /api/v1/plants/{plantId}/alarms/rules", authenticated(pool, true, createAlarmRuleHandler(registryService)))
+		mux.HandleFunc("PUT /api/v1/plants/{plantId}/alarms/rules/{ruleId}", authenticated(pool, true, updateAlarmRuleHandler(registryService)))
+		mux.HandleFunc("DELETE /api/v1/plants/{plantId}/alarms/rules/{ruleId}", authenticated(pool, true, deleteAlarmRuleHandler(registryService)))
+		mux.HandleFunc("GET /api/v1/plants/{plantId}/alarms/events", authenticated(pool, false, listAlarmEventsHandler(registryService)))
+		mux.HandleFunc("POST /api/v1/plants/{plantId}/alarms/events/{eventId}/ack", authenticated(pool, true, acknowledgeAlarmEventHandler(registryService)))
+		mux.HandleFunc("GET /api/v1/dashboard/overview", authenticated(pool, false, dashboardOverviewHandler(registryService)))
+		mux.HandleFunc("GET /api/v1/scada/screens", authenticated(pool, false, listScadaScreensHandler(registryService)))
+		mux.HandleFunc("POST /api/v1/scada/screens", authenticated(pool, true, createScadaScreenHandler(registryService)))
+		mux.HandleFunc("GET /api/v1/scada/screens/{screenId}", authenticated(pool, false, getScadaScreenHandler(registryService)))
+		mux.HandleFunc("PUT /api/v1/scada/screens/{screenId}", authenticated(pool, true, saveScadaScreenHandler(registryService)))
+		mux.HandleFunc("DELETE /api/v1/scada/screens/{screenId}", authenticated(pool, true, hardDeleteScadaScreenHandler(registryService)))
+		mux.HandleFunc("GET /api/v1/scada/screens/{screenId}/published", authenticated(pool, false, getPublishedScadaScreenHandler(registryService)))
+		mux.HandleFunc("GET /api/v1/scada/screens/{screenId}/versions", authenticated(pool, false, listScadaVersionsHandler(registryService)))
+		mux.HandleFunc("POST /api/v1/scada/screens/{screenId}/publish", authenticated(pool, true, publishScadaScreenHandler(registryService)))
+		mux.HandleFunc("POST /api/v1/scada/screens/{screenId}/rollback", authenticated(pool, true, rollbackScadaScreenHandler(registryService)))
+		mux.HandleFunc("GET /api/v1/dashboard/layout", authenticated(pool, false, dashboardLayoutHandler(registryService)))
+		mux.HandleFunc("PUT /api/v1/dashboard/layout", authenticated(pool, true, updateDashboardLayoutHandler(registryService)))
+		mux.HandleFunc("GET /api/v1/dashboard/layout/published", authenticated(pool, false, publishedDashboardLayoutHandler(registryService)))
+		mux.HandleFunc("POST /api/v1/dashboard/layout/publish", authenticated(pool, true, publishDashboardLayoutHandler(registryService)))
 	}
 	if ingestionService != nil {
 		mux.HandleFunc("POST /api/v1/ingestion/telemetry", ingestionHandler(ingestionService))
@@ -170,151 +121,18 @@ func New(version string, ready func(context.Context) error, authService *auth.Se
 			mux.HandleFunc("GET /api/v1/gateway/realtime", gatewayRealtimeHandler(ingestionService, registryService, hub))
 		}
 	}
-	mux.HandleFunc("POST /api/v1/auth/login", loginHandler(login, cookieSecure))
 	return mux
 }
 
-func loginHandler(login LoginFunc, cookieSecure bool) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-store")
-		if login == nil {
-			http.Error(w, "authentication is unavailable", http.StatusServiceUnavailable)
-			return
-		}
-		var request struct {
-			Identifier string `json:"identifier"`
-			Password   string `json:"password"`
-		}
-		if !decodeJSON(w, r, &request, 16<<10) {
-			return
-		}
-		if len(request.Identifier) > 320 || len(request.Password) > 1024 {
-			http.Error(w, "invalid request", http.StatusBadRequest)
-			return
-		}
-		userAgent := []rune(r.UserAgent())
-		if len(userAgent) > 512 {
-			userAgent = userAgent[:512]
-		}
-		result, err := login(r.Context(), auth.LoginInput{
-			Identifier: request.Identifier,
-			Password:   request.Password,
-			SourceIP:   remoteIP(r.RemoteAddr),
-			UserAgent:  string(userAgent),
-		})
-		switch {
-		case errors.Is(err, auth.ErrInvalidCredentials):
-			http.Error(w, "invalid credentials", http.StatusUnauthorized)
-			return
-		case errors.Is(err, auth.ErrRateLimited):
-			w.Header().Set("Retry-After", "900")
-			http.Error(w, "too many login attempts", http.StatusTooManyRequests)
-			return
-		case err != nil:
-			log.Printf("login failed: %v", err)
-			http.Error(w, "internal server error", http.StatusInternalServerError)
-			return
-		}
-		setAuthCookies(w, result, cookieSecure)
-		writeJSON(w, http.StatusOK, result)
-	}
-}
-
-func forgotPasswordHandler(requestReset RequestPasswordResetFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-store")
-		var request struct {
-			Email string `json:"email"`
-		}
-		if !decodeJSON(w, r, &request, 16<<10) {
-			return
-		}
-		if strings.TrimSpace(request.Email) == "" || len(request.Email) > 320 {
-			http.Error(w, "invalid request", http.StatusBadRequest)
-			return
-		}
-		if err := requestReset(r.Context(), request.Email, remoteIP(r.RemoteAddr)); err != nil {
-			log.Printf("password reset request failed: %v", err)
-		}
-		w.WriteHeader(http.StatusAccepted)
-	}
-}
-
-func resetPasswordHandler(reset ResetPasswordFunc, cookieSecure bool) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-store")
-		var request struct {
-			Token       string `json:"token"`
-			NewPassword string `json:"newPassword"`
-		}
-		if !decodeJSON(w, r, &request, 16<<10) {
-			return
-		}
-		err := reset(r.Context(), request.Token, request.NewPassword, remoteIP(r.RemoteAddr))
-		switch {
-		case errors.Is(err, auth.ErrWeakPassword):
-			http.Error(w, "new password must be 12 to 72 bytes", http.StatusBadRequest)
-		case errors.Is(err, auth.ErrInvalidResetToken):
-			http.Error(w, "invalid or expired reset token", http.StatusBadRequest)
-		case errors.Is(err, auth.ErrRateLimited):
-			w.Header().Set("Retry-After", "900")
-			http.Error(w, "too many reset attempts", http.StatusTooManyRequests)
-		case err != nil:
-			log.Printf("password reset failed: %v", err)
-			http.Error(w, "internal server error", http.StatusInternalServerError)
-		default:
-			clearAuthCookies(w, cookieSecure)
-			w.WriteHeader(http.StatusNoContent)
-		}
-	}
-}
-
-func sessionsHandler(service *auth.Service) func(http.ResponseWriter, *http.Request, auth.Principal) {
-	return func(w http.ResponseWriter, r *http.Request, principal auth.Principal) {
-		sessions, err := service.Sessions(r.Context(), principal)
-		if err != nil {
-			log.Printf("list sessions failed: %v", err)
-			http.Error(w, "internal server error", http.StatusInternalServerError)
-			return
-		}
-		writeJSON(w, http.StatusOK, sessions)
-	}
-}
-
-func revokeSessionHandler(service *auth.Service, cookieSecure bool) func(http.ResponseWriter, *http.Request, auth.Principal) {
-	return func(w http.ResponseWriter, r *http.Request, principal auth.Principal) {
-		current, err := service.RevokeOwnSession(r.Context(), principal, r.PathValue("sessionId"), remoteIP(r.RemoteAddr))
-		switch {
-		case errors.Is(err, auth.ErrSessionNotFound):
-			http.Error(w, "session not found", http.StatusNotFound)
-		case err != nil:
-			log.Printf("revoke session failed: %v", err)
-			http.Error(w, "internal server error", http.StatusInternalServerError)
-		default:
-			if current {
-				clearAuthCookies(w, cookieSecure)
-			}
-			w.WriteHeader(http.StatusNoContent)
-		}
-	}
-}
-
-func clearSessionsHandler(service *auth.Service, cookieSecure bool) func(http.ResponseWriter, *http.Request, auth.Principal) {
-	return func(w http.ResponseWriter, r *http.Request, principal auth.Principal) {
-		err := service.ClearOwnSessions(r.Context(), principal, r.Header.Get("X-Hard-Delete-Confirm"), remoteIP(r.RemoteAddr))
-		switch {
-		case errors.Is(err, auth.ErrSessionConfirmation):
-			http.Error(w, "invalid confirmation", http.StatusBadRequest)
-		case err != nil:
-			log.Printf("clear sessions failed: %v", err)
-			http.Error(w, "internal server error", http.StatusInternalServerError)
-		default:
-			clearAuthCookies(w, cookieSecure)
-			w.WriteHeader(http.StatusNoContent)
-		}
-	}
-}
-func authenticated(service *auth.Service, csrfRequired bool, next func(http.ResponseWriter, *http.Request, auth.Principal)) http.HandlerFunc {
+// authenticated now validates sessions via internal/sessioncheck's read-only
+// lookup instead of the full internal/auth.Service (which moved to
+// auth-service -- see docs/superpowers/plans/2026-08-01-backend-microservices-phase1-auth-service.md).
+// It still hands every downstream handler the same auth.Principal shape
+// those handlers (and core.Service's methods) have always taken: only the
+// exported fields sessioncheck.Principal mirrors are populated, which is
+// exactly what plants/devices/scada/... handlers and core.Service ever read
+// (permission checks and audit actor IDs, never the password hash).
+func authenticated(pool *pgxpool.Pool, csrfRequired bool, next func(http.ResponseWriter, *http.Request, auth.Principal)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		cookie, err := r.Cookie(sessionCookieName)
@@ -322,8 +140,8 @@ func authenticated(service *auth.Service, csrfRequired bool, next func(http.Resp
 			http.Error(w, "authentication required", http.StatusUnauthorized)
 			return
 		}
-		principal, err := service.Authenticate(r.Context(), cookie.Value)
-		if errors.Is(err, auth.ErrUnauthenticated) {
+		principal, err := sessioncheck.Authenticate(r.Context(), pool, cookie.Value)
+		if errors.Is(err, sessioncheck.ErrUnauthenticated) {
 			http.Error(w, "authentication required", http.StatusUnauthorized)
 			return
 		}
@@ -336,31 +154,13 @@ func authenticated(service *auth.Service, csrfRequired bool, next func(http.Resp
 			http.Error(w, "invalid CSRF token", http.StatusForbidden)
 			return
 		}
-		next(w, r, principal)
-	}
-}
-
-func changePasswordHandler(service *auth.Service) func(http.ResponseWriter, *http.Request, auth.Principal) {
-	return func(w http.ResponseWriter, r *http.Request, principal auth.Principal) {
-		var request struct {
-			CurrentPassword string `json:"currentPassword"`
-			NewPassword     string `json:"newPassword"`
-		}
-		if !decodeJSON(w, r, &request, 16<<10) {
-			return
-		}
-		err := service.ChangePassword(r.Context(), principal, request.CurrentPassword, request.NewPassword, remoteIP(r.RemoteAddr))
-		switch {
-		case errors.Is(err, auth.ErrInvalidCurrentPassword):
-			http.Error(w, "current password is invalid", http.StatusBadRequest)
-		case errors.Is(err, auth.ErrWeakPassword):
-			http.Error(w, "new password must be 12 to 72 bytes", http.StatusBadRequest)
-		case err != nil:
-			log.Printf("change password failed: %v", err)
-			http.Error(w, "internal server error", http.StatusInternalServerError)
-		default:
-			w.WriteHeader(http.StatusNoContent)
-		}
+		next(w, r, auth.Principal{
+			SessionID:      principal.SessionID,
+			OrganizationID: principal.OrganizationID,
+			UserID:         principal.UserID,
+			Email:          principal.Email,
+			DisplayName:    principal.DisplayName,
+		})
 	}
 }
 
@@ -381,32 +181,6 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, value any, maxBytes int6
 		return false
 	}
 	return true
-}
-
-func setAuthCookies(w http.ResponseWriter, result auth.LoginResult, secure bool) {
-	maxAge := max(1, int(time.Until(result.ExpiresAt).Seconds()))
-	http.SetCookie(w, &http.Cookie{
-		Name: sessionCookieName, Value: result.Token, Path: "/", Expires: result.ExpiresAt,
-		MaxAge: maxAge, HttpOnly: true, Secure: secure, SameSite: http.SameSiteStrictMode,
-	})
-	http.SetCookie(w, &http.Cookie{
-		Name: csrfCookieName, Value: result.CSRFToken, Path: "/", Expires: result.ExpiresAt,
-		MaxAge: maxAge, HttpOnly: false, Secure: secure, SameSite: http.SameSiteStrictMode,
-	})
-}
-
-func clearAuthCookies(w http.ResponseWriter, secure bool) {
-	for _, cookie := range []*http.Cookie{
-		{Name: sessionCookieName, HttpOnly: true},
-		{Name: csrfCookieName, HttpOnly: false},
-	} {
-		cookie.Path = "/"
-		cookie.MaxAge = -1
-		cookie.Expires = time.Unix(1, 0)
-		cookie.Secure = secure
-		cookie.SameSite = http.SameSiteStrictMode
-		http.SetCookie(w, cookie)
-	}
 }
 
 func remoteIP(remoteAddr string) *netip.Addr {

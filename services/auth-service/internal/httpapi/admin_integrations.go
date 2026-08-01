@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"ygate/platform-api/internal/auth"
-	"ygate/platform-api/internal/core"
+	"ygate/auth-service/internal/auth"
+	"ygate/auth-service/internal/core"
 )
 
 type createAPIKeyRequest struct {

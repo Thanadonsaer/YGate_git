@@ -9,19 +9,27 @@ import (
 )
 
 func TestOpenAPIPathsMatchRegisteredRoutes(t *testing.T) {
-	serverSource, err := os.ReadFile("server.go")
-	if err != nil {
-		t.Fatal(err)
+	// packages/api-contracts/platform-api.yaml documents the whole platform's
+	// API surface, served behind one gateway -- but login/logout/password
+	// management/session listing and the users/roles/permissions/api-keys/
+	// profile admin CRUD now live in auth-service's own server.go, not
+	// platform-api's (see docs/superpowers/plans/2026-08-01-backend-microservices-phase1-auth-service.md).
+	// Union both services' registered routes before comparing against the
+	// contract so this test still catches drift between code and docs.
+	registered := map[string]bool{}
+	routePattern := regexp.MustCompile(`HandleFunc\("(GET|POST|PUT|PATCH|DELETE) ([^"]+)"`)
+	for _, path := range []string{"server.go", "../../../auth-service/internal/httpapi/server.go"} {
+		source, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, match := range routePattern.FindAllStringSubmatch(string(source), -1) {
+			registered[match[1]+" "+match[2]] = true
+		}
 	}
 	contract, err := os.ReadFile("../../../../packages/api-contracts/platform-api.yaml")
 	if err != nil {
 		t.Fatal(err)
-	}
-
-	routePattern := regexp.MustCompile(`HandleFunc\("(GET|POST|PUT|PATCH|DELETE) ([^"]+)"`)
-	registered := map[string]bool{}
-	for _, match := range routePattern.FindAllStringSubmatch(string(serverSource), -1) {
-		registered[match[1]+" "+match[2]] = true
 	}
 
 	documented := map[string]bool{}

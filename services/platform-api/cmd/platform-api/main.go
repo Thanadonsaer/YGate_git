@@ -9,7 +9,6 @@ import (
 	"syscall"
 	"time"
 
-	"ygate/platform-api/internal/auth"
 	"ygate/platform-api/internal/config"
 	"ygate/platform-api/internal/core"
 	"ygate/platform-api/internal/database"
@@ -17,7 +16,6 @@ import (
 	"ygate/platform-api/internal/gatewayhub"
 	"ygate/platform-api/internal/httpapi"
 	"ygate/platform-api/internal/ingestion"
-	"ygate/platform-api/internal/notification"
 )
 
 var version = "dev"
@@ -42,25 +40,13 @@ func main() {
 	}
 	defer pool.Close()
 
-	authService := auth.New(pool, cfg.SessionIdleTimeout, cfg.SessionAbsoluteTimeout)
-	var resetNotifier auth.ResetNotifier
-	if cfg.SMTPAddr != "" {
-		notifier, notifierErr := notification.NewSMTPResetNotifier(
-			cfg.SMTPAddr, cfg.SMTPFrom, cfg.SMTPUsername, cfg.SMTPPassword, cfg.PasswordResetURL,
-		)
-		if notifierErr != nil {
-			log.Fatal(notifierErr)
-		}
-		resetNotifier = notifier.Notify
-	}
-	authService.ConfigurePasswordRecovery(cfg.PasswordResetTTL, resetNotifier)
 	hub := gatewayhub.New()
 	registryService := core.New(pool, hub)
 	ingestionService := ingestion.New(pool)
 
 	server := &http.Server{
 		Addr:              cfg.ListenAddr,
-		Handler:           httpapi.New(version, pool.Ping, authService, registryService, ingestionService, hub, cfg.CookieSecure, cfg.AllowedOrigins...),
+		Handler:           httpapi.New(version, pool.Ping, pool, registryService, ingestionService, hub, cfg.AllowedOrigins...),
 		ReadHeaderTimeout: 5 * time.Second,
 		MaxHeaderBytes:    64 << 10,
 	}
