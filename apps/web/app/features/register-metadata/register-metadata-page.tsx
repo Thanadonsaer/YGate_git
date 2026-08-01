@@ -172,7 +172,7 @@ export function RegisterMetadataPage() {
                 <div className="min-w-0"><strong className="block truncate text-ink">{item.addressKey}</strong><small className="block truncate text-xs text-ink-soft lg:hidden">{item.displayName || "ยังไม่ระบุชื่อ"} · {item.unit || "ไม่มีหน่วย"}</small></div>
                 <span className="hidden truncate text-ink lg:block">{item.displayName || "-"}</span>
                 <span className="hidden truncate text-ink lg:block">{item.unit || "-"}</span>
-                <span className="hidden truncate text-ink lg:block">{item.dataType}</span>
+                <span className="hidden truncate text-ink lg:block">{item.modbusDataType || item.dataType}</span>
                 <span className="hidden truncate text-ink lg:block">x{item.scale} + {item.offset}, {item.decimals} dp</span>
                 <span className={`hidden w-fit rounded-full px-2.5 py-1 text-xs font-extrabold lg:block ${item.isEnabled ? "bg-success/10 text-success" : "bg-danger/10 text-danger"}`}>{item.isEnabled ? "เปิด" : "ปิด"}</span>
                 <div className="row-start-1 flex justify-end gap-1 lg:row-auto">
@@ -270,6 +270,7 @@ function DeviceModelDialog({ model, onClose, onSaved }: { model: DeviceModelOpti
 
 function AddressMetadataDialog({ model, item, onClose, onSaved }: { model: DeviceModelOption; item: DeviceModelRegisterMetadata | null; onClose: () => void; onSaved: (item: DeviceModelRegisterMetadata) => void }) {
   const [addressKey, setAddressKey] = useState(item?.addressKey ?? "");
+  const [addressKeyEdited, setAddressKeyEdited] = useState(Boolean(item));
   const [displayName, setDisplayName] = useState(item?.displayName ?? "");
   const [unit, setUnit] = useState(item?.unit ?? "");
   const [dataType, setDataType] = useState<DeviceModelRegisterMetadata["dataType"]>(item?.dataType ?? "number");
@@ -309,6 +310,16 @@ function AddressMetadataDialog({ model, item, onClose, onSaved }: { model: Devic
     }
   }
 
+  useEffect(() => {
+    if (item || addressKeyEdited) return;
+    if (modbusFunctionCode === "" || modbusRegister === "") return;
+    setAddressKey(`${modbusFunctionCode}:${modbusRegister}`);
+  }, [item, addressKeyEdited, modbusFunctionCode, modbusRegister]);
+
+  useEffect(() => {
+    if (modbusDataType !== "") setDataType("number");
+  }, [modbusDataType]);
+
   return (
     <Dialog open onOpenChange={(open) => { if (!open && !pending) onClose(); }}>
       <DialogContent className="max-w-2xl">
@@ -317,53 +328,58 @@ function AddressMetadataDialog({ model, item, onClose, onSaved }: { model: Devic
         </DialogHeader>
         <DialogBody>
           <form className="grid gap-4 sm:grid-cols-2" onSubmit={submit}>
-            <label className={labelClass}>Address / Key<input className={inputClass} autoFocus value={addressKey} onChange={(event) => setAddressKey(event.target.value)} maxLength={200} readOnly={Boolean(item)} required /></label>
-            <label className={labelClass}>Display name<input className={inputClass} value={displayName} onChange={(event) => setDisplayName(event.target.value)} maxLength={200} placeholder="Active power" /></label>
-            <label className={labelClass}>Unit<input className={inputClass} value={unit} onChange={(event) => setUnit(event.target.value)} maxLength={40} placeholder="kW" /></label>
-            <label className={labelClass}>Data type
-              <Select value={dataType} onValueChange={(value) => setDataType(value as DeviceModelRegisterMetadata["dataType"])}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+            <label className={`${labelClass} sm:col-span-2`}>Address / Key<input className={inputClass} autoFocus value={addressKey} onChange={(event) => { setAddressKey(event.target.value); setAddressKeyEdited(true); }} maxLength={200} readOnly={Boolean(item)} required /></label>
+
+            <p className="col-span-2 text-xs font-extrabold uppercase text-ink-soft">Modbus Register</p>
+            <div className="col-span-2 grid grid-cols-2 gap-4 sm:grid-cols-4">
+              <Select value={modbusFunctionCode} onValueChange={setModbusFunctionCode}>
+                <SelectTrigger><SelectValue placeholder="-" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="number">number</SelectItem>
-                  <SelectItem value="boolean">boolean</SelectItem>
-                  <SelectItem value="text">text</SelectItem>
-                  <SelectItem value="enum">enum</SelectItem>
+                  <SelectItem value="">-</SelectItem>
+                  <SelectItem value="3">FC03</SelectItem>
+                  <SelectItem value="4">FC04</SelectItem>
                 </SelectContent>
               </Select>
-            </label>
+              <input className={inputClass} type="number" min="0" max="65535" placeholder="Register" value={modbusRegister} onChange={(event) => setModbusRegister(event.target.value)} />
+              <Select value={modbusWordOrder} onValueChange={setModbusWordOrder}>
+                <SelectTrigger><SelectValue placeholder="Word order (default)" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">Word order (default)</SelectItem>
+                  <SelectItem value="HIGH_LOW">HIGH_LOW</SelectItem>
+                  <SelectItem value="LOW_HIGH">LOW_HIGH</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={modbusDataType} onValueChange={setModbusDataType}>
+                <SelectTrigger><SelectValue placeholder="Modbus type" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">Modbus type</SelectItem>
+                  {MIDDLEWARE_DATA_TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <p className="col-span-2 -mb-2 text-xs text-ink-soft">เว้นว่างทั้งหมดถ้าเป็น display metadata อย่างเดียว ไม่ใช้ poll จริง</p>
+
+            <p className="col-span-2 text-xs font-extrabold uppercase text-ink-soft">Display</p>
+            <label className={labelClass}>Display name<input className={inputClass} value={displayName} onChange={(event) => setDisplayName(event.target.value)} maxLength={200} placeholder="Active power" /></label>
+            <label className={labelClass}>Unit<input className={inputClass} value={unit} onChange={(event) => setUnit(event.target.value)} maxLength={40} placeholder="kW" /></label>
+            {modbusDataType === "" && (
+              <label className={labelClass}>Data type
+                <Select value={dataType} onValueChange={(value) => setDataType(value as DeviceModelRegisterMetadata["dataType"])}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="number">number</SelectItem>
+                    <SelectItem value="boolean">boolean</SelectItem>
+                    <SelectItem value="text">text</SelectItem>
+                    <SelectItem value="enum">enum</SelectItem>
+                  </SelectContent>
+                </Select>
+              </label>
+            )}
             <label className={labelClass}>Scale<input className={inputClass} type="number" step="any" value={scale} onChange={(event) => setScale(event.target.value)} required /></label>
             <label className={labelClass}>Offset<input className={inputClass} type="number" step="any" value={offset} onChange={(event) => setOffset(event.target.value)} required /></label>
             <label className={labelClass}>Decimals<input className={inputClass} type="number" min="0" max="9" value={decimals} onChange={(event) => setDecimals(event.target.value)} required /></label>
             <label className="flex items-center gap-2 self-end text-sm font-bold text-slate-800"><input className="h-4 w-4 accent-brand" type="checkbox" checked={isEnabled} onChange={(event) => setIsEnabled(event.target.checked)} /> เปิดใช้งาน</label>
-            <div className={`${labelClass} sm:col-span-2`}>
-              Modbus register (เว้นว่างถ้าเป็น display metadata อย่างเดียว ไม่ใช้ poll จริง)
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-                <Select value={modbusFunctionCode} onValueChange={setModbusFunctionCode}>
-                  <SelectTrigger><SelectValue placeholder="-" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="">-</SelectItem>
-                    <SelectItem value="3">FC03</SelectItem>
-                    <SelectItem value="4">FC04</SelectItem>
-                  </SelectContent>
-                </Select>
-                <input className={inputClass} type="number" min="0" max="65535" placeholder="Register" value={modbusRegister} onChange={(event) => setModbusRegister(event.target.value)} />
-                <Select value={modbusWordOrder} onValueChange={setModbusWordOrder}>
-                  <SelectTrigger><SelectValue placeholder="Word order (default)" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="">Word order (default)</SelectItem>
-                    <SelectItem value="HIGH_LOW">HIGH_LOW</SelectItem>
-                    <SelectItem value="LOW_HIGH">LOW_HIGH</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select value={modbusDataType} onValueChange={setModbusDataType}>
-                  <SelectTrigger><SelectValue placeholder="Modbus type" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="">Modbus type</SelectItem>
-                    {MIDDLEWARE_DATA_TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
+
             <label className={`${labelClass} sm:col-span-2`}>Notes<textarea className={`${inputClass} min-h-24 py-2`} value={notes} onChange={(event) => setNotes(event.target.value)} maxLength={500} /></label>
             {error && <p className="rounded-md bg-rose-50 px-3 py-2 text-sm font-bold text-danger sm:col-span-2">{error}</p>}
             <div className="flex justify-end gap-2 sm:col-span-2"><button type="button" className={secondaryButtonClass} onClick={onClose} disabled={pending}>ยกเลิก</button><button className={primaryButtonClass} disabled={pending}>{pending ? "กำลังบันทึก" : "บันทึก Address"}</button></div>
