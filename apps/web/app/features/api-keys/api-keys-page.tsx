@@ -4,6 +4,8 @@ import { ArchiveX, CheckCircle2, Pencil, Plus, RefreshCw, Save, Trash2, X } from
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { api, csrfToken, formatDate } from "../../lib/api";
 import type { APIKeyClient, CreatedAPIKeyClient } from "../../lib/types";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody } from "../../components/ui/dialog";
+import { toast } from "../../components/ui/sonner";
 
 export function APIKeysPage({ defaultOrganizationId }: { defaultOrganizationId?: string }) {
   const [clients, setClients] = useState<APIKeyClient[]>([]);
@@ -30,13 +32,13 @@ export function APIKeysPage({ defaultOrganizationId }: { defaultOrganizationId?:
   useEffect(() => { void loadClients(); }, [loadClients]);
 
   async function setClientActive(client: APIKeyClient, isActive: boolean) {
-    if (!isActive && !window.confirm(`ปิดใช้งาน API Key “${client.name}”? Middleware ที่ใช้ key นี้จะส่งข้อมูลไม่ได้ทันที`)) return;
+    if (!isActive && !window.confirm(`ปิดใช้งาน API Key "${client.name}"? Middleware ที่ใช้ key นี้จะส่งข้อมูลไม่ได้ทันที`)) return;
     const response = await api(`/api/v1/admin/api-keys/${encodeURIComponent(client.id)}/status`, {
       method: "POST",
       headers: { "X-CSRF-Token": csrfToken() },
       body: JSON.stringify({ isActive }),
     });
-    if (response.ok) await loadClients();
+    if (response.ok) { toast.success(isActive ? `เปิดใช้งาน API Key "${client.name}" แล้ว` : `ปิดใช้งาน API Key "${client.name}" แล้ว`); await loadClients(); }
     else setError(response.status === 403 ? "บัญชีนี้ไม่มีสิทธิ์เปลี่ยนสถานะ API Key" : "ไม่สามารถเปลี่ยนสถานะ API Key ได้");
   }
 
@@ -121,17 +123,23 @@ function APIKeyEditor({ client, defaultOrganizationId, onClose, onSaved }: { cli
     }
   }
 
-  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (!pending && event.target === event.currentTarget) onClose(); }}>
-    <section className="plant-editor api-key-editor" role="dialog" aria-modal="true" aria-labelledby="api-key-editor-title">
-      <header><div><p>Middleware API key</p><h2 id="api-key-editor-title">{client ? "แก้ไข API Key" : "เพิ่ม API Key"}</h2></div><button className="icon-button" onClick={onClose} disabled={pending} title="ปิด" aria-label="ปิด"><X size={18} /></button></header>
-      <form onSubmit={submit}>
-        <label className="full-field">ชื่อ Client<input value={name} onChange={(event) => setName(event.target.value)} maxLength={200} required /></label>
-        <label className="full-field">Organization ID<input value={organizationId} onChange={(event) => setOrganizationId(event.target.value)} required disabled={Boolean(client)} /></label>
-        <label className="toggle-field full-field"><input type="checkbox" checked={autoOnboard} onChange={(event) => setAutoOnboard(event.target.checked)} /> Auto onboard Plant/Device</label>
-        {client && <label className="toggle-field full-field"><input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} /> เปิดใช้งาน API Key</label>}
-        {error && <p className="form-message error full-field">{error}</p>}
-        <div className="editor-actions full-field"><button type="button" className="secondary-button" onClick={onClose} disabled={pending}>ยกเลิก</button><button className="primary-button" disabled={pending}><Save size={17} /> {pending ? "กำลังบันทึก" : "บันทึก API Key"}</button></div>
-      </form>
-    </section>
-  </div>;
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open && !pending) onClose(); }}>
+      <DialogContent>
+        <DialogHeader>
+          <div><DialogDescription>Middleware API key</DialogDescription><DialogTitle>{client ? "แก้ไข API Key" : "เพิ่ม API Key"}</DialogTitle></div>
+        </DialogHeader>
+        <DialogBody>
+          <form className="plant-editor-form" onSubmit={submit}>
+            <label className="full-field">ชื่อ Client<input value={name} onChange={(event) => setName(event.target.value)} maxLength={200} required /></label>
+            <label className="full-field">Organization ID<input value={organizationId} onChange={(event) => setOrganizationId(event.target.value)} required disabled={Boolean(client)} /></label>
+            <label className="toggle-field full-field"><input type="checkbox" checked={autoOnboard} onChange={(event) => setAutoOnboard(event.target.checked)} /> Auto onboard Plant/Device</label>
+            {client && <label className="toggle-field full-field"><input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} /> เปิดใช้งาน API Key</label>}
+            {error && <p className="form-message error full-field">{error}</p>}
+            <div className="editor-actions full-field"><button type="button" className="secondary-button" onClick={onClose} disabled={pending}>ยกเลิก</button><button className="primary-button" disabled={pending}><Save size={17} /> {pending ? "กำลังบันทึก" : "บันทึก API Key"}</button></div>
+          </form>
+        </DialogBody>
+      </DialogContent>
+    </Dialog>
+  );
 }
