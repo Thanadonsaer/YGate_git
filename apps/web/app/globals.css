@@ -294,7 +294,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .status.offline { color: var(--danger); background: #fff0f0; }
 .status.no_devices, .status.disabled { color: #6d767d; background: #edf0f2; }
 .account-section { margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--line); }
-.section-heading { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 18px; }
+.section-heading { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 18px; position: relative; padding-bottom: 14px; }
 .section-heading p { color: var(--muted); font-size: 10px; margin-bottom: 4px; }
 .section-heading h2 { margin: 0; font-size: 20px; }
 .account-grid { margin: 0; border: 1px solid var(--line); background: white; display: grid; grid-template-columns: 1fr 1.4fr 1.4fr; }
@@ -680,3 +680,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 @media (prefers-reduced-motion: reduce) {
   .live-pulse-connected path, .live-pulse-connecting path { animation: none; }
 }
+
+.auth-pulse { position: absolute; z-index: 1; bottom: 12vh; left: clamp(32px, 6vw, 96px); width: min(480px, 60%); height: 40px; color: rgb(255 255 255 / 22%); }
+.section-heading::after { content: ""; position: absolute; left: 0; bottom: 0; width: 64px; height: 3px; border-radius: 2px; background: linear-gradient(90deg, var(--action), var(--energy)); }

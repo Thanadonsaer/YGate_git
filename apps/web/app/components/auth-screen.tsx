@@ -4,6 +4,7 @@ import { ArrowLeft, CheckCircle2, Eye, EyeOff, KeyRound, ShieldCheck, SunMedium 
 import { FormEvent, useState } from "react";
 import { api } from "../lib/api";
 import type { AuthMode, User } from "../lib/types";
+import { LivePulse } from "./live-pulse";
 
 export function AuthScreen({
   mode,
@@ -74,6 +75,7 @@ export function AuthScreen({
   return (
     <main className="auth-screen">
       <div className="auth-overlay" />
+      <LivePulse state="connected" className="auth-pulse" />
       <section className="auth-brand">
         <div className="auth-logo"><SunMedium size={24} /><span>YGATE</span></div>
         <div><p>Solar Operations Platform</p><h1>Solar SCADA</h1><span>ศูนย์กลางติดตามระบบผลิตไฟฟ้าพลังงานแสงอาทิตย์</span></div>
