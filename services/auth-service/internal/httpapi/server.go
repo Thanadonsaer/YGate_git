@@ -28,10 +28,10 @@ type healthResponse struct {
 // internal/httpapi/server.go's overall shape (New(...) building a mux,
 // authenticated() as the session-check middleware) -- see that file's git
 // history for the shared lineage. platform-api's own DELETE
-// /api/v1/admin/api-keys/{keyId} and /api/v1/admin/users/{userId} hard-delete
-// routes stay in platform-api; only the ones whose business logic actually
-// moved (see users.go/roles.go/admin_integrations.go/profile.go in this
-// package) are registered here.
+// /api/v1/admin/api-keys/{keyId} hard-delete route stays in platform-api;
+// the users hard-delete route moved here along with the rest of the users
+// domain logic (see users.go/roles.go/admin_integrations.go/profile.go in
+// this package).
 func New(version string, ready func(context.Context) error, authService *auth.Service, registryService *core.Service, cookieSecure bool) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {

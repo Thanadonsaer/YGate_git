@@ -78,8 +78,13 @@ PLATFORM_COOKIE_SECURE=true
 PLATFORM_WEBSOCKET_ORIGINS=scada.example.com
 PLATFORM_OPENAPI_FILE=/opt/ygate/platform-api.yaml
 
+AUTH_DATABASE_URL=postgresql://<user>:<password>@<database>:5432/<database>
+AUTH_HTTP_ADDR=127.0.0.1:44442
+AUTH_COOKIE_SECURE=true
+
 GATEWAY_HTTP_ADDR=127.0.0.1:44440
 GATEWAY_PLATFORM_URL=http://127.0.0.1:44441
+GATEWAY_AUTH_SERVICE_URL=http://127.0.0.1:44442
 GATEWAY_ALLOWED_ORIGINS=https://scada.example.com
 
 NEXT_PUBLIC_GATEWAY_URL=https://scada.example.com
