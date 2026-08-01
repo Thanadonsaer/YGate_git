@@ -21,6 +21,7 @@ install -d -o ygate -g ygate "$release_dir" "$backup_dir"
 tar -xzf "$archive" -C "$release_dir"
 test -x "$release_dir/bin/platform-api"
 test -x "$release_dir/bin/api-gateway"
+test -x "$release_dir/bin/auth-service"
 test -f "$release_dir/web/server.js"
 test -f "$release_dir/platform-api.yaml"
 [[ $(<"$release_dir/VERSION") == "$release_sha" ]]
@@ -29,7 +30,7 @@ chown -R ygate:ygate "$release_dir"
 previous_release=$(readlink -f "$current_link" || true)
 
 restart_all() {
-    systemctl restart ygate-platform-api ygate-api-gateway ygate-web
+    systemctl restart ygate-platform-api ygate-auth-service ygate-api-gateway ygate-web
 }
 
 rollback() {
@@ -66,6 +67,8 @@ wait_for() {
 
 systemctl restart ygate-platform-api
 wait_for http://127.0.0.1:44441/readyz
+systemctl restart ygate-auth-service
+wait_for http://127.0.0.1:44442/readyz
 systemctl restart ygate-api-gateway
 wait_for http://127.0.0.1:44440/gateway/healthz
 wait_for http://127.0.0.1:44440/readyz

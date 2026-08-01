@@ -70,6 +70,8 @@ HOSTNAME=127.0.0.1
 PORT=8080
 ```
 
+ต้องมี `AUTH_DATABASE_URL`, `AUTH_HTTP_ADDR`, `AUTH_COOKIE_SECURE` และ `GATEWAY_AUTH_SERVICE_URL` (ชี้ไปที่ `AUTH_HTTP_ADDR`) ตามที่ระบุใน root `README.md` ด้วย ไม่เช่นนั้น `ygate-auth-service` จะไม่ทำงานและ gateway จะ 502 ทุก login/admin request
+
 ไฟล์ต้องเป็น shell-compatible `KEY=value` และจำกัดสิทธิ์:
 
 ```bash
@@ -100,12 +102,33 @@ RestartSec=5
 WantedBy=multi-user.target
 ```
 
+`/etc/systemd/system/ygate-auth-service.service`:
+
+```ini
+[Unit]
+Description=YGATE Auth Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ygate
+Group=ygate
+WorkingDirectory=/opt/ygate/current
+EnvironmentFile=/etc/ygate/ygate.env
+ExecStart=/opt/ygate/current/bin/auth-service
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
 `/etc/systemd/system/ygate-api-gateway.service`:
 
 ```ini
 [Unit]
 Description=YGATE API Gateway
-After=ygate-platform-api.service
+After=ygate-platform-api.service ygate-auth-service.service
 
 [Service]
 User=ygate
@@ -144,7 +167,7 @@ WantedBy=multi-user.target
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable ygate-platform-api ygate-api-gateway ygate-web
+sudo systemctl enable ygate-platform-api ygate-auth-service ygate-api-gateway ygate-web
 ```
 
 อนุญาตให้ deploy user รันเฉพาะ reviewed deploy script ผ่าน `/etc/sudoers.d/ygate-deploy`:
@@ -204,6 +227,7 @@ Deploy script ต้องมี previous release สำหรับ automatic r
 
 ```bash
 curl --fail http://127.0.0.1:44441/readyz
+curl --fail http://127.0.0.1:44442/readyz
 curl --fail http://127.0.0.1:44440/gateway/healthz
 curl --fail http://127.0.0.1:44440/readyz
 curl --fail http://127.0.0.1:8080/
@@ -225,8 +249,8 @@ curl --fail http://127.0.0.1:8080/
 ## 9. คำสั่งตรวจสอบและ rollback แบบ manual
 
 ```bash
-sudo systemctl status ygate-platform-api ygate-api-gateway ygate-web
-sudo journalctl -u ygate-platform-api -u ygate-api-gateway -u ygate-web --since '15 minutes ago'
+sudo systemctl status ygate-platform-api ygate-auth-service ygate-api-gateway ygate-web
+sudo journalctl -u ygate-platform-api -u ygate-auth-service -u ygate-api-gateway -u ygate-web --since '15 minutes ago'
 readlink -f /opt/ygate/current
 ls -1 /opt/ygate/releases
 ```
@@ -236,5 +260,5 @@ Rollback ไป release เดิม:
 ```bash
 sudo ln -sfn /opt/ygate/releases/<previous-commit-sha> /opt/ygate/current.rollback
 sudo mv -Tf /opt/ygate/current.rollback /opt/ygate/current
-sudo systemctl restart ygate-platform-api ygate-api-gateway ygate-web
+sudo systemctl restart ygate-platform-api ygate-auth-service ygate-api-gateway ygate-web
 ```
