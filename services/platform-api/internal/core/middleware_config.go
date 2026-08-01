@@ -137,6 +137,123 @@ type MiddlewareConfigSnapshot struct {
 	Plants      []MiddlewarePlant      `json:"plants"`
 }
 
+type ImportMiddlewareConfigResult struct {
+	DeviceModelsCreated      int                         `json:"deviceModelsCreated"`
+	DeviceModelsReused       int                         `json:"deviceModelsReused"`
+	RegisterMetadataUpserted int                         `json:"registerMetadataUpserted"`
+	ConnectionsFound         []ImportedConnectionSummary `json:"connectionsFound"`
+}
+
+type ImportedConnectionSummary struct {
+	Host        string `json:"host"`
+	Port        int    `json:"port"`
+	UnitID      int    `json:"unitId"`
+	DeviceModel string `json:"deviceModel"`
+}
+
+// normalizeModbusDataType mirrors modbus-api-middleware/internal/decoder.NormalizeDataType --
+// duplicated here (not imported: different Go module) so a legacy
+// Middleware's free-text data types (SHORT/USHORT/FLOAT/...) map onto the
+// canonical MIDDLEWARE_DATA_TYPES the rest of this system already uses.
+func normalizeModbusDataType(dataType string) string {
+	switch strings.ToUpper(strings.TrimSpace(dataType)) {
+	case "SHORT", "INT16":
+		return "I16"
+	case "USHORT", "UINT16":
+		return "U16"
+	case "LONG", "SLONG", "INT32", "S32", "SW_INT", "SMA_INT32":
+		return "I32"
+	case "ULONG", "DWORD", "UINT32", "SW_UINT", "SMA_UINT32":
+		return "U32"
+	case "UINT64", "SMA_UINT64":
+		return "U64"
+	case "FLOAT", "SW_FLOAT":
+		return "FLOAT32"
+	default:
+		return strings.ToUpper(strings.TrimSpace(dataType))
+	}
+}
+
+// importFromSnapshot upserts DeviceModel + DeviceModelRegisterMetadata rows
+// from an already-decoded MiddlewareConfigSnapshot pulled live from a
+// Middleware's local config (see ImportMiddlewareConfig). Idempotent: an
+// existing DeviceModel (matched by manufacturer/deviceType/model) is
+// reused, never duplicated; register metadata is upserted by addressKey
+// the same way the Register Metadata page's own PUT already works.
+// Connections are only summarized, never turned into Device rows -- Plant
+// assignment stays a human decision (see the design spec).
+func (s *Service) importFromSnapshot(ctx context.Context, principal auth.Principal, organizationID string, snapshot MiddlewareConfigSnapshot, sourceIP *netip.Addr) (ImportMiddlewareConfigResult, error) {
+	var result ImportMiddlewareConfigResult
+
+	existing, err := s.DeviceModels(ctx, principal)
+	if err != nil {
+		return result, fmt.Errorf("list existing device models: %w", err)
+	}
+	type modelKey struct{ manufacturer, deviceType, model string }
+	byKey := make(map[modelKey]string, len(existing))
+	for _, m := range existing {
+		byKey[modelKey{m.Manufacturer, m.DeviceType, m.Model}] = m.ID
+	}
+
+	brandNames := make(map[int64]string, len(snapshot.Brands))
+	for _, b := range snapshot.Brands {
+		brandNames[b.BrandID] = b.BrandName
+	}
+
+	resolvedModelName := make(map[int64]string, len(snapshot.DeviceSets))
+	for _, ds := range snapshot.DeviceSets {
+		manufacturer := brandNames[ds.BrandID]
+		if manufacturer == "" {
+			manufacturer = ds.BrandName
+		}
+		key := modelKey{manufacturer, ds.DevType, ds.DevModel}
+		modelID, ok := byKey[key]
+		if ok {
+			result.DeviceModelsReused++
+		} else {
+			created, err := s.CreateDeviceModel(ctx, principal, DeviceModelInput{
+				OrganizationID: organizationID, Manufacturer: manufacturer, DeviceType: ds.DevType, Model: ds.DevModel, IsActive: true,
+			}, sourceIP)
+			if err != nil {
+				return result, fmt.Errorf("create device model %s/%s/%s: %w", manufacturer, ds.DevType, ds.DevModel, err)
+			}
+			modelID = created.ID
+			byKey[key] = modelID
+			result.DeviceModelsCreated++
+		}
+		resolvedModelName[ds.DeviceSetID] = fmt.Sprintf("%s / %s / %s", manufacturer, ds.DevType, ds.DevModel)
+
+		for _, addr := range ds.Addresses {
+			addressKey := strings.TrimSpace(addr.CanonicalKey)
+			if addressKey == "" {
+				addressKey = fmt.Sprintf("%d:%d", addr.FunctionCode, addr.Register)
+			}
+			functionCode := int32(addr.FunctionCode)
+			register := int32(addr.Register)
+			_, err := s.SetDeviceModelRegisterMetadata(ctx, principal, modelID, UpdateDeviceModelRegisterMetadataInput{
+				UpdateDeviceRegisterMetadataInput: UpdateDeviceRegisterMetadataInput{
+					AddressKey: addressKey, DisplayName: addr.Description, DataType: "number", Scale: addr.Factor, Offset: addr.Offset, Decimals: 2, IsEnabled: true,
+				},
+				ModbusFunctionCode: &functionCode,
+				ModbusRegister:     &register,
+				ModbusWordOrder:    addr.WordOrder,
+				ModbusDataType:     normalizeModbusDataType(addr.DataType),
+			}, sourceIP)
+			if err != nil {
+				return result, fmt.Errorf("upsert register metadata %s: %w", addressKey, err)
+			}
+			result.RegisterMetadataUpserted++
+		}
+	}
+
+	for _, conn := range snapshot.Connections {
+		result.ConnectionsFound = append(result.ConnectionsFound, ImportedConnectionSummary{
+			Host: conn.Host, Port: conn.Port, UnitID: conn.UnitID, DeviceModel: resolvedModelName[conn.DeviceSetID],
+		})
+	}
+	return result, nil
+}
+
 type ConfigAckInput struct {
 	Version int64
 	Status  string // APPLIED | FAILED
