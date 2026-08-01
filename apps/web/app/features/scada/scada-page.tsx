@@ -49,12 +49,15 @@ import {
   Trash2,
   Type as TypeIcon,
   Workflow,
-  X,
   Zap,
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { api, csrfToken, formatDate } from "../../lib/api";
 import { useRealtimeSocket } from "../../lib/realtime";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody } from "../../components/ui/dialog";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../../components/ui/select";
+import { Tabs, TabsList, TabsTrigger } from "../../components/ui/tabs";
+import { Tooltip, TooltipTrigger, TooltipContent } from "../../components/ui/tooltip";
 import type {
   Device,
   LatestTelemetry,
@@ -341,11 +344,13 @@ export function ScadaPage() {
       </div>
       <div className="scada-actions">
         {screen.canEdit && <SaveState state={saveState} />}
-        <div className="mode-switch" aria-label="โหมด SCADA">
-          {screen.canEdit && <button className={mode === "edit" ? "active" : ""} onClick={() => setMode("edit")}><Pencil size={15} /> Edit</button>}
-          {screen.canEdit && <button className={mode === "preview" ? "active" : ""} onClick={() => setMode("preview")}><Eye size={15} /> Preview</button>}
-          <button className={mode === "published" ? "active" : ""} onClick={() => void showPublished()}><Radio size={15} /> Published</button>
-        </div>
+        <Tabs value={mode} onValueChange={(value) => { if (value === "published") void showPublished(); else setMode(value as BuilderMode); }}>
+          <TabsList aria-label="โหมด SCADA">
+            {screen.canEdit && <TabsTrigger value="edit"><Pencil size={15} /> Edit</TabsTrigger>}
+            {screen.canEdit && <TabsTrigger value="preview"><Eye size={15} /> Preview</TabsTrigger>}
+            <TabsTrigger value="published"><Radio size={15} /> Published</TabsTrigger>
+          </TabsList>
+        </Tabs>
         {screen.canPublish && <button className="primary-button compact" disabled={saveState !== "saved"} onClick={() => void publishScreen()}><Send size={16} /> Publish</button>}
         {screen.canHardDelete && <button className="icon-button danger" onClick={() => void hardDelete()} title="ลบ Screen ถาวร" aria-label="ลบ Screen ถาวร"><Trash2 size={17} /></button>}
       </div>
@@ -371,7 +376,25 @@ function ScadaLibrary({ plants, screens, loading, error, createOpen, createPlant
       {loading && <div className="table-state">กำลังโหลด SCADA Screens</div>}
       {!loading && !error && screens.length === 0 && <div className="table-state">ยังไม่มี SCADA Screen — สร้าง Screen แรกสำหรับ Plant ที่ต้องการ</div>}
     </section>
-    {createOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onCreateOpen(false); }}><section className="plant-editor scada-create-dialog" role="dialog" aria-modal="true" aria-labelledby="create-scada-title"><header><div><p>Phase 3B</p><h2 id="create-scada-title">สร้าง SCADA Screen</h2></div><button className="icon-button" onClick={() => onCreateOpen(false)} title="ปิด" aria-label="ปิด"><X size={18} /></button></header><form onSubmit={(event) => void onCreate(event)}><label className="full-field">Plant<select value={createPlantID} onChange={(event) => onCreatePlantID(event.target.value)} required>{plants.map((plant) => <option key={plant.id} value={plant.id}>{plant.code} · {plant.name}</option>)}</select></label><label className="full-field">ชื่อ Screen<input autoFocus value={createName} onChange={(event) => onCreateName(event.target.value)} maxLength={100} placeholder="Single Line Diagram" required /></label><div className="editor-actions full-field"><button type="button" className="secondary-button" onClick={() => onCreateOpen(false)}>ยกเลิก</button><button className="primary-button"><FilePlus2 size={17} /> สร้าง Draft</button></div></form></section></div>}
+    <Dialog open={createOpen} onOpenChange={onCreateOpen}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <div><DialogDescription>Phase 3B</DialogDescription><DialogTitle>สร้าง SCADA Screen</DialogTitle></div>
+        </DialogHeader>
+        <DialogBody>
+          <form className="plant-editor-form" onSubmit={(event) => void onCreate(event)}>
+            <label className="full-field">Plant
+              <Select value={createPlantID} onValueChange={onCreatePlantID}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>{plants.map((plant) => <SelectItem key={plant.id} value={plant.id}>{plant.code} · {plant.name}</SelectItem>)}</SelectContent>
+              </Select>
+            </label>
+            <label className="full-field">ชื่อ Screen<input autoFocus value={createName} onChange={(event) => onCreateName(event.target.value)} maxLength={100} placeholder="Single Line Diagram" required /></label>
+            <div className="editor-actions full-field"><button type="button" className="secondary-button" onClick={() => onCreateOpen(false)}>ยกเลิก</button><button className="primary-button"><FilePlus2 size={17} /> สร้าง Draft</button></div>
+          </form>
+        </DialogBody>
+      </DialogContent>
+    </Dialog>
   </div>;
 }
 
@@ -461,7 +484,7 @@ function ScadaCanvas({ design, editable, devices, latestByDevice, versions, canP
     setNodes(nextNodes); setEdges(nextEdges); setSelectedID(""); emit(nextNodes, nextEdges);
   }
 
-  return <div className={editable ? "scada-workbench editing" : "scada-workbench viewing"}>
+  return <div className={editable ? "scada-workbench editing scada-dark" : "scada-workbench viewing scada-dark"}>
     {editable && <aside className="scada-palette"><header><Grid2X2 size={17} /><div><strong>Node palette</strong><small>เพิ่มองค์ประกอบลง fixed canvas</small></div></header>{paletteEntries.map(({ type, title, description, icon: Icon, requiresDevice }) => <button key={type} onClick={() => addNode(type)} disabled={requiresDevice && devices.length === 0} title={requiresDevice && devices.length === 0 ? "Plant นี้ยังไม่มี Device" : undefined}><Icon size={18} /><span><strong>{title}</strong><small>{description}</small></span></button>)}<div className="palette-note"><Workflow size={16} /><p>ใช้ Edge ของ React Flow สำหรับเส้นและลูกศรระหว่าง Node</p></div></aside>}
     <section className="scada-stage-shell" ref={stageRef}>
       <div className="scada-stage-toolbar"><span>{editable ? "Draft canvas · Snap 20px" : "Operational viewer · Read only"}</span><button className="icon-button" onClick={() => void stageRef.current?.requestFullscreen()} title="เต็มจอ" aria-label="แสดง SCADA เต็มจอ"><Fullscreen size={17} /></button></div>
@@ -498,7 +521,7 @@ function ScadaInspector({ selected, devices, latestByDevice, versions, canPublis
   const listed = selected.type === "table" || selected.type === "alarms";
   const deviceOnly = selected.type === "device-summary";
   return <aside className="scada-inspector">
-    <header><Pencil size={17} /><div><strong>Node properties</strong><small>{selected.type} · {selected.id.slice(0, 12)}</small></div></header>
+    <header><Pencil size={17} /><div><strong>Node properties</strong><Tooltip><TooltipTrigger asChild><small className="cursor-help underline decoration-dotted">{selected.type} · {selected.id.slice(0, 12)}</small></TooltipTrigger><TooltipContent>Node type: {selected.type}<br />Full ID: {selected.id}</TooltipContent></Tooltip></div></header>
     <label>Label<input value={data.label} maxLength={100} onChange={(event) => update({ label: event.target.value })} /></label>
     {selected.type === "equipment" && <label>Equipment type<select value={data.equipmentKind || "inverter"} onChange={(event) => update({ equipmentKind: event.target.value as ScadaNodeData["equipmentKind"] })}><option value="solar-panel">Solar panel</option><option value="inverter">Inverter</option><option value="meter">Meter</option><option value="grid">Grid</option></select></label>}
     {bound && <BindingEditor binding={data.binding} devices={devices} latestByDevice={latestByDevice} onChange={(binding) => update({ binding })} />}
