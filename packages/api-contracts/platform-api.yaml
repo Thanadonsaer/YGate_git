@@ -974,6 +974,29 @@ paths:
           description: Middleware gateway is offline
         "504":
           description: Middleware gateway did not respond in time
+  /api/v1/admin/middlewares/{middlewareId}/push-config:
+    parameters:
+      - name: middlewareId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: pushAdminMiddlewareConfig
+      summary: Explicitly recompute a middleware gateway's config from current Device/DeviceModel/Plant data and push it over the realtime channel. Config is never pushed automatically -- this is the only trigger.
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      responses:
+        "204":
+          description: Config recomputed and, if the gateway is connected, pushed
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing middleware config update permission
+        "404":
+          description: Middleware gateway is missing or outside scope
   /api/v1/admin/middlewares/{middlewareId}/plants:
     parameters:
       - name: middlewareId

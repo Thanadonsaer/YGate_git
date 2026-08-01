@@ -320,7 +320,6 @@ func (s *Service) UpdateDeviceModel(ctx context.Context, principal auth.Principa
 	if err = tx.Commit(ctx); err != nil {
 		return DeviceModelOption{}, fmt.Errorf("commit update device model: %w", err)
 	}
-	s.recomputeAndPushMiddlewaresForDeviceModel(context.WithoutCancel(ctx), id)
 	return model, nil
 }
 
@@ -430,7 +429,6 @@ RETURNING id, organization_id, device_model_id, address_key, display_name, unit,
 	if err = tx.Commit(ctx); err != nil {
 		return DeviceModelRegisterMetadata{}, fmt.Errorf("commit model register metadata update: %w", err)
 	}
-	s.recomputeAndPushMiddlewaresForDeviceModel(context.WithoutCancel(ctx), modelUUID)
 	return after, nil
 }
 
@@ -474,7 +472,6 @@ func (s *Service) DeleteDeviceModelRegisterMetadata(ctx context.Context, princip
 	if err = tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit delete model register metadata: %w", err)
 	}
-	s.recomputeAndPushMiddlewaresForDeviceModel(context.WithoutCancel(ctx), modelUUID)
 	return nil
 }
 
@@ -549,7 +546,6 @@ FROM inserted JOIN device_model dm ON dm.id = inserted.device_model_id`,
 	if err = tx.Commit(ctx); err != nil {
 		return Device{}, fmt.Errorf("commit create device: %w", err)
 	}
-	s.recomputeAndPushMiddlewareForPlant(context.WithoutCancel(ctx), plant.OrganizationID, plantUUID)
 	return device, nil
 }
 
@@ -629,7 +625,6 @@ FROM updated JOIN device_model dm ON dm.id = updated.device_model_id`,
 	if err = tx.Commit(ctx); err != nil {
 		return Device{}, fmt.Errorf("commit update device: %w", err)
 	}
-	s.recomputeAndPushMiddlewareForPlant(context.WithoutCancel(ctx), organizationID, plantUUID)
 	return device, nil
 }
 

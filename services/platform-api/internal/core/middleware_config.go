@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net/netip"
 	"strings"
 	"time"
@@ -719,15 +718,42 @@ WHERE device_model_id = ANY($1) AND modbus_function_code IS NOT NULL`, modelIDs)
 	return snapshot, nil
 }
 
-// recomputeAndPushMiddleware rebuilds middlewareID's config, and only if
-// the content actually changed (by hash) bumps config_version, records
-// history, and pushes it over the hub if the gateway is currently
-// connected. A no-op when nothing relevant changed avoids spurious pushes
-// from unrelated edits elsewhere in the same organization.
-func (s *Service) recomputeAndPushMiddleware(ctx context.Context, middlewareID pgtype.UUID) {
-	if err := s.doRecomputeAndPushMiddleware(ctx, middlewareID); err != nil {
-		log.Printf("recompute middleware config %s: %v", uuidString(middlewareID), err)
+// PushMiddlewareConfig is the explicit, admin-triggered "Push Config"
+// action. Config is never pushed automatically (not on gateway hello, not
+// on Device/Plant/DeviceModel writes) -- only this manual entry point
+// rebuilds middlewareID's config from current Device/DeviceModel/Plant data
+// and sends it, so a Middleware's own local config is never silently
+// overwritten before an admin has had a chance to pull it via
+// ImportMiddlewareConfig.
+func (s *Service) PushMiddlewareConfig(ctx context.Context, principal auth.Principal, middlewareID string, sourceIP *netip.Addr) error {
+	mwUUID, err := parseUUID(middlewareID)
+	if err != nil {
+		return ErrMiddlewareNotFound
 	}
+	var mwOrgID pgtype.UUID
+	if err = s.pool.QueryRow(ctx, `SELECT organization_id FROM middleware_client WHERE id=$1`, mwUUID).Scan(&mwOrgID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrMiddlewareNotFound
+		}
+		return fmt.Errorf("lookup middleware organization: %w", err)
+	}
+	if err = s.requireOrganizationPermission(ctx, s.queries, principal, "update", "middleware_config", mwOrgID); err != nil {
+		return err
+	}
+	if err = s.doRecomputeAndPushMiddleware(ctx, mwUUID); err != nil {
+		return err
+	}
+	correlationID, err := newUUID()
+	if err != nil {
+		return err
+	}
+	if err = s.queries.CreateAuditEventFull(ctx, dbgen.CreateAuditEventFullParams{
+		OrganizationID: mwOrgID, ActorUserID: principal.UserID, Action: "middleware_config.pushed",
+		TargetType: "middleware_client", TargetID: mwUUID, SourceIp: sourceIP, CorrelationID: correlationID,
+	}); err != nil {
+		return fmt.Errorf("audit middleware config push: %w", err)
+	}
+	return nil
 }
 
 func (s *Service) doRecomputeAndPushMiddleware(ctx context.Context, middlewareID pgtype.UUID) error {
@@ -782,51 +808,6 @@ func (s *Service) doRecomputeAndPushMiddleware(ctx context.Context, middlewareID
 	return nil
 }
 
-// recomputeAndPushMiddlewareForPlant is the call site used by Device write
-// paths: a Device edit only affects the (at most one) Middleware currently
-// serving its Plant.
-func (s *Service) recomputeAndPushMiddlewareForPlant(ctx context.Context, organizationID, plantID pgtype.UUID) {
-	var middlewareID pgtype.UUID
-	err := s.pool.QueryRow(ctx, `SELECT middleware_client_id FROM middleware_plant WHERE plant_id=$1`, plantID).Scan(&middlewareID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return
-	}
-	if err != nil {
-		log.Printf("resolve middleware for plant %s: %v", uuidString(plantID), err)
-		return
-	}
-	s.recomputeAndPushMiddleware(ctx, middlewareID)
-}
-
-// recomputeAndPushMiddlewaresForDeviceModel is the call site used by
-// DeviceModel/RegisterMetadata write paths: a model's register list
-// changing can affect every Middleware serving a Plant with a Device of
-// that model.
-func (s *Service) recomputeAndPushMiddlewaresForDeviceModel(ctx context.Context, deviceModelID pgtype.UUID) {
-	rows, err := s.pool.Query(ctx, `
-SELECT DISTINCT mp.middleware_client_id
-FROM device d
-JOIN middleware_plant mp ON mp.plant_id = d.plant_id
-WHERE d.device_model_id=$1`, deviceModelID)
-	if err != nil {
-		log.Printf("resolve middlewares for device model %s: %v", uuidString(deviceModelID), err)
-		return
-	}
-	var middlewareIDs []pgtype.UUID
-	for rows.Next() {
-		var id pgtype.UUID
-		if err := rows.Scan(&id); err != nil {
-			rows.Close()
-			log.Printf("scan middleware for device model %s: %v", uuidString(deviceModelID), err)
-			return
-		}
-		middlewareIDs = append(middlewareIDs, id)
-	}
-	rows.Close()
-	for _, id := range middlewareIDs {
-		s.recomputeAndPushMiddleware(ctx, id)
-	}
-}
 
 // wireID derives a stable int64 wire ID from a Postgres UUID for the
 // modbus-api-middleware wire protocol, which only ever treats IDs as
@@ -849,25 +830,14 @@ func brandWireID(manufacturer string) int64 {
 }
 
 // HandleGatewayHello is called by the realtime WS handler when a gateway
-// first connects. It returns the config push payload if the server holds a
-// newer version than the gateway has applied.
+// first connects. Config push on hello is intentionally disabled -- a
+// Middleware's own local config (e.g. legacy data an admin hasn't imported
+// yet via "Import from Middleware") must never be silently overwritten just
+// because it connected. Config only ever gets pushed via the explicit
+// "Push Config" admin action (see PushMiddlewareConfig).
 func (s *Service) HandleGatewayHello(ctx context.Context, clientID pgtype.UUID, appliedVersion int64) (payload []byte, shouldPush bool, err error) {
 	_ = s.queries.TouchMiddlewareClient(ctx, clientID)
-	var raw []byte
-	var version int64
-	err = s.pool.QueryRow(ctx, `SELECT config_snapshot, config_version FROM middleware_client WHERE id=$1`, clientID).Scan(&raw, &version)
-	if err != nil {
-		return nil, false, fmt.Errorf("load gateway config for hello: %w", err)
-	}
-	if version <= appliedVersion || len(raw) == 0 {
-		return nil, false, nil
-	}
-	var snapshot MiddlewareConfigSnapshot
-	if err = json.Unmarshal(raw, &snapshot); err != nil {
-		return nil, false, fmt.Errorf("decode stored config on hello: %w", err)
-	}
-	snapshot.Version = version
-	return pushEnvelope("config.snapshot", snapshot), true, nil
+	return nil, false, nil
 }
 
 // RecordConfigAck persists a gateway's config.ack and, on APPLIED, advances

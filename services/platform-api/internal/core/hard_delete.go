@@ -97,7 +97,6 @@ func (s *Service) HardDeleteDevice(ctx context.Context, principal auth.Principal
 	if err = commitHardDelete(ctx, tx, "device"); err != nil {
 		return err
 	}
-	s.recomputeAndPushMiddlewareForPlant(context.WithoutCancel(ctx), organizationID, plantUUID)
 	return nil
 }
 

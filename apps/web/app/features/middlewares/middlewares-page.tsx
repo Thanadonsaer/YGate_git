@@ -159,6 +159,7 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [pushing, setPushing] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -246,6 +247,25 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
     }
   }
 
+  async function pushConfig() {
+    if (!window.confirm(`ส่ง Config ที่คำนวณจาก Device ปัจจุบันไปที่ "${gateway.name}"? การตั้งค่าเดิมบน Middleware จะถูกเขียนทับ`)) return;
+    setPushing(true);
+    setError("");
+    try {
+      const response = await api(`/api/v1/admin/middlewares/${encodeURIComponent(gateway.id)}/push-config`, {
+        method: "POST",
+        headers: { "X-CSRF-Token": csrfToken() },
+      });
+      if (!response.ok) throw new Error("ไม่สามารถส่ง Config ไปที่ Middleware ได้");
+      toast.success(gateway.isOnline ? `ส่ง Config ไปที่ ${gateway.name} แล้ว` : `คำนวณ Config ไว้แล้ว แต่ ${gateway.name} ออฟไลน์อยู่ — กด "ส่ง Config" อีกครั้งหลังเชื่อมต่อ`);
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+    } finally {
+      setPushing(false);
+    }
+  }
+
   return (
     <div className="content api-keys-content">
       <div className="section-heading">
@@ -284,9 +304,12 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
       </div>
 
       <div className="section-heading">
-        <div><h3>Import from Middleware</h3><p>ดึง config ที่ตั้งไว้บน Middleware เครื่องนี้มาสร้าง Device Model และ Register Metadata ครั้งเดียว (ใช้ตอน onboard Middleware เก่าที่เคยตั้งค่าไว้ก่อนมีระบบนี้)</p></div>
+        <div><h3>Push / Pull Config (Manual)</h3><p>Config ไม่ถูกส่งอัตโนมัติอีกต่อไป — เลือกทิศทางเอง: "ส่ง Config" เขียนทับค่าบน Middleware ด้วยค่าจาก ygate, "ดึง Config" อ่านค่าเดิมจาก Middleware เข้ามาไว้ใน ygate (ใช้ตอน onboard Middleware เก่า)</p></div>
         <div className="heading-actions">
-          <button className="primary-button compact" disabled={!gateway.isOnline || importing} onClick={() => void importConfig()} title={gateway.isOnline ? "ดึง Config จาก Middleware" : "Middleware ต้อง Online ก่อน"}>
+          <button className="secondary-button compact" disabled={pushing || importing} onClick={() => void pushConfig()} title="คำนวณ Config จาก Device ปัจจุบันแล้วส่งไปที่ Middleware">
+            {pushing ? "กำลังส่ง Config..." : "ส่ง Config ไปที่ Middleware"}
+          </button>
+          <button className="primary-button compact" disabled={!gateway.isOnline || importing || pushing} onClick={() => void importConfig()} title={gateway.isOnline ? "ดึง Config จาก Middleware" : "Middleware ต้อง Online ก่อน"}>
             {importing ? "กำลังดึง Config..." : "ดึง Config จาก Middleware"}
           </button>
         </div>

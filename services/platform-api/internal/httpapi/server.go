@@ -67,6 +67,7 @@ func New(version string, ready func(context.Context) error, pool *pgxpool.Pool, 
 		mux.HandleFunc("PUT /api/v1/admin/middlewares/{middlewareId}", authenticated(pool, sessionIdleTimeout, true, updateMiddlewareHandler(registryService)))
 		mux.HandleFunc("GET /api/v1/admin/middlewares/{middlewareId}/config", authenticated(pool, sessionIdleTimeout, false, getMiddlewareConfigHandler(registryService)))
 		mux.HandleFunc("POST /api/v1/admin/middlewares/{middlewareId}/import-config", authenticated(pool, sessionIdleTimeout, true, importMiddlewareConfigHandler(registryService)))
+		mux.HandleFunc("POST /api/v1/admin/middlewares/{middlewareId}/push-config", authenticated(pool, sessionIdleTimeout, true, pushMiddlewareConfigHandler(registryService)))
 		mux.HandleFunc("GET /api/v1/admin/middlewares/{middlewareId}/plants", authenticated(pool, sessionIdleTimeout, false, listMiddlewarePlantsHandler(registryService)))
 		mux.HandleFunc("POST /api/v1/admin/middlewares/{middlewareId}/plants", authenticated(pool, sessionIdleTimeout, true, assignMiddlewarePlantHandler(registryService)))
 		mux.HandleFunc("DELETE /api/v1/admin/middlewares/{middlewareId}/plants/{plantId}", authenticated(pool, sessionIdleTimeout, true, unassignMiddlewarePlantHandler(registryService)))

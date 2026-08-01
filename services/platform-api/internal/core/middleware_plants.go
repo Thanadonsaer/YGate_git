@@ -97,9 +97,6 @@ func (s *Service) AssignMiddlewarePlant(ctx context.Context, principal auth.Prin
 	if plantOrgID != mwOrgID {
 		return ErrInvalid
 	}
-	var previousMiddlewareID pgtype.UUID
-	_ = tx.QueryRow(ctx, `SELECT middleware_client_id FROM middleware_plant WHERE plant_id=$1`, plantUUID).Scan(&previousMiddlewareID)
-
 	if _, err = tx.Exec(ctx, `
 INSERT INTO middleware_plant (middleware_client_id, organization_id, plant_id) VALUES ($1,$2,$3)
 ON CONFLICT (plant_id) DO UPDATE SET middleware_client_id=EXCLUDED.middleware_client_id, created_at=now()`,
@@ -119,10 +116,6 @@ ON CONFLICT (plant_id) DO UPDATE SET middleware_client_id=EXCLUDED.middleware_cl
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit assign middleware plant: %w", err)
-	}
-	s.recomputeAndPushMiddleware(context.WithoutCancel(ctx), mwUUID)
-	if previousMiddlewareID.Valid && previousMiddlewareID != mwUUID {
-		s.recomputeAndPushMiddleware(context.WithoutCancel(ctx), previousMiddlewareID)
 	}
 	return nil
 }
@@ -173,6 +166,5 @@ func (s *Service) UnassignMiddlewarePlant(ctx context.Context, principal auth.Pr
 	if err = tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit unassign middleware plant: %w", err)
 	}
-	s.recomputeAndPushMiddleware(context.WithoutCancel(ctx), mwUUID)
 	return nil
 }
