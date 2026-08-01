@@ -1,8 +1,10 @@
 "use client";
 
-import { Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
+import { Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { api, csrfToken } from "../../lib/api";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody } from "../../components/ui/dialog";
+import { toast } from "../../components/ui/sonner";
 import type { Permission, Role, RoleDetail } from "../../lib/types";
 
 export function RolesPage({ defaultOrganizationId }: { defaultOrganizationId?: string }) {
@@ -31,13 +33,13 @@ export function RolesPage({ defaultOrganizationId }: { defaultOrganizationId?: s
   useEffect(() => { void loadRoles(); }, [loadRoles]);
 
   async function deleteRole(role: Role) {
-    if (!window.confirm(`ลบ Role “${role.name}”? คำสั่งนี้ทำย้อนกลับไม่ได้`)) return;
+    if (!window.confirm(`ลบ Role "${role.name}"? คำสั่งนี้ทำย้อนกลับไม่ได้`)) return;
     const response = await api(`/api/v1/admin/roles/${encodeURIComponent(role.id)}`, {
       method: "DELETE",
       headers: { "X-CSRF-Token": csrfToken() },
     });
-    if (response.ok) { await loadRoles(); return; }
-    if (response.status === 409) setError(`ไม่สามารถลบ “${role.name}” ได้ เพราะยังมีผู้ใช้ถูก assign role นี้อยู่`);
+    if (response.ok) { toast.success(`ลบ Role "${role.name}" แล้ว`); await loadRoles(); return; }
+    if (response.status === 409) setError(`ไม่สามารถลบ "${role.name}" ได้ เพราะยังมีผู้ใช้ถูก assign role นี้อยู่`);
     else if (response.status === 403) setError("บัญชีนี้ไม่มีสิทธิ์ลบ Role นี้");
     else setError("ไม่สามารถลบ Role ได้");
   }
@@ -111,19 +113,6 @@ function RoleEditor({ role, permissions, defaultOrganizationId, onClose, onSaved
     })();
   }, [role]);
 
-  useEffect(() => {
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === "Escape" && !pending) onClose();
-    }
-    window.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [onClose, pending]);
-
   function togglePermission(id: string) {
     setPermissionIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
   }
@@ -155,39 +144,47 @@ function RoleEditor({ role, permissions, defaultOrganizationId, onClose, onSaved
   }
 
   return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (!pending && event.target === event.currentTarget) onClose(); }}>
-      <section className="plant-editor role-editor" role="dialog" aria-modal="true" aria-labelledby="role-editor-title">
-        <header><div><p>Access management</p><h2 id="role-editor-title">{role ? "แก้ไข Role" : "เพิ่ม Role"}</h2></div><button className="icon-button" onClick={onClose} disabled={pending} title="ปิด" aria-label="ปิด"><X size={19} /></button></header>
-        {loadingDetail ? <div className="table-state">กำลังโหลดข้อมูล</div> : (
-          <form onSubmit={submit}>
-            <label className="full-field">ชื่อ Role<input autoFocus value={name} onChange={(event) => setName(event.target.value)} maxLength={100} required /></label>
-            <label className="full-field">คำอธิบาย<input value={description} onChange={(event) => setDescription(event.target.value)} maxLength={500} /></label>
-            {!role && (
-              <label className="toggle-field full-field">
-                <input type="checkbox" checked={global} onChange={(event) => setGlobal(event.target.checked)} />
-                <span>Role ทั้งระบบ (ทุกองค์กรใช้ได้ ต้องมีสิทธิ์ระดับ Platform)</span>
-              </label>
-            )}
-            <fieldset className="full-field permission-picker">
-              <legend>สิทธิ์การใช้งาน</legend>
-              {Object.entries(groups).map(([resourceType, items]) => (
-                <div key={resourceType} className="permission-group">
-                  <strong>{resourceType}</strong>
-                  {items.map((permission) => (
-                    <label key={permission.id} className="toggle-field">
-                      <input type="checkbox" checked={permissionIds.includes(permission.id)} onChange={() => togglePermission(permission.id)} />
-                      <span>{permission.action}{permission.description ? ` — ${permission.description}` : ""}</span>
-                    </label>
-                  ))}
-                </div>
-              ))}
-            </fieldset>
-            {error && <p className="form-message error full-field">{error}</p>}
-            <div className="editor-actions full-field"><button type="button" className="secondary-button" onClick={onClose} disabled={pending}>ยกเลิก</button><button className="primary-button" disabled={pending}>{pending ? "กำลังบันทึก" : "บันทึก"}</button></div>
-          </form>
-        )}
-      </section>
-    </div>
+    <Dialog open={true} onOpenChange={(open) => { if (!open && !pending) onClose(); }}>
+      <DialogContent>
+        <DialogHeader>
+          <div>
+            <p>Access management</p>
+            <DialogTitle>{role ? "แก้ไข Role" : "เพิ่ม Role"}</DialogTitle>
+          </div>
+        </DialogHeader>
+        <DialogDescription>Access management</DialogDescription>
+        <DialogBody>
+          {loadingDetail ? <div className="table-state">กำลังโหลดข้อมูล</div> : (
+            <form className="plant-editor-form" onSubmit={submit}>
+              <label className="full-field">ชื่อ Role<input autoFocus value={name} onChange={(event) => setName(event.target.value)} maxLength={100} required /></label>
+              <label className="full-field">คำอธิบาย<input value={description} onChange={(event) => setDescription(event.target.value)} maxLength={500} /></label>
+              {!role && (
+                <label className="toggle-field full-field">
+                  <input type="checkbox" checked={global} onChange={(event) => setGlobal(event.target.checked)} />
+                  <span>Role ทั้งระบบ (ทุกองค์กรใช้ได้ ต้องมีสิทธิ์ระดับ Platform)</span>
+                </label>
+              )}
+              <fieldset className="full-field permission-picker">
+                <legend>สิทธิ์การใช้งาน</legend>
+                {Object.entries(groups).map(([resourceType, items]) => (
+                  <div key={resourceType} className="permission-group">
+                    <strong>{resourceType}</strong>
+                    {items.map((permission) => (
+                      <label key={permission.id} className="toggle-field">
+                        <input type="checkbox" checked={permissionIds.includes(permission.id)} onChange={() => togglePermission(permission.id)} />
+                        <span>{permission.action}{permission.description ? ` — ${permission.description}` : ""}</span>
+                      </label>
+                    ))}
+                  </div>
+                ))}
+              </fieldset>
+              {error && <p className="form-message error full-field">{error}</p>}
+              <div className="editor-actions full-field"><button type="button" className="secondary-button" onClick={onClose} disabled={pending}>ยกเลิก</button><button className="primary-button" disabled={pending}>{pending ? "กำลังบันทึก" : "บันทึก"}</button></div>
+            </form>
+          )}
+        </DialogBody>
+      </DialogContent>
+    </Dialog>
   );
 }
 
