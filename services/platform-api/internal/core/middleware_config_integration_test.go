@@ -73,16 +73,16 @@ func TestImportFromSnapshotAgainstPostgreSQL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var found bool
+	var modelID string
 	for _, m := range models {
 		if m.Manufacturer == "TestBrand" && m.DeviceType == "Inverter" && m.Model == "TB-5000" {
-			found = true
+			modelID = m.ID
 		}
 	}
-	if !found {
-		t.Error("expected a TestBrand/Inverter/TB-5000 device model to exist after import")
+	if modelID == "" {
+		t.Fatal("expected a TestBrand/Inverter/TB-5000 device model to exist after import")
 	}
-	metadata, err := service.DeviceModelRegisterMetadata(ctx, admin, models[0].ID)
+	metadata, err := service.DeviceModelRegisterMetadata(ctx, admin, modelID)
 	if err != nil {
 		t.Fatal(err)
 	}
