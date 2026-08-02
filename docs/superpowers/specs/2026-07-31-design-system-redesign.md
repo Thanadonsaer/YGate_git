@@ -78,6 +78,8 @@ Install `shadcn/ui` (Radix-based, already compatible with the existing Tailwind 
 
 Everything else (tables, rows, dashboard widgets, sidebar, topbar, forms) keeps its current DOM/class structure, restyled via the new tokens above.
 
+**Superseded 2026-08-02:** the component library choice above (shadcn/ui + Radix) was replaced with PrimeReact — see `docs/superpowers/specs/2026-08-02-rbac-nav-guard-and-primereact-design.md`. The design tokens sections above (color, typography, spacing/radius/shadow) are unaffected and remain authoritative.
+
 ## Signature element — "Live Pulse"
 
 A small animated waveform (inline SVG + CSS animation, no new dependency), directly derived from the product's subject matter (electrical/telemetry waveforms read over Modbus), not decorative:
