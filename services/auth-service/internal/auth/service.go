@@ -50,10 +50,11 @@ type LoginResult struct {
 }
 
 type LoginUser struct {
-	ID             string `json:"id"`
-	OrganizationID string `json:"organizationId,omitempty"`
-	Email          string `json:"email"`
-	DisplayName    string `json:"displayName"`
+	ID             string   `json:"id"`
+	OrganizationID string   `json:"organizationId,omitempty"`
+	Email          string   `json:"email"`
+	DisplayName    string   `json:"displayName"`
+	Permissions    []string `json:"permissions"`
 }
 
 type Principal struct {
@@ -199,9 +200,16 @@ func (s *Service) recordSuccess(ctx context.Context, user dbgen.GetLoginUserRow,
 	if err = tx.Commit(ctx); err != nil {
 		return LoginResult{}, fmt.Errorf("commit login: %w", err)
 	}
+	permissions, err := s.Permissions(ctx, user.ID)
+	if err != nil {
+		return LoginResult{}, err
+	}
 	return LoginResult{
 		Token: token, CSRFToken: csrfToken, ExpiresAt: expiresAt,
-		User: LoginUser{ID: uuidString(user.ID), OrganizationID: uuidString(user.OrganizationID), Email: user.Email, DisplayName: user.DisplayName},
+		User: LoginUser{
+			ID: uuidString(user.ID), OrganizationID: uuidString(user.OrganizationID), Email: user.Email, DisplayName: user.DisplayName,
+			Permissions: permissions,
+		},
 	}, nil
 }
 func (s *Service) Permissions(ctx context.Context, userID pgtype.UUID) ([]string, error) {

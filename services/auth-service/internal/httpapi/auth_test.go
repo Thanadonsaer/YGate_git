@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"ygate/auth-service/internal/auth"
 )
 
@@ -135,5 +136,26 @@ func TestResetPasswordMapsSecurityErrorsAndClearsCookies(t *testing.T) {
 		if test.err == nil && len(res.Result().Cookies()) != 2 {
 			t.Fatalf("successful reset cookies=%+v", res.Result().Cookies())
 		}
+	}
+}
+
+func TestMeHandlerAttachesPermissions(t *testing.T) {
+	var userID pgtype.UUID
+	_ = userID.Scan("10000000-0000-4000-8000-000000000099")
+	principal := auth.Principal{UserID: userID, Email: "operator@example.com", DisplayName: "Operator"}
+	permissions := func(_ context.Context, id pgtype.UUID) ([]string, error) {
+		if id != userID {
+			t.Fatalf("userID = %v", id)
+		}
+		return []string{"plant:read", "alarm:read"}, nil
+	}
+	res := httptest.NewRecorder()
+	meHandler(permissions)(res, httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil), principal)
+	if res.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", res.Code, res.Body.String())
+	}
+	body := res.Body.String()
+	if !strings.Contains(body, `"permissions":["plant:read","alarm:read"]`) || !strings.Contains(body, `"email":"operator@example.com"`) {
+		t.Fatalf("body=%s", body)
 	}
 }

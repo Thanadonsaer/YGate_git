@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"ygate/auth-service/internal/auth"
 )
 
@@ -69,9 +70,19 @@ func loginHandler(login LoginFunc, cookieSecure bool) http.HandlerFunc {
 	}
 }
 
-func meHandler() func(http.ResponseWriter, *http.Request, auth.Principal) {
-	return func(w http.ResponseWriter, _ *http.Request, principal auth.Principal) {
-		writeJSON(w, http.StatusOK, principal.User())
+type PermissionsFunc func(context.Context, pgtype.UUID) ([]string, error)
+
+func meHandler(permissions PermissionsFunc) func(http.ResponseWriter, *http.Request, auth.Principal) {
+	return func(w http.ResponseWriter, r *http.Request, principal auth.Principal) {
+		grants, err := permissions(r.Context(), principal.UserID)
+		if err != nil {
+			log.Printf("load permissions failed: %v", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		user := principal.User()
+		user.Permissions = grants
+		writeJSON(w, http.StatusOK, user)
 	}
 }
 

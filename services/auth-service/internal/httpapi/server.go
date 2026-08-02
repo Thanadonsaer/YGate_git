@@ -53,7 +53,7 @@ func New(version string, ready func(context.Context) error, authService *auth.Se
 	var login LoginFunc
 	if authService != nil {
 		login = authService.Login
-		mux.HandleFunc("GET /api/v1/auth/me", authenticated(authService, false, meHandler()))
+		mux.HandleFunc("GET /api/v1/auth/me", authenticated(authService, false, meHandler(authService.Permissions)))
 		mux.HandleFunc("POST /api/v1/auth/logout", authenticated(authService, true, logoutHandler(authService, cookieSecure)))
 		mux.HandleFunc("POST /api/v1/auth/logout-all", authenticated(authService, true, logoutAllHandler(authService, cookieSecure)))
 		mux.HandleFunc("POST /api/v1/auth/change-password", authenticated(authService, true, changePasswordHandler(authService)))

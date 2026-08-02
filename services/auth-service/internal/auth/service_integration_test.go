@@ -55,6 +55,9 @@ func TestAuthenticationLifecycleAgainstPostgreSQL(t *testing.T) {
 	if err != nil || result.Token == "" || result.CSRFToken == "" || result.User.Email != email {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
+	if result.User.Permissions == nil {
+		t.Fatalf("login result has no permissions field: %+v", result.User)
+	}
 	var storedTokenHash, storedCSRFHash []byte
 	if err = pool.QueryRow(ctx, "SELECT token_hash,csrf_hash FROM user_session WHERE user_id=$1", userID).Scan(&storedTokenHash, &storedCSRFHash); err != nil {
 		t.Fatal(err)
