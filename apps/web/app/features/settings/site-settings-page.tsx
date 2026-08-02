@@ -87,7 +87,7 @@ export function SiteSettingsPage() {
         <div className="logo-preview">
           <span className="brand-mark">{siteSettings.logoUrl ? <img src={assetURL(siteSettings.logoUrl)} alt="" /> : <ImageIcon size={18} />}</span>
           <div className="logo-preview-actions">
-            <label className="secondary-button compact icon-only" style={{ cursor: "pointer" }} aria-label="อัปโหลด logo">
+            <label className="secondary-button compact" style={{ cursor: "pointer" }} aria-label="อัปโหลด logo">
               {logoPending ? "กำลังอัปโหลด..." : <><Upload size={15} /> อัปโหลด logo</>}
               <input type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp,image/gif" disabled={logoPending} style={{ display: "none" }} onChange={(event) => void uploadLogo(event)} />
             </label>

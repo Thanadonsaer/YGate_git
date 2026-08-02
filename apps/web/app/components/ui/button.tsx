@@ -9,10 +9,10 @@ const base =
   "inline-flex items-center justify-center gap-1.5 font-bold transition disabled:cursor-not-allowed disabled:opacity-48 focus:outline-none focus-visible:ring-2 focus-visible:ring-focus";
 
 const variantClass: Record<Variant, string> = {
-  primary: "rounded-[var(--radius-md)] bg-[var(--brand)] px-4 py-2 text-sm text-white shadow-[var(--shadow-sm)] hover:brightness-110",
+  primary: "rounded-[var(--radius-md)] bg-brand px-4 py-2 text-sm text-white shadow-[var(--shadow-sm)] hover:brightness-110",
   secondary: "rounded-[var(--radius-md)] border border-line bg-surface px-4 py-2 text-sm text-ink hover:bg-canvas",
   icon: "rounded-[var(--radius-sm)] p-2 text-ink-soft hover:bg-canvas",
-  text: "text-sm text-[var(--brand)] hover:underline",
+  text: "text-sm text-brand hover:underline",
 };
 
 type Props = Omit<PrimeButtonProps, "variant"> & {
