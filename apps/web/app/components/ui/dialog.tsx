@@ -2,7 +2,6 @@
 
 import * as React from "react";
 import { Dialog as PrimeDialog } from "primereact/dialog";
-import type { DialogRootChangeEvent } from "@primereact/types/primitive/dialog";
 import { X } from "lucide-react";
 import { cn } from "../../lib/cn";
 
@@ -33,43 +32,30 @@ function DialogContent({
 }) {
   const { onOpenChange } = React.useContext(DialogContext);
   return (
-    <PrimeDialog.Root
-      open
-      unstyled
+    <PrimeDialog
+      visible
       modal
-      dismissable={false}
-      draggable={false}
-      blockScroll
-      onOpenChange={(event: DialogRootChangeEvent) => {
-        if (!event.value) onOpenChange?.(false);
+      unstyled
+      closable={false}
+      onHide={() => onOpenChange?.(false)}
+      pt={{
+        root: { className: cn("relative w-full max-w-lg max-h-[calc(100vh-2rem)] overflow-y-auto rounded-[var(--radius-lg)] border border-line bg-surface shadow-[var(--shadow-lg)]", className) },
+        mask: { className: "fixed inset-0 z-50 flex items-center justify-center bg-ink/55 p-4" },
       }}
     >
-      <PrimeDialog.Portal>
-        <PrimeDialog.Backdrop unstyled className="fixed inset-0 z-50 bg-ink/55" />
-        <PrimeDialog.Positioner unstyled className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <PrimeDialog.Popup
-            unstyled
-            className={cn(
-              "relative w-full max-w-lg max-h-[calc(100vh-2rem)] overflow-y-auto rounded-[var(--radius-lg)] border border-line bg-surface shadow-[var(--shadow-lg)]",
-              className,
-            )}
-          >
-            {children}
-            {showClose && (
-              <button
-                type="button"
-                onClick={() => onOpenChange?.(false)}
-                className="absolute right-4 top-4 rounded-[var(--radius-sm)] p-1.5 text-ink-soft transition hover:bg-canvas focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
-                aria-label="ปิด"
-                title="ปิด"
-              >
-                <X size={18} />
-              </button>
-            )}
-          </PrimeDialog.Popup>
-        </PrimeDialog.Positioner>
-      </PrimeDialog.Portal>
-    </PrimeDialog.Root>
+      {children}
+      {showClose && (
+        <button
+          type="button"
+          onClick={() => onOpenChange?.(false)}
+          className="absolute right-4 top-4 rounded-[var(--radius-sm)] p-1.5 text-ink-soft transition hover:bg-canvas focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+          aria-label="ปิด"
+          title="ปิด"
+        >
+          <X size={18} />
+        </button>
+      )}
+    </PrimeDialog>
   );
 }
 

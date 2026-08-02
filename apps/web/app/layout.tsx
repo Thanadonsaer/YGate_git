@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono, Manrope } from "next/font/google";
-import { PrimeReactProvider } from "@primereact/core/config";
+import { PrimeReactProvider } from "primereact/api";
 import "react-grid-layout/css/styles.css";
 import "react-resizable/css/styles.css";
 import "./globals.css";
@@ -20,7 +20,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="th" className={`${manrope.variable} ${inter.variable} ${jetbrainsMono.variable}`}>
       <body>
-        <PrimeReactProvider unstyled={true}>
+        <PrimeReactProvider value={{ unstyled: true }}>
           {children}
         </PrimeReactProvider>
       </body>

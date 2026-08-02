@@ -1,7 +1,6 @@
 "use client";
 
-import { Button as PrimeButton } from "primereact/button";
-import type { ButtonProps as PrimeButtonProps } from "@primereact/types/primitive/button";
+import { Button as PrimeButton, type ButtonProps as PrimeButtonProps } from "primereact/button";
 import { cn } from "../../lib/cn";
 
 type Variant = "primary" | "secondary" | "icon" | "text";

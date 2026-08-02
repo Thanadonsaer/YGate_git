@@ -1,60 +1,38 @@
-// apps/web/app/components/ui/sonner.tsx
 "use client";
 
 import * as React from "react";
-import { Toaster as PrimeToaster, toast as primeToast, useToasterContext } from "primereact/toaster";
-import { Toast as PrimeToast } from "primereact/toast";
-import { cn } from "../../lib/cn";
+import { Toast } from "primereact/toast";
 
-// The installed primereact@^11 "primereact/toast" + "primereact/toaster" are headless
-// compound-component trees (Toaster.Root/Portal/Region + Toast.Root/Title/...), not the
-// old ref + `.show()` single component the plan brief assumed. Their imperative `toast()`
-// helper (exported from "primereact/toaster") is itself modeled directly on Sonner
-// (see node_modules/@primereact/headless/toast/useToast.d.ts docblock), so it maps onto
-// the same module-level toast.success(message)/toast.error(message) call pattern.
-
-function ToastItems() {
-  const toaster = useToasterContext();
-  const toasts = toaster?.toasts ?? [];
-
-  return (
-    <>
-      {toasts.map((item) => (
-        <PrimeToast.Root
-          key={item.id}
-          toast={item}
-          unstyled
-          className={cn(
-            "rounded-[var(--radius-md)] border border-line bg-surface px-4 py-3 text-sm text-ink shadow-[var(--shadow-lg)]",
-            item.severity === "success" && "border-success/30",
-            item.severity === "error" && "border-danger/30",
-          )}
-        >
-          <PrimeToast.Title unstyled className="font-bold" />
-        </PrimeToast.Root>
-      ))}
-    </>
-  );
-}
+let activeToast: Toast | null = null;
 
 function Toaster() {
+  const ref = React.useRef<Toast>(null);
+  React.useEffect(() => {
+    activeToast = ref.current;
+    return () => {
+      activeToast = null;
+    };
+  }, []);
   return (
-    <PrimeToaster.Root position="bottom-right">
-      <PrimeToaster.Portal>
-        <PrimeToaster.Region unstyled className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
-          <ToastItems />
-        </PrimeToaster.Region>
-      </PrimeToaster.Portal>
-    </PrimeToaster.Root>
+    <Toast
+      ref={ref}
+      position="bottom-right"
+      pt={{
+        message: {
+          className:
+            "rounded-[var(--radius-md)] border border-line bg-surface px-4 py-3 text-sm text-ink shadow-[var(--shadow-lg)]",
+        },
+      }}
+    />
   );
 }
 
 export const toast = {
   success(message: string) {
-    primeToast.success({ title: message, duration: 3500 });
+    activeToast?.show({ severity: "success", summary: message, life: 3500 });
   },
   error(message: string) {
-    primeToast.error({ title: message, duration: 5000 });
+    activeToast?.show({ severity: "error", summary: message, life: 5000 });
   },
 };
 

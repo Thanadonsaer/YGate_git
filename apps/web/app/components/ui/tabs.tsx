@@ -1,15 +1,13 @@
 "use client";
 
 import * as React from "react";
-import { Tabs as PrimeTabs } from "primereact/tabs";
-import type { TabsRootChangeEvent } from "@primereact/types/primitive/tabs";
+import { TabView, TabPanel } from "primereact/tabview";
 import { collectByType } from "./collect-children";
 
 type TriggerProps = { value: string; children?: React.ReactNode };
 type ContentProps = { value: string; children?: React.ReactNode };
-type ListProps = { "aria-label"?: string; className?: string; children?: React.ReactNode };
 
-function TabsList({ children }: ListProps) {
+function TabsList({ children }: { "aria-label"?: string; className?: string; children?: React.ReactNode }) {
   return <>{children}</>;
 }
 
@@ -32,43 +30,42 @@ function Tabs({
   onValueChange?: (value: string) => void;
   children: React.ReactNode;
 }) {
-  const [list] = collectByType<ListProps>(children, TabsList);
   const triggers = collectByType<TriggerProps>(children, TabsTrigger);
   const contents = collectByType<ContentProps>(children, TabsContent);
+  const values = triggers.map((trigger) => trigger.props.value);
+  const [uncontrolled, setUncontrolled] = React.useState(defaultValue ?? values[0]);
+  const active = value ?? uncontrolled;
+  const activeIndex = Math.max(0, values.indexOf(active));
+
+  function handleTabChange(index: number) {
+    const next = values[index];
+    if (value === undefined) setUncontrolled(next);
+    onValueChange?.(next);
+  }
 
   return (
-    <PrimeTabs.Root
-      className="flex flex-col gap-2"
-      value={value}
-      defaultValue={defaultValue}
-      onValueChange={(event: TabsRootChangeEvent) => {
-        if (event.value !== undefined) onValueChange?.(String(event.value));
+    <TabView
+      activeIndex={activeIndex}
+      onTabChange={(event) => handleTabChange(event.index)}
+      unstyled
+      pt={{
+        nav: { className: "inline-flex h-10 items-center gap-0.5 rounded-[var(--radius-sm)] border border-line bg-canvas p-1" },
+        inkbar: { className: "hidden" },
       }}
     >
-      <PrimeTabs.List
-        className="inline-flex h-10 items-center gap-0.5 rounded-[var(--radius-sm)] border border-line bg-canvas p-1"
-        pt={{ root: { "aria-label": list?.props["aria-label"] } }}
-      >
-        {triggers.map((trigger) => (
-          <PrimeTabs.Tab
-            key={trigger.props.value}
-            value={trigger.props.value}
-            className="inline-flex h-[30px] items-center gap-1.5 rounded-[calc(var(--radius-sm)-2px)] px-3 text-xs font-bold text-ink-soft transition data-[active]:bg-surface data-[active]:text-nav data-[active]:shadow-[var(--shadow-sm)]"
-          >
-            {trigger.props.children}
-          </PrimeTabs.Tab>
-        ))}
-      </PrimeTabs.List>
-      {contents.length > 0 && (
-        <PrimeTabs.Panels>
-          {contents.map((content) => (
-            <PrimeTabs.Panel key={content.props.value} value={content.props.value}>
-              {content.props.children}
-            </PrimeTabs.Panel>
-          ))}
-        </PrimeTabs.Panels>
-      )}
-    </PrimeTabs.Root>
+      {triggers.map((trigger) => (
+        <TabPanel
+          key={trigger.props.value}
+          header={trigger.props.children}
+          headerClassName="inline-flex h-[30px] items-center gap-1.5 rounded-[calc(var(--radius-sm)-2px)] px-3 text-xs font-bold text-ink-soft"
+          pt={{
+            headerAction: { className: "tab-trigger flex h-full items-center gap-1.5 px-1" },
+          }}
+        >
+          {contents.find((content) => content.props.value === trigger.props.value)?.props.children}
+        </TabPanel>
+      ))}
+    </TabView>
   );
 }
 
