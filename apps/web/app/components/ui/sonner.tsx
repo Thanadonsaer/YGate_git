@@ -41,7 +41,7 @@ function Toaster() {
   return (
     <PrimeToaster.Root position="bottom-right">
       <PrimeToaster.Portal>
-        <PrimeToaster.Region unstyled>
+        <PrimeToaster.Region unstyled className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
           <ToastItems />
         </PrimeToaster.Region>
       </PrimeToaster.Portal>
