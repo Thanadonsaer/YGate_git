@@ -35,11 +35,12 @@ type Service struct {
 	queries       *dbgen.Queries
 	hub           *gatewayhub.Hub
 	patchDir      string
+	logoDir       string
 	publicBaseURL string
 }
 
 func New(pool *pgxpool.Pool, hub *gatewayhub.Hub) *Service {
-	return &Service{pool: pool, queries: dbgen.New(pool), hub: hub, patchDir: "./data/middleware-patches"}
+	return &Service{pool: pool, queries: dbgen.New(pool), hub: hub, patchDir: "./data/middleware-patches", logoDir: "./data/site-logos"}
 }
 
 // WithMiddlewarePatchDir overrides the directory uploaded middleware patch
@@ -48,6 +49,16 @@ func New(pool *pgxpool.Pool, hub *gatewayhub.Hub) *Service {
 func (s *Service) WithMiddlewarePatchDir(dir string) *Service {
 	if dir != "" {
 		s.patchDir = dir
+	}
+	return s
+}
+
+// WithSiteLogoDir overrides the directory uploaded site logo files are
+// stored under (see site_settings.go). Optional -- New already sets a sane
+// default; production wires this from PLATFORM_SITE_LOGO_DIR.
+func (s *Service) WithSiteLogoDir(dir string) *Service {
+	if dir != "" {
+		s.logoDir = dir
 	}
 	return s
 }

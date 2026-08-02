@@ -2,18 +2,20 @@
 
 import { ArrowLeft, CheckCircle2, Eye, EyeOff, KeyRound, ShieldCheck, SunMedium } from "lucide-react";
 import { FormEvent, useState } from "react";
-import { api } from "../lib/api";
-import type { AuthMode, User } from "../lib/types";
+import { api, assetURL } from "../lib/api";
+import type { AuthMode, SiteSettings, User } from "../lib/types";
 import { LivePulse } from "./live-pulse";
 
 export function AuthScreen({
   mode,
   gatewayOnline,
+  siteSettings,
   onModeChange,
   onLogin,
 }: {
   mode: AuthMode;
   gatewayOnline: boolean;
+  siteSettings: SiteSettings;
   onModeChange: (mode: AuthMode) => void;
   onLogin: (user: User) => void;
 }) {
@@ -77,7 +79,7 @@ export function AuthScreen({
       <div className="auth-overlay" />
       <LivePulse state="connected" className="auth-pulse" />
       <section className="auth-brand">
-        <div className="auth-logo"><SunMedium size={24} /><span>YGATE</span></div>
+        <div className="auth-logo">{siteSettings.logoUrl ? <img src={assetURL(siteSettings.logoUrl)} alt="" /> : <SunMedium size={24} />}<span>{siteSettings.siteName}</span></div>
         <div><p>Solar Operations Platform</p><h1>Solar SCADA</h1><span>ศูนย์กลางติดตามระบบผลิตไฟฟ้าพลังงานแสงอาทิตย์</span></div>
       </section>
       <section className="auth-panel" aria-labelledby="auth-title">

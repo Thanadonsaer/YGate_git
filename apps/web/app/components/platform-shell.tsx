@@ -5,17 +5,17 @@ import {
   BellRing,
   Building2,
   FileText,
-  KeyRound,
   LogOut,
   MapPinned,
   Menu,
+  Palette,
+  Radio,
   Server,
   Settings2,
   ShieldCheck,
   ShieldEllipsis,
   SunMedium,
   UserRound,
-  UserCog,
   Users,
   Workflow,
   X,
@@ -23,18 +23,23 @@ import {
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { createContext, ReactNode, useContext, useEffect, useState } from "react";
-import { api, csrfToken } from "../lib/api";
+import { api, assetURL, csrfToken } from "../lib/api";
 import { useRealtimeSocket } from "../lib/realtime";
-import type { AuthMode, ConnectionState, User } from "../lib/types";
+import { applyAccentColor } from "../lib/theme";
+import type { AuthMode, ConnectionState, SiteSettings, User } from "../lib/types";
 import { AuthScreen } from "./auth-screen";
 import { LivePulse } from "./live-pulse";
 import { Toaster } from "./ui/sonner";
+
+const DEFAULT_SITE_SETTINGS: SiteSettings = { siteName: "YGATE", logoUrl: null, accentColor: "teal", updatedAt: "" };
 
 type SessionContext = {
   user: User;
   liveState: ConnectionState;
   lastLiveAt: string | null;
   updateCurrentUser: (user: User) => void;
+  siteSettings: SiteSettings;
+  updateSiteSettings: (settings: SiteSettings) => void;
 };
 
 const PlatformSessionContext = createContext<SessionContext | null>(null);
@@ -46,20 +51,35 @@ export function usePlatformSession() {
 }
 
 const navigation = [
-  { href: "/", label: "Overview", icon: Activity },
-  { href: "/plants", label: "Plants", icon: Building2 },
-  { href: "/site-map", label: "Site Map", icon: MapPinned },
-  { href: "/register-metadata", label: "Register Metadata", icon: Settings2 },
-  { href: "/scada", label: "SCADA Screens", icon: Workflow },
-  { href: "/alarms", label: "Alarms", icon: BellRing },
-  { href: "/users", label: "Users", icon: Users },
-  { href: "/roles", label: "Roles & Permissions", icon: ShieldEllipsis },
-  { href: "/api-keys", label: "API Keys", icon: KeyRound },
-  { href: "/middlewares", label: "Middleware Gateways", icon: Server },
-  { href: "/openapi", label: "OpenAPI", icon: FileText },
-  { href: "/audit", label: "Audit Log", icon: ShieldCheck },
-  { href: "/sessions", label: "Sessions", icon: ShieldCheck },
-  { href: "/profile", label: "My Profile", icon: UserCog },
+  {
+    group: "Monitoring",
+    items: [
+      { href: "/", label: "Overview", icon: Activity },
+      { href: "/site-map", label: "Site Map", icon: MapPinned },
+      { href: "/scada/live", label: "SCADA Viewer", icon: Radio },
+      { href: "/alarms", label: "Alarms", icon: BellRing },
+    ],
+  },
+  {
+    group: "Assets & Config",
+    items: [
+      { href: "/plants", label: "Plants", icon: Building2 },
+      { href: "/register-metadata", label: "Register Metadata", icon: Settings2 },
+      { href: "/scada", label: "SCADA Builder", icon: Workflow },
+    ],
+  },
+  {
+    group: "Administration",
+    items: [
+      { href: "/users", label: "Users", icon: Users },
+      { href: "/roles", label: "Roles & Permissions", icon: ShieldEllipsis },
+      { href: "/middlewares", label: "Middleware Gateways", icon: Server },
+      { href: "/openapi", label: "OpenAPI", icon: FileText },
+      { href: "/audit", label: "Audit Log", icon: ShieldCheck },
+      { href: "/sessions", label: "Sessions", icon: ShieldCheck },
+      { href: "/settings", label: "Site Branding", icon: Palette },
+    ],
+  },
 ] as const;
 
 const titles: Record<string, string> = {
@@ -67,15 +87,16 @@ const titles: Record<string, string> = {
   "/plants": "Plant Management",
   "/site-map": "Site Map",
   "/register-metadata": "Register Metadata",
-  "/scada": "SCADA Builder & Viewer",
+  "/scada": "SCADA Builder",
+  "/scada/live": "SCADA Viewer",
   "/alarms": "Alarm Monitoring",
   "/users": "User Management",
   "/roles": "Roles & Permissions",
-  "/api-keys": "API Keys",
   "/middlewares": "Middleware Gateways",
   "/openapi": "OpenAPI Contract",
   "/audit": "Audit Log",
   "/sessions": "My Sessions",
+  "/settings": "Site Branding",
   "/profile": "My Profile",
 };
 
@@ -87,6 +108,7 @@ export function PlatformShell({ children }: { children: ReactNode }) {
   const [gatewayOnline, setGatewayOnline] = useState(false);
   const [lastLiveAt, setLastLiveAt] = useState<string | null>(null);
   const [navOpen, setNavOpen] = useState(false);
+  const [siteSettings, setSiteSettings] = useState<SiteSettings>(DEFAULT_SITE_SETTINGS);
 
   useEffect(() => {
     const token = new URLSearchParams(window.location.search).get("token");
@@ -103,7 +125,18 @@ export function PlatformShell({ children }: { children: ReactNode }) {
         setLoading(false);
       }
     })();
+
+    void (async () => {
+      try {
+        const response = await api("/api/v1/site-settings");
+        if (response.ok) setSiteSettings((await response.json()) as SiteSettings);
+      } catch {
+        // keep DEFAULT_SITE_SETTINGS
+      }
+    })();
   }, []);
+
+  useEffect(() => { applyAccentColor(siteSettings.accentColor); }, [siteSettings.accentColor]);
 
   const liveState = useRealtimeSocket(undefined, (message) => setLastLiveAt(message.sentAt), Boolean(user));
 
@@ -120,24 +153,29 @@ export function PlatformShell({ children }: { children: ReactNode }) {
   }
 
   if (!user) {
-    return <AuthScreen mode={authMode} gatewayOnline={gatewayOnline} onModeChange={setAuthMode} onLogin={(nextUser) => { setUser(nextUser); setGatewayOnline(true); }} />;
+    return <AuthScreen mode={authMode} gatewayOnline={gatewayOnline} siteSettings={siteSettings} onModeChange={setAuthMode} onLogin={(nextUser) => { setUser(nextUser); setGatewayOnline(true); }} />;
   }
 
   return (
-    <PlatformSessionContext.Provider value={{ user, liveState, lastLiveAt, updateCurrentUser: setUser }}>
+    <PlatformSessionContext.Provider value={{ user, liveState, lastLiveAt, updateCurrentUser: setUser, siteSettings, updateSiteSettings: setSiteSettings }}>
       <Toaster />
       <main className="app-shell">
         <aside className={navOpen ? "sidebar sidebar-open" : "sidebar"}>
           <div className="brand-lockup">
-            <span className="brand-mark"><SunMedium size={19} /></span>
-            <div><strong>YGATE</strong><small>Solar SCADA</small></div>
+            <span className="brand-mark">{siteSettings.logoUrl ? <img src={assetURL(siteSettings.logoUrl)} alt="" /> : <SunMedium size={19} />}</span>
+            <div><strong>{siteSettings.siteName}</strong><small>Solar SCADA</small></div>
           </div>
           <button className="mobile-close" onClick={() => setNavOpen(false)} title="ปิดเมนู" aria-label="ปิดเมนู"><X size={20} /></button>
           <nav aria-label="เมนูหลัก">
-            {navigation.map(({ href, label, icon: Icon }) => (
-              <Link key={href} href={href} className={pathname === href ? "nav-item active" : "nav-item"} onClick={() => setNavOpen(false)}>
-                <Icon size={18} /> {label}
-              </Link>
+            {navigation.map(({ group, items }) => (
+              <div className="nav-group" key={group}>
+                <p className="nav-group-label">{group}</p>
+                {items.map(({ href, label, icon: Icon }) => (
+                  <Link key={href} href={href} className={pathname === href ? "nav-item active" : "nav-item"} onClick={() => setNavOpen(false)}>
+                    <Icon size={18} /> {label}
+                  </Link>
+                ))}
+              </div>
             ))}
           </nav>
           <div className="sidebar-user">

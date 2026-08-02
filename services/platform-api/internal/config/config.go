@@ -23,6 +23,7 @@ type Config struct {
 	SMTPPassword           string
 	AllowedOrigins         []string
 	MiddlewarePatchDir     string
+	SiteLogoDir            string
 	PublicBaseURL          string
 }
 
@@ -77,6 +78,10 @@ func Load() (Config, error) {
 	cfg.MiddlewarePatchDir = strings.TrimSpace(os.Getenv("PLATFORM_MIDDLEWARE_PATCH_DIR"))
 	if cfg.MiddlewarePatchDir == "" {
 		cfg.MiddlewarePatchDir = "./data/middleware-patches"
+	}
+	cfg.SiteLogoDir = strings.TrimSpace(os.Getenv("PLATFORM_SITE_LOGO_DIR"))
+	if cfg.SiteLogoDir == "" {
+		cfg.SiteLogoDir = "./data/site-logos"
 	}
 	cfg.PublicBaseURL = strings.TrimRight(strings.TrimSpace(os.Getenv("PLATFORM_PUBLIC_BASE_URL")), "/")
 	return cfg, nil

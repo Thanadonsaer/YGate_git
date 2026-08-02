@@ -22,12 +22,12 @@
   --shadow-sm: 0 1px 2px rgb(15 27 38 / 6%), 0 1px 1px rgb(15 27 38 / 4%);
   --shadow-lg: 0 24px 48px rgb(15 27 38 / 20%), 0 4px 12px rgb(15 27 38 / 8%);
 
-  --scada-bg: #0b141c;
-  --scada-surface: #121f2b;
-  --scada-line: #223140;
-  --scada-ink: #e7edf1;
-  --scada-muted: #7c93a3;
-  --scada-accent: #2fb8d9;
+  --scada-bg: var(--canvas);
+  --scada-surface: var(--surface);
+  --scada-line: var(--line);
+  --scada-ink: var(--ink);
+  --scada-muted: var(--muted);
+  --scada-accent: var(--focus);
 }
 
 @theme inline {
@@ -109,6 +109,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   min-height: 100vh;
 }
 .auth-logo { display: flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 800; }
+.auth-logo img { width: 28px; height: 28px; object-fit: contain; }
 .auth-brand > div:last-child { max-width: 680px; padding-bottom: 9vh; }
 .auth-brand p, .auth-heading p, .topbar p, .section-heading p { margin: 0 0 7px; color: inherit; font-size: 12px; font-weight: 800; text-transform: uppercase; }
 .auth-brand h1 { margin: 0 0 12px; font-size: 60px; line-height: 1; letter-spacing: 0; }
@@ -186,11 +187,14 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   z-index: 20;
 }
 .brand-lockup { height: 48px; padding: 0 8px; display: flex; align-items: center; gap: 10px; }
-.brand-mark { width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid rgb(255 255 255 / 28%); border-radius: var(--radius-sm); }
+.brand-mark { width: 34px; height: 34px; overflow: hidden; display: grid; place-items: center; border: 1px solid rgb(255 255 255 / 28%); border-radius: var(--radius-sm); }
+.brand-mark img { width: 100%; height: 100%; object-fit: contain; }
 .brand-lockup div { min-width: 0; display: grid; }
 .brand-lockup strong { font-size: 15px; font-family: var(--font-display); }
 .brand-lockup small { color: rgb(255 255 255 / 60%); font-size: 11px; }
-.sidebar nav { min-height: 0; display: grid; gap: 5px; margin-top: 30px; overflow-y: auto; }
+.sidebar nav { min-height: 0; display: grid; gap: 18px; margin-top: 30px; overflow-y: auto; }
+.nav-group { display: grid; gap: 5px; }
+.nav-group-label { margin: 0 0 2px; padding: 0 11px; color: rgb(255 255 255 / 38%); font-size: 10px; font-weight: 750; letter-spacing: 0.05em; text-transform: uppercase; }
 .nav-item {
   width: 100%;
   height: 42px;
@@ -321,7 +325,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .status.revoked { color: #6d767d; background: #edf0f2; }
 
 .heading-actions { display: flex; align-items: center; gap: 8px; }
-.primary-button.compact, .secondary-button.compact { height: 38px; }
+.primary-button.compact, .secondary-button.compact, .text-button.compact { height: 38px; }
+.text-button.compact { margin: 0; padding: 0 13px; }
+.icon-only { width: 38px; padding: 0; gap: 0; }
 .danger-button { color: #a12a2a; border-color: #e0b1b1; }
 .danger-button:hover { background: #fff2f2; }
 .plant-table { max-width: 100%; overflow-x: auto; border: 1px solid var(--line); background: white; }
@@ -354,6 +360,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .api-key-row strong, .api-key-row span, .api-key-row small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .api-key-row small { color: var(--muted); font-size: 11px; }
 .api-key-head { min-height: 42px; color: var(--muted); background: #f7f9fa; font-size: 11px; font-weight: 750; }
+.middleware-table .api-key-row { grid-template-columns: minmax(160px, 1fr) minmax(150px, .85fr) minmax(110px, .6fr) 96px 90px minmax(140px, .85fr) 96px 130px; }
 .api-key-editor { width: min(560px, 100%); }
 .secret-panel { margin-bottom: 16px; padding: 14px; border: 1px solid #bce6d4; background: #ebf8f2; display: grid; grid-template-columns: minmax(180px, .8fr) minmax(0, 1.4fr) auto 36px; align-items: center; gap: 12px; }
 .secret-panel > div { min-width: 0; display: grid; gap: 4px; }
@@ -438,15 +445,30 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .permission-group strong { font-size: 12px; text-transform: uppercase; color: var(--muted); }
 .permission-group .toggle-field { width: 100%; grid-template-columns: 18px auto; font-weight: 500; }
 .profile-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; align-items: start; }
-.profile-card { min-width: 0; border: 1px solid var(--line); background: white; }
+.profile-card { min-width: 0; border: 1px solid var(--line); background: white; border-radius: var(--radius-md); box-shadow: var(--shadow-sm); overflow: hidden; }
 .profile-card > header { min-height: 78px; padding: 17px 18px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 12px; }
 .profile-card > header > div { min-width: 0; }
+.profile-card > header > button { margin-left: auto; flex: 0 0 auto; }
 .profile-card h3 { margin: 0; font-size: 17px; }
 .profile-card header p { margin: 4px 0 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
-.profile-card form { padding: 18px; display: grid; gap: 15px; }
-.profile-card label { display: grid; gap: 7px; font-size: 13px; font-weight: 700; }
-.profile-card input { width: 100%; height: 42px; padding: 0 11px; border: 1px solid #b8c3c9; border-radius: var(--radius-sm); color: var(--ink); background: white; }
-.profile-card form > button { justify-self: end; }
+.profile-preview { padding: 18px; display: grid; gap: 13px; }
+.profile-preview > div { display: grid; gap: 3px; }
+.profile-preview > div > span { font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--muted); }
+.profile-preview > div > strong { font-size: 14px; font-weight: 600; color: var(--ink); }
+.profile-preview > .secondary-button { justify-self: start; }
+.text-button.danger { color: var(--danger); }
+.settings-form-body { padding: 20px; display: grid; gap: 22px; }
+.settings-form { padding: 0; grid-template-columns: 1fr 1fr; }
+.logo-preview { display: flex; align-items: center; gap: 14px; }
+.logo-preview .brand-mark { width: 52px; height: 52px; flex: none; border-color: var(--line); background: var(--canvas); color: var(--muted); }
+.logo-preview-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.logo-preview-actions small { width: 100%; color: var(--muted); font-size: 11px; }
+.field-label { margin: 0 0 8px; color: var(--ink); font-size: 13px; font-weight: 700; }
+.accent-swatches { display: flex; flex-wrap: wrap; gap: 8px; }
+.accent-swatch { height: 38px; padding: 0 12px 0 8px; display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--ink); background: white; font-size: 12px; font-weight: 650; }
+.accent-swatch:hover { border-color: #b8c3c9; }
+.accent-swatch.active { border-color: var(--action); background: color-mix(in srgb, var(--action) 7%, white); color: var(--action); }
+.accent-dot { width: 16px; height: 16px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 12%); }
 
 .site-map-content { width: min(1400px, 100%); }
 .site-map-note { margin: 0 0 14px; color: var(--muted); font-size: 12px; }
@@ -483,11 +505,29 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .save-state.dirty, .save-state.saving { color: var(--warning); background: color-mix(in srgb, var(--warning) 10%, white); }
 .save-state.conflict, .save-state.error { color: var(--danger); background: color-mix(in srgb, var(--danger) 9%, white); }
 .spin { animation: spin .8s linear infinite; }
+.scada-viewer-head { min-width: 0; margin-bottom: 10px; padding: 14px 16px; border: 1px solid var(--scada-line); border-radius: var(--radius-sm); background: var(--scada-surface); color: var(--scada-ink); display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.scada-viewer-head p { margin: 0 0 3px; color: var(--scada-muted); font-size: 10px; font-weight: 750; text-transform: uppercase; }
+.scada-viewer-head h2 { margin: 0; font-size: 18px; font-family: var(--font-display); }
+.scada-viewer-head .live-chip { margin-left: 0; background: var(--scada-bg); }
+.scada-viewer-head .live-chip.connected { color: var(--scada-accent); }
+.scada-viewer-head .live-chip.connecting { color: #e8c468; }
+.scada-viewer-head .live-chip.offline { color: #e07a6b; }
+.scada-tabstrip { min-width: 0; margin-bottom: 12px; padding: 10px 12px; border: 1px solid var(--scada-line); border-radius: var(--radius-sm); background: var(--scada-bg); display: flex; align-items: center; gap: 20px; overflow-x: auto; }
+.scada-tabstrip-group { display: flex; align-items: center; gap: 6px; flex: none; }
+.scada-tabstrip-plant { padding-right: 2px; color: var(--scada-accent); font-family: var(--font-mono); font-size: 10px; font-weight: 700; letter-spacing: .04em; white-space: nowrap; }
+.scada-tab { height: 34px; padding: 0 14px; border: 1px solid transparent; border-radius: 999px; color: var(--scada-muted); background: transparent; text-align: left; font-size: 12px; font-weight: 650; white-space: nowrap; }
+.scada-tab:hover { color: var(--scada-ink); border-color: var(--scada-line); }
+.scada-tab.active { color: var(--scada-bg); background: var(--scada-accent); font-weight: 750; }
+.scada-viewer-empty { display: grid; justify-items: center; gap: 10px; padding: 60px 20px; color: var(--muted); text-align: center; }
+.scada-viewer-meta { margin: 10px 2px 0; color: var(--muted); font-size: 11px; font-family: var(--font-mono); }
 @keyframes spin { to { transform: rotate(360deg); } }
 .scada-conflict { margin: 0 0 14px; padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--line)); background: color-mix(in srgb, var(--danger) 6%, white); display: flex; align-items: center; gap: 12px; font-size: 12px; }
 .scada-conflict span { flex: 1; color: var(--muted); }
 .scada-workbench { min-width: 0; display: grid; grid-template-columns: 220px minmax(500px, 1fr) 280px; gap: 12px; align-items: stretch; }
 .scada-workbench.viewing { grid-template-columns: minmax(500px, 1fr) 280px; }
+.scada-workbench.solo { grid-template-columns: minmax(0, 1fr); }
+.scada-workbench.solo .scada-stage-shell { height: calc(100vh - 210px); min-height: 480px; }
+.scada-workbench.solo .scada-stage { height: calc(100% - 46px); }
 .scada-dark .scada-palette, .scada-dark .scada-inspector, .scada-dark .scada-stage-shell { min-width: 0; border: 1px solid var(--scada-line); background: var(--scada-surface); }
 .scada-palette, .scada-inspector { height: 690px; overflow-y: auto; }
 .scada-dark .scada-palette header, .scada-dark .scada-inspector header { min-height: 58px; padding: 12px 13px; border-bottom: 1px solid var(--scada-line); display: flex; align-items: center; gap: 9px; }

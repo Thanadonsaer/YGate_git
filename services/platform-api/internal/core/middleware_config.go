@@ -39,6 +39,7 @@ type MiddlewareGateway struct {
 	SiteName             string     `json:"siteName"`
 	KeyPrefix            string     `json:"keyPrefix"`
 	SoftwareVersion      *string    `json:"softwareVersion"`
+	AutoOnboard          bool       `json:"autoOnboard"`
 	IsActive             bool       `json:"isActive"`
 	IsOnline             bool       `json:"isOnline"`
 	ConfigVersion        int64      `json:"configVersion"`
@@ -57,12 +58,14 @@ type CreateMiddlewareInput struct {
 	OrganizationID string
 	Name           string
 	SiteName       string
+	AutoOnboard    bool
 }
 
 type UpdateMiddlewareInput struct {
-	Name     string
-	SiteName string
-	IsActive bool
+	Name        string
+	SiteName    string
+	IsActive    bool
+	AutoOnboard bool
 }
 
 // The config snapshot shape is intentionally identical, field for field, to
@@ -275,7 +278,7 @@ func (s *Service) Middlewares(ctx context.Context, principal auth.Principal) ([]
 	}
 	rows, err := s.pool.Query(ctx, `
 SELECT mc.id, mc.organization_id, o.name, mc.name, mc.site_name, mc.key_prefix, mc.software_version,
-       mc.is_active, mc.config_version, mc.config_applied_version, mc.last_seen_at, mc.created_at, mc.updated_at
+       mc.auto_onboard, mc.is_active, mc.config_version, mc.config_applied_version, mc.last_seen_at, mc.created_at, mc.updated_at
 FROM middleware_client mc
 JOIN organization o ON o.id = mc.organization_id
 WHERE EXISTS (
@@ -345,8 +348,8 @@ func (s *Service) CreateMiddleware(ctx context.Context, principal auth.Principal
 	if err = s.requireOrganizationPermission(ctx, q, principal, "create", "middleware_client", organizationID); err != nil {
 		return CreatedMiddlewareGateway{}, err
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO middleware_client(id, organization_id, name, site_name, key_prefix, key_hash) VALUES($1,$2,$3,$4,$5,$6)`,
-		id, organizationID, input.Name, input.SiteName, apiKey[:12], keyHash[:]); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO middleware_client(id, organization_id, name, site_name, key_prefix, key_hash, auto_onboard) VALUES($1,$2,$3,$4,$5,$6,$7)`,
+		id, organizationID, input.Name, input.SiteName, apiKey[:12], keyHash[:], input.AutoOnboard); err != nil {
 		return CreatedMiddlewareGateway{}, mapMiddlewareWriteError(err)
 	}
 	gateway, err := s.getMiddlewareInTx(ctx, tx, id)
@@ -396,8 +399,8 @@ func (s *Service) UpdateMiddleware(ctx context.Context, principal auth.Principal
 	if err = s.requireOrganizationPermission(ctx, q, principal, "update", "middleware_client", organizationID); err != nil {
 		return MiddlewareGateway{}, err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE middleware_client SET name=$2, site_name=$3, is_active=$4, updated_at=now() WHERE id=$1`,
-		id, input.Name, input.SiteName, input.IsActive); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE middleware_client SET name=$2, site_name=$3, is_active=$4, auto_onboard=$5, updated_at=now() WHERE id=$1`,
+		id, input.Name, input.SiteName, input.IsActive, input.AutoOnboard); err != nil {
 		return MiddlewareGateway{}, mapMiddlewareWriteError(err)
 	}
 	after, err := s.getMiddlewareInTx(ctx, tx, id)
@@ -883,7 +886,7 @@ func pushEnvelope(msgType string, snapshot MiddlewareConfigSnapshot) []byte {
 func (s *Service) getMiddlewareInTx(ctx context.Context, tx pgx.Tx, id pgtype.UUID) (MiddlewareGateway, error) {
 	row := tx.QueryRow(ctx, `
 SELECT mc.id, mc.organization_id, o.name, mc.name, mc.site_name, mc.key_prefix, mc.software_version,
-       mc.is_active, mc.config_version, mc.config_applied_version, mc.last_seen_at, mc.created_at, mc.updated_at
+       mc.auto_onboard, mc.is_active, mc.config_version, mc.config_applied_version, mc.last_seen_at, mc.created_at, mc.updated_at
 FROM middleware_client mc
 JOIN organization o ON o.id = mc.organization_id
 WHERE mc.id=$1
@@ -904,7 +907,7 @@ func scanMiddlewareGateway(row middlewareScanner) (MiddlewareGateway, error) {
 	var softwareVersion pgtype.Text
 	var lastSeenAt, createdAt, updatedAt pgtype.Timestamptz
 	if err := row.Scan(&id, &organizationID, &gateway.OrganizationName, &gateway.Name, &gateway.SiteName, &gateway.KeyPrefix, &softwareVersion,
-		&gateway.IsActive, &gateway.ConfigVersion, &gateway.ConfigAppliedVersion, &lastSeenAt, &createdAt, &updatedAt); err != nil {
+		&gateway.AutoOnboard, &gateway.IsActive, &gateway.ConfigVersion, &gateway.ConfigAppliedVersion, &lastSeenAt, &createdAt, &updatedAt); err != nil {
 		return MiddlewareGateway{}, fmt.Errorf("scan middleware gateway: %w", err)
 	}
 	gateway.ID = uuidString(id)

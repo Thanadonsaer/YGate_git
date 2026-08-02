@@ -1,5 +1,12 @@
 export const gatewayURL = process.env.NEXT_PUBLIC_GATEWAY_URL ?? "http://localhost:44440";
 
+// Site-served assets (e.g. the uploaded logo) come back from the API as a
+// relative path -- prefix with the gateway origin so <img src> resolves
+// even though the Next.js app and the API gateway aren't the same origin.
+export function assetURL(path: string) {
+  return `${gatewayURL}${path}`;
+}
+
 export function csrfToken() {
   const prefix = "platform_csrf=";
   const cookie = document.cookie.split("; ").find((item) => item.startsWith(prefix));

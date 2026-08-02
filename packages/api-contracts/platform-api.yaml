@@ -641,6 +641,110 @@ paths:
           description: Missing API contract read permission
         "503":
           description: Contract file is unavailable
+  /api/v1/site-settings:
+    get:
+      operationId: getSiteSettings
+      summary: Read the configured site name, logo, and accent color
+      description: Unauthenticated -- the login screen renders the configured branding before a session exists.
+      responses:
+        "200":
+          description: Current site settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SiteSettings"
+    put:
+      operationId: updateSiteSettings
+      summary: Change the site name and accent color
+      description: Platform Admin only. Logo is managed separately via /api/v1/site-settings/logo.
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSiteSettingsRequest"
+      responses:
+        "200":
+          description: Updated site settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SiteSettings"
+        "400":
+          description: Invalid site name or accent color
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing global site_setting update permission
+  /api/v1/site-settings/logo:
+    post:
+      operationId: uploadSiteLogo
+      summary: Upload the site logo (png/jpeg/svg/webp/gif, up to 2 MiB). Platform Admin only.
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                logo: { type: string, format: binary }
+      responses:
+        "200":
+          description: Updated site settings with the new logo URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SiteSettings"
+        "400":
+          description: Missing file, unsupported image type, or over 2 MiB
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing global site_setting update permission
+    delete:
+      operationId: deleteSiteLogo
+      summary: Remove the configured site logo, reverting to the default mark. Platform Admin only.
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      responses:
+        "200":
+          description: Updated site settings with logoUrl cleared
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SiteSettings"
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing global site_setting update permission
+  /api/v1/site-settings/logo/{filename}:
+    get:
+      operationId: getSiteLogoFile
+      summary: Fetch the uploaded site logo image
+      description: Unauthenticated -- the login screen renders the logo before a session exists.
+      parameters:
+        - name: filename
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Logo image bytes
+          content:
+            image/*:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: No logo file with that name
   /api/v1/admin/audit:
     get:
       operationId: listAdminAuditEvents
@@ -3181,10 +3285,37 @@ components:
           type: boolean
         isActive:
           type: boolean
+    SiteSettings:
+      type: object
+      additionalProperties: false
+      required: [siteName, accentColor, updatedAt]
+      properties:
+        siteName:
+          type: string
+        logoUrl:
+          type: [string, "null"]
+        accentColor:
+          type: string
+          enum: [teal, indigo, emerald, amber, rose]
+        updatedAt:
+          type: string
+          format: date-time
+    UpdateSiteSettingsRequest:
+      type: object
+      additionalProperties: false
+      required: [siteName, accentColor]
+      properties:
+        siteName:
+          type: string
+          minLength: 1
+          maxLength: 100
+        accentColor:
+          type: string
+          enum: [teal, indigo, emerald, amber, rose]
     MiddlewareGateway:
       type: object
       additionalProperties: false
-      required: [id, organizationId, organizationName, name, siteName, keyPrefix, isActive, isOnline, configVersion, configAppliedVersion, createdAt, updatedAt]
+      required: [id, organizationId, organizationName, name, siteName, keyPrefix, autoOnboard, isActive, isOnline, configVersion, configAppliedVersion, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -3201,6 +3332,8 @@ components:
         keyPrefix:
           type: string
           description: Non-secret prefix for identifying the key
+        autoOnboard:
+          type: boolean
         isActive:
           type: boolean
         isOnline:
@@ -3246,6 +3379,9 @@ components:
         siteName:
           type: string
           maxLength: 200
+        autoOnboard:
+          type: boolean
+          default: false
     UpdateMiddlewareRequest:
       type: object
       additionalProperties: false
@@ -3259,6 +3395,8 @@ components:
           type: string
           maxLength: 200
         isActive:
+          type: boolean
+        autoOnboard:
           type: boolean
     MiddlewareAddress:
       type: object

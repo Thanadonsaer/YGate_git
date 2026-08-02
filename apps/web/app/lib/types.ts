@@ -10,6 +10,15 @@ export type SelfProfile = User & {
   updatedAt: string;
 };
 
+export type AccentColor = "teal" | "indigo" | "emerald" | "amber" | "rose";
+
+export type SiteSettings = {
+  siteName: string;
+  logoUrl?: string | null;
+  accentColor: AccentColor;
+  updatedAt: string;
+};
+
 export type ManagedUser = {
   id: string;
   organizationId: string;
@@ -358,6 +367,7 @@ export type MiddlewareGateway = {
   siteName: string;
   keyPrefix: string;
   softwareVersion?: string | null;
+  autoOnboard: boolean;
   isActive: boolean;
   isOnline: boolean;
   configVersion: number;

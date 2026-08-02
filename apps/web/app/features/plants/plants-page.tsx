@@ -299,7 +299,8 @@ function DeviceEditor({ plant, device, onClose, onSaved }: { plant: Plant; devic
     setError("");
     const host = modbusHost.trim();
     const body = {
-      externalId, name, deviceModelId,
+      ...(device ? {} : { externalId }),
+      name, deviceModelId,
       modbusHost: host,
       modbusPort: host === "" ? null : Number(modbusPort),
       modbusUnitId: Number(modbusUnitId),
@@ -314,7 +315,10 @@ function DeviceEditor({ plant, device, onClose, onSaved }: { plant: Plant; devic
       });
       if (response.status === 404) throw new Error("ไม่พบ Plant/Device หรือบัญชีนี้ไม่มีสิทธิ์");
       if (response.status === 409) throw new Error("External ID นี้มีอยู่แล้วใน Plant");
-      if (!response.ok) throw new Error("ข้อมูลไม่ถูกต้องหรือไม่สามารถบันทึกได้ (Model ต้องเลือก, IP ต้องมี Port คู่กัน)");
+      if (!response.ok) {
+        const detail = await response.text().catch(() => "");
+        throw new Error(`บันทึกไม่ได้ (${response.status})${detail ? `: ${detail}` : ""}`);
+      }
       onSaved();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");

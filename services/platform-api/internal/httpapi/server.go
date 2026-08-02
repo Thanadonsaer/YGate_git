@@ -58,6 +58,11 @@ func New(version string, ready func(context.Context) error, pool *pgxpool.Pool, 
 		allowedOrigins = []string{"localhost:8080", "127.0.0.1:8080"}
 	}
 	if registryService != nil {
+		mux.HandleFunc("GET /api/v1/site-settings", siteSettingsHandler(registryService))
+		mux.HandleFunc("PUT /api/v1/site-settings", authenticated(pool, sessionIdleTimeout, true, updateSiteSettingsHandler(registryService)))
+		mux.HandleFunc("POST /api/v1/site-settings/logo", authenticated(pool, sessionIdleTimeout, true, uploadSiteLogoHandler(registryService)))
+		mux.HandleFunc("DELETE /api/v1/site-settings/logo", authenticated(pool, sessionIdleTimeout, true, deleteSiteLogoHandler(registryService)))
+		mux.HandleFunc("GET /api/v1/site-settings/logo/{filename}", serveSiteLogoHandler(registryService))
 		mux.HandleFunc("GET /api/v1/realtime", authenticated(pool, sessionIdleTimeout, false, realtimeHandler(allowedOrigins, registryService, registryService)))
 		mux.HandleFunc("GET /api/v1/admin/audit", authenticated(pool, sessionIdleTimeout, false, auditEventsHandler(registryService)))
 		mux.HandleFunc("DELETE /api/v1/admin/audit", authenticated(pool, sessionIdleTimeout, true, clearAuditEventsHandler(registryService)))
