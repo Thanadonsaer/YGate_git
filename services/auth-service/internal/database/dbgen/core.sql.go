@@ -115,10 +115,12 @@ func (q *Queries) HasUserPermission(ctx context.Context, arg HasUserPermissionPa
 const listUserPermissions = `-- name: ListUserPermissions :many
 SELECT DISTINCT pm.resource_type, pm.action
 FROM user_role ur
+JOIN role r ON r.id = ur.role_id
 JOIN role_permission rp ON rp.role_id = ur.role_id
     AND (rp.organization_id IS NULL OR rp.organization_id = ur.organization_id)
 JOIN permission pm ON pm.id = rp.permission_id
 WHERE ur.user_id = $1
+  AND (r.organization_id IS NULL OR r.organization_id = ur.organization_id)
 `
 
 type ListUserPermissionsRow struct {

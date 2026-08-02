@@ -29,10 +29,12 @@ SELECT EXISTS (
 -- name: ListUserPermissions :many
 SELECT DISTINCT pm.resource_type, pm.action
 FROM user_role ur
+JOIN role r ON r.id = ur.role_id
 JOIN role_permission rp ON rp.role_id = ur.role_id
     AND (rp.organization_id IS NULL OR rp.organization_id = ur.organization_id)
 JOIN permission pm ON pm.id = rp.permission_id
-WHERE ur.user_id = sqlc.arg(user_id);
+WHERE ur.user_id = sqlc.arg(user_id)
+  AND (r.organization_id IS NULL OR r.organization_id = ur.organization_id);
 
 -- name: CreateAuditEventFull :exec
 INSERT INTO audit_log (
