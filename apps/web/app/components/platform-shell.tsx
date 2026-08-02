@@ -21,9 +21,10 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { createContext, ReactNode, useContext, useEffect, useState } from "react";
 import { api, assetURL, csrfToken } from "../lib/api";
+import { hasPermission } from "../lib/permissions";
 import { useRealtimeSocket } from "../lib/realtime";
 import { applyAccentColor } from "../lib/theme";
 import type { AuthMode, ConnectionState, SiteSettings, User } from "../lib/types";
@@ -55,32 +56,36 @@ const navigation = [
     group: "Monitoring",
     items: [
       { href: "/", label: "Overview", icon: Activity },
-      { href: "/site-map", label: "Site Map", icon: MapPinned },
-      { href: "/scada/live", label: "SCADA Viewer", icon: Radio },
-      { href: "/alarms", label: "Alarms", icon: BellRing },
+      { href: "/site-map", label: "Site Map", icon: MapPinned, requires: "plant:read" },
+      { href: "/scada/live", label: "SCADA Viewer", icon: Radio, requires: "scada_screen:view" },
+      { href: "/alarms", label: "Alarms", icon: BellRing, requires: "alarm:read" },
     ],
   },
   {
     group: "Assets & Config",
     items: [
-      { href: "/plants", label: "Plants", icon: Building2 },
-      { href: "/register-metadata", label: "Register Metadata", icon: Settings2 },
-      { href: "/scada", label: "SCADA Builder", icon: Workflow },
+      { href: "/plants", label: "Plants", icon: Building2, requires: "plant:read" },
+      { href: "/register-metadata", label: "Register Metadata", icon: Settings2, requires: "device_model:read" },
+      { href: "/scada", label: "SCADA Builder", icon: Workflow, requires: "scada_screen:edit" },
     ],
   },
   {
     group: "Administration",
     items: [
-      { href: "/users", label: "Users", icon: Users },
-      { href: "/roles", label: "Roles & Permissions", icon: ShieldEllipsis },
-      { href: "/middlewares", label: "Middleware Gateways", icon: Server },
-      { href: "/openapi", label: "OpenAPI", icon: FileText },
-      { href: "/audit", label: "Audit Log", icon: ShieldCheck },
+      { href: "/users", label: "Users", icon: Users, requires: "user:read" },
+      { href: "/roles", label: "Roles & Permissions", icon: ShieldEllipsis, requires: "role:read" },
+      { href: "/middlewares", label: "Middleware Gateways", icon: Server, requires: "middleware_client:read" },
+      { href: "/openapi", label: "OpenAPI", icon: FileText, requires: "api_contract:read" },
+      { href: "/audit", label: "Audit Log", icon: ShieldCheck, requires: "audit:read" },
       { href: "/sessions", label: "Sessions", icon: ShieldCheck },
-      { href: "/settings", label: "Site Branding", icon: Palette },
+      { href: "/settings", label: "Site Branding", icon: Palette, requires: "site_setting:update" },
     ],
   },
-] as const;
+] satisfies ReadonlyArray<{ group: string; items: ReadonlyArray<{ href: string; label: string; icon: typeof Activity; requires?: string }> }>;
+
+const navRequirements: Record<string, string> = Object.fromEntries(
+  navigation.flatMap(({ items }) => items.filter((item) => item.requires).map((item) => [item.href, item.requires as string])),
+);
 
 const titles: Record<string, string> = {
   "/": "System Overview",
@@ -102,6 +107,7 @@ const titles: Record<string, string> = {
 
 export function PlatformShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [authMode, setAuthMode] = useState<AuthMode>("login");
@@ -138,6 +144,12 @@ export function PlatformShell({ children }: { children: ReactNode }) {
 
   useEffect(() => { applyAccentColor(siteSettings.accentColor); }, [siteSettings.accentColor]);
 
+  useEffect(() => {
+    if (!user) return;
+    const required = navRequirements[pathname];
+    if (required && !hasPermission(user, required)) router.replace("/");
+  }, [user, pathname, router]);
+
   const liveState = useRealtimeSocket(undefined, (message) => setLastLiveAt(message.sentAt), Boolean(user));
 
   async function logout() {
@@ -167,16 +179,20 @@ export function PlatformShell({ children }: { children: ReactNode }) {
           </div>
           <button className="mobile-close" onClick={() => setNavOpen(false)} title="ปิดเมนู" aria-label="ปิดเมนู"><X size={20} /></button>
           <nav aria-label="เมนูหลัก">
-            {navigation.map(({ group, items }) => (
-              <div className="nav-group" key={group}>
-                <p className="nav-group-label">{group}</p>
-                {items.map(({ href, label, icon: Icon }) => (
-                  <Link key={href} href={href} className={pathname === href ? "nav-item active" : "nav-item"} onClick={() => setNavOpen(false)}>
-                    <Icon size={18} /> {label}
-                  </Link>
-                ))}
-              </div>
-            ))}
+            {navigation.map(({ group, items }) => {
+              const visible = items.filter((item) => !item.requires || hasPermission(user, item.requires));
+              if (visible.length === 0) return null;
+              return (
+                <div className="nav-group" key={group}>
+                  <p className="nav-group-label">{group}</p>
+                  {visible.map(({ href, label, icon: Icon }) => (
+                    <Link key={href} href={href} className={pathname === href ? "nav-item active" : "nav-item"} onClick={() => setNavOpen(false)}>
+                      <Icon size={18} /> {label}
+                    </Link>
+                  ))}
+                </div>
+              );
+            })}
           </nav>
           <div className="sidebar-user">
             <span className="avatar"><UserRound size={18} /></span>
