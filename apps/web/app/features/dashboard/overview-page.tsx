@@ -8,6 +8,7 @@ import type { DashboardLayout, DashboardLayoutItem, DashboardLayouts, DashboardO
 import { usePlatformSession } from "../../components/platform-shell";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody } from "../../components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../../components/ui/select";
+import { Button } from "../../components/ui/button";
 
 function dashboardStatusLabel(status: DashboardPlantStatus["communicationStatus"]) {
   return { ONLINE: "Online", DEGRADED: "Degraded", OFFLINE: "Offline", NO_DEVICES: "No devices", DISABLED: "Disabled" }[status];
@@ -200,21 +201,21 @@ function DashboardCanvas({ dashboard, dashboardError, onRefresh }: { dashboard: 
         <div><p>My dashboard</p><h2>ภาพรวมการดำเนินงาน</h2></div>
         <div className="heading-actions">
           {published && <span className={hasUnpublishedChanges ? "dashboard-version draft" : "dashboard-version"}>{hasUnpublishedChanges ? `Draft v${saved?.version}` : `Published v${published.version}`}</span>}
-          <button className="icon-button" onClick={() => { void onRefresh(); if (!editing) void loadLayouts(); }} disabled={pending} title="รีเฟรช" aria-label="รีเฟรชภาพรวม"><RefreshCw size={18} /></button>
+          <Button variant="icon" onClick={() => { void onRefresh(); if (!editing) void loadLayouts(); }} disabled={pending} title="รีเฟรช" aria-label="รีเฟรชภาพรวม"><RefreshCw size={18} /></Button>
           {editing ? <>
-            {chartEnabled ? <button className="secondary-button compact" onClick={() => {
+            {chartEnabled ? <Button variant="secondary" compact onClick={() => {
               setLayouts((current) => current ? {
                 lg: current.lg.filter((item) => item.i !== "timeseries-line"),
                 md: current.md.filter((item) => item.i !== "timeseries-line"),
                 sm: current.sm.filter((item) => item.i !== "timeseries-line"),
               } : current);
               setWidgetConfigs({});
-            }} disabled={pending}><Trash2 size={17} /> ลบกราฟ</button> : <button className="secondary-button compact" onClick={() => setConfigEditorOpen(true)} disabled={pending}><ChartLine size={17} /> เพิ่มกราฟ</button>}
-            <button className="secondary-button compact" onClick={cancelEditing} disabled={pending}><RotateCcw size={17} /> ยกเลิก</button>
-            <button className="primary-button compact" onClick={() => void saveLayout()} disabled={pending}><Save size={17} /> {pending ? "กำลังบันทึก" : "บันทึก"}</button>
+            }} disabled={pending}><Trash2 size={17} /> ลบกราฟ</Button> : <Button variant="secondary" compact onClick={() => setConfigEditorOpen(true)} disabled={pending}><ChartLine size={17} /> เพิ่มกราฟ</Button>}
+            <Button variant="secondary" compact onClick={cancelEditing} disabled={pending}><RotateCcw size={17} /> ยกเลิก</Button>
+            <Button compact onClick={() => void saveLayout()} disabled={pending}><Save size={17} /> {pending ? "กำลังบันทึก" : "บันทึก"}</Button>
           </> : <>
-            {saved?.canPublish && hasUnpublishedChanges && <button className="primary-button compact" onClick={() => void publishLayout()} disabled={pending}><Upload size={17} /> {pending ? "กำลังเผยแพร่" : "เผยแพร่"}</button>}
-            {saved?.canEdit && <button className="secondary-button compact" onClick={beginEditing} disabled={pending}><Pencil size={17} /> ปรับ Layout</button>}
+            {saved?.canPublish && hasUnpublishedChanges && <Button compact onClick={() => void publishLayout()} disabled={pending}><Upload size={17} /> {pending ? "กำลังเผยแพร่" : "เผยแพร่"}</Button>}
+            {saved?.canEdit && <Button variant="secondary" compact onClick={beginEditing} disabled={pending}><Pencil size={17} /> ปรับ Layout</Button>}
           </>}
         </div>
       </div>
@@ -299,7 +300,7 @@ function TimeseriesWidget({ config, refreshKey, editing, onConfigure }: { config
     return () => controller.abort();
   }, [config, refreshKey]);
 
-  if (!config) return <div className="timeseries-empty"><ChartLine size={24} /><span>ยังไม่ได้ตั้งค่ากราฟ</span>{editing && <button className="secondary-button compact" onClick={onConfigure}><Settings2 size={16} /> ตั้งค่า</button>}</div>;
+  if (!config) return <div className="timeseries-empty"><ChartLine size={24} /><span>ยังไม่ได้ตั้งค่ากราฟ</span>{editing && <Button variant="secondary" compact onClick={onConfigure}><Settings2 size={16} /> ตั้งค่า</Button>}</div>;
   const numbers = values.map((point) => point.value);
   const minimum = numbers.length ? Math.min(...numbers) : 0;
   const maximum = numbers.length ? Math.max(...numbers) : 0;
@@ -310,7 +311,7 @@ function TimeseriesWidget({ config, refreshKey, editing, onConfigure }: { config
   return <div className="dashboard-widget-body timeseries-widget-body">
     <div className="timeseries-meta">
       <div><strong>{config.dataBinding.pointKey}</strong><small>{config.dataBinding.timeRangeHours}h · {values.length} points</small></div>
-      {editing && <button className="icon-button" onClick={onConfigure} title="ตั้งค่ากราฟ" aria-label="ตั้งค่ากราฟ"><Settings2 size={17} /></button>}
+      {editing && <Button variant="icon" onClick={onConfigure} title="ตั้งค่ากราฟ" aria-label="ตั้งค่ากราฟ"><Settings2 size={17} /></Button>}
     </div>
     {error ? <p className="form-message error">{error}</p> : values.length ? <>
       <svg className="timeseries-chart" viewBox="0 0 100 40" preserveAspectRatio="none" role="img" aria-label={`กราฟ ${config.dataBinding.pointKey}`}>
@@ -411,7 +412,7 @@ function TimeseriesConfigEditor({ initial, onClose, onSave }: { initial?: Timese
             <label className="grid gap-1.5 text-xs font-bold text-ink">Unit<input className="h-10 rounded-[var(--radius-sm)] border border-line px-3 text-sm" value={unit} onChange={(event) => setUnit(event.target.value)} maxLength={20} placeholder="kW" /></label>
             <label className="grid gap-1.5 text-xs font-bold text-ink">Decimals<input className="h-10 rounded-[var(--radius-sm)] border border-line px-3 text-sm" type="number" min="0" max="6" value={decimals} onChange={(event) => setDecimals(Number(event.target.value))} required /></label>
             {error && <p className="form-message error col-span-2">{error}</p>}
-            <div className="col-span-2 flex justify-end gap-2"><button type="button" className="secondary-button" onClick={onClose}>ยกเลิก</button><button className="primary-button"><Save size={17} /> บันทึกการตั้งค่า</button></div>
+            <div className="col-span-2 flex justify-end gap-2"><Button type="button" variant="secondary" onClick={onClose}>ยกเลิก</Button><Button><Save size={17} /> บันทึกการตั้งค่า</Button></div>
           </form>
         </DialogBody>
       </DialogContent>

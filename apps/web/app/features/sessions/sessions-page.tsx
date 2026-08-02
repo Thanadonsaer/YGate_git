@@ -3,6 +3,7 @@
 import { RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "../../components/ui/sonner";
+import { Button } from "../../components/ui/button";
 import { api, csrfToken, formatDate } from "../../lib/api";
 import type { Session } from "../../lib/types";
 
@@ -52,8 +53,8 @@ export function SessionsPage() {
       <div className="section-heading">
         <div><p>ความปลอดภัย</p><h2>เซสชันที่เข้าสู่ระบบ</h2></div>
         <div className="heading-actions">
-          <button className="icon-button" onClick={() => void loadSessions()} title="รีเฟรช" aria-label="รีเฟรชรายการเซสชัน"><RefreshCw size={18} /></button>
-          <button className="secondary-button compact danger-button" onClick={() => void clearSessions()}><Trash2 size={17} /> Clear ทั้งหมด</button>
+          <Button variant="icon" onClick={() => void loadSessions()} title="รีเฟรช" aria-label="รีเฟรชรายการเซสชัน"><RefreshCw size={18} /></Button>
+          <Button variant="secondary" compact danger onClick={() => void clearSessions()}><Trash2 size={17} /> Clear ทั้งหมด</Button>
         </div>
       </div>
       {error && <p className="form-message error">{error}</p>}
@@ -64,7 +65,7 @@ export function SessionsPage() {
             <div><strong>{session.userAgent || "Unknown client"}</strong><small>{session.clientIp || "ไม่ระบุ IP"}</small></div>
             <div><span>{formatDate(session.lastSeenAt)}</span><small>สร้างเมื่อ {formatDate(session.createdAt)}</small></div>
             <div>{session.revokedAt ? <span className="status revoked">ยกเลิกแล้ว</span> : session.current ? <span className="status current">เซสชันนี้</span> : <span className="status active">ใช้งานอยู่</span>}</div>
-            <button className="icon-button danger" disabled={Boolean(session.revokedAt)} onClick={() => void revokeSession(session)} title="ยกเลิกเซสชัน" aria-label="ยกเลิกเซสชัน"><Trash2 size={17} /></button>
+            <Button variant="icon" danger disabled={Boolean(session.revokedAt)} onClick={() => void revokeSession(session)} title="ยกเลิกเซสชัน" aria-label="ยกเลิกเซสชัน"><Trash2 size={17} /></Button>
           </div>
         ))}
         {loading && <div className="table-state">กำลังโหลดเซสชัน</div>}

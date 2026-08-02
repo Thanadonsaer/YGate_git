@@ -3,6 +3,7 @@
 import { RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "../../components/ui/sonner";
+import { Button } from "../../components/ui/button";
 import { api, csrfToken, formatDate } from "../../lib/api";
 import type { AuditEvent } from "../../lib/types";
 
@@ -43,8 +44,8 @@ export function AuditPage() {
     <div className="section-heading">
       <div><p>Append-only activity</p><h2>Audit Log</h2></div>
       <div className="heading-actions">
-        <button className="icon-button" onClick={() => void loadEvents()} title="รีเฟรช" aria-label="รีเฟรช Audit Log"><RefreshCw size={18} /></button>
-        <button className="secondary-button compact danger-button" onClick={() => void clearAudit()}><Trash2 size={17} /> Clear Audit</button>
+        <Button variant="icon" onClick={() => void loadEvents()} title="รีเฟรช" aria-label="รีเฟรช Audit Log"><RefreshCw size={18} /></Button>
+        <Button variant="secondary" compact danger onClick={() => void clearAudit()}><Trash2 size={17} /> Clear Audit</Button>
       </div>
     </div>
     {error && <p className="form-message error">{error}</p>}

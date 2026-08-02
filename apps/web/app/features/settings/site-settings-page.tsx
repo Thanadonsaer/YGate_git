@@ -7,6 +7,7 @@ import { api, assetURL, csrfToken } from "../../lib/api";
 import { ACCENT_PRESETS } from "../../lib/theme";
 import type { AccentColor, SiteSettings } from "../../lib/types";
 import { toast } from "../../components/ui/sonner";
+import { Button } from "../../components/ui/button";
 
 export function SiteSettingsPage() {
   const { siteSettings, updateSiteSettings } = usePlatformSession();
@@ -90,7 +91,7 @@ export function SiteSettingsPage() {
               {logoPending ? "กำลังอัปโหลด..." : <><Upload size={15} /> อัปโหลด logo</>}
               <input type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp,image/gif" disabled={logoPending} style={{ display: "none" }} onChange={(event) => void uploadLogo(event)} />
             </label>
-            {siteSettings.logoUrl && <button type="button" className="text-button danger compact" disabled={logoPending} onClick={() => void removeLogo()}><Trash2 size={15} /> ลบ logo</button>}
+            {siteSettings.logoUrl && <Button type="button" variant="text" danger compact disabled={logoPending} onClick={() => void removeLogo()}><Trash2 size={15} /> ลบ logo</Button>}
             <small>PNG/JPEG/SVG/WEBP/GIF ไม่เกิน 2 MB</small>
           </div>
         </div>
@@ -109,7 +110,7 @@ export function SiteSettingsPage() {
             </div>
           </div>
           {error && <p className="form-message error full-field">{error}</p>}
-          <div className="editor-actions full-field"><button className="primary-button" disabled={pending}><Save size={17} /> {pending ? "กำลังบันทึก" : "บันทึก"}</button></div>
+          <div className="editor-actions full-field"><Button disabled={pending}><Save size={17} /> {pending ? "กำลังบันทึก" : "บันทึก"}</Button></div>
         </form>
       </div>
     </section>

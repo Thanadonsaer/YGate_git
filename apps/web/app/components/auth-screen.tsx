@@ -5,6 +5,7 @@ import { FormEvent, useState } from "react";
 import { api, assetURL } from "../lib/api";
 import type { AuthMode, SiteSettings, User } from "../lib/types";
 import { LivePulse } from "./live-pulse";
+import { Button } from "./ui/button";
 
 export function AuthScreen({
   mode,
@@ -104,12 +105,12 @@ export function AuthScreen({
           )}
           {error && <p className="form-message error">{error}</p>}
           {notice && <p className="form-message success"><CheckCircle2 size={17} />{notice}</p>}
-          <button className="primary-button" disabled={pending}>
+          <Button disabled={pending}>
             {mode === "login" ? <KeyRound size={18} /> : <ShieldCheck size={18} />}
             {pending ? "กำลังดำเนินการ" : title}
-          </button>
+          </Button>
         </form>
-        {mode === "login" && <button className="text-button" onClick={() => onModeChange("forgot")}>ลืมรหัสผ่าน?</button>}
+        {mode === "login" && <Button variant="text" onClick={() => onModeChange("forgot")}>ลืมรหัสผ่าน?</Button>}
         <div className="gateway-state"><span className={gatewayOnline ? "dot online" : "dot"} />API Gateway {gatewayOnline ? "online" : "offline"}</div>
       </section>
     </main>

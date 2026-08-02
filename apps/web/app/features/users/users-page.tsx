@@ -7,6 +7,7 @@ import type { ManagedUser, Role } from "../../lib/types";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody } from "../../components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../../components/ui/select";
 import { toast } from "../../components/ui/sonner";
+import { Button } from "../../components/ui/button";
 
 export function UsersPage({ currentUserId, defaultOrganizationId }: { currentUserId: string; defaultOrganizationId?: string }) {
   const [users, setUsers] = useState<ManagedUser[]>([]);
@@ -71,8 +72,8 @@ export function UsersPage({ currentUserId, defaultOrganizationId }: { currentUse
     <div className="section-heading">
       <div><p>Access management</p><h2>ผู้ใช้ในระบบ</h2></div>
       <div className="heading-actions">
-        <button className="icon-button" onClick={() => void loadUsers()} title="รีเฟรช" aria-label="รีเฟรชรายการผู้ใช้"><RefreshCw size={18} /></button>
-        <button className="primary-button compact" onClick={() => setEditor("create")}><Plus size={18} /> เพิ่มผู้ใช้</button>
+        <Button variant="icon" onClick={() => void loadUsers()} title="รีเฟรช" aria-label="รีเฟรชรายการผู้ใช้"><RefreshCw size={18} /></Button>
+        <Button compact onClick={() => setEditor("create")}><Plus size={18} /> เพิ่มผู้ใช้</Button>
       </div>
     </div>
     {error && <p className="form-message error">{error}</p>}
@@ -86,11 +87,11 @@ export function UsersPage({ currentUserId, defaultOrganizationId }: { currentUse
           <div><span>{item.failedLoginCount.toLocaleString()} failed</span><small>{item.lockedUntil ? `Locked ${formatDate(item.lockedUntil)}` : `Updated ${formatDate(item.updatedAt)}`}</small></div>
           <span className={item.isActive ? "status active" : "status revoked"}>{item.isActive ? "ใช้งาน" : "ปิดใช้งาน"}</span>
           <div className="row-actions">
-            <button className="icon-button" onClick={() => setEditor(item)} disabled={item.id === currentUserId} title="แก้ไข User/Role" aria-label={`แก้ไข ${item.displayName}`}><Pencil size={17} /></button>
-            <button className="icon-button" onClick={() => void unlockUser(item)} disabled={!item.lockedUntil && item.failedLoginCount === 0} title="ปลดล็อก" aria-label={`ปลดล็อก ${item.displayName}`}><RotateCcw size={17} /></button>
-            <button className="icon-button" onClick={() => setResetTarget(item)} disabled={item.id === currentUserId} title="ตั้งรหัสผ่านใหม่" aria-label={`ตั้งรหัสผ่านใหม่ให้ ${item.displayName}`}><KeyRound size={17} /></button>
-            <button className="icon-button danger" onClick={() => void setUserActive(item, !item.isActive)} disabled={item.id === currentUserId} title={item.isActive ? "ปิดใช้งาน" : "เปิดใช้งาน"} aria-label={item.isActive ? `ปิดใช้งาน ${item.displayName}` : `เปิดใช้งาน ${item.displayName}`}>{item.isActive ? <UserX size={17} /> : <CheckCircle2 size={17} />}</button>
-            {canHardDelete && <button className="icon-button danger" onClick={() => void hardDeleteUser(item)} disabled={item.id === currentUserId} title="Hard Delete" aria-label={`Hard Delete ${item.displayName}`}><Trash2 size={17} /></button>}
+            <Button variant="icon" onClick={() => setEditor(item)} disabled={item.id === currentUserId} title="แก้ไข User/Role" aria-label={`แก้ไข ${item.displayName}`}><Pencil size={17} /></Button>
+            <Button variant="icon" onClick={() => void unlockUser(item)} disabled={!item.lockedUntil && item.failedLoginCount === 0} title="ปลดล็อก" aria-label={`ปลดล็อก ${item.displayName}`}><RotateCcw size={17} /></Button>
+            <Button variant="icon" onClick={() => setResetTarget(item)} disabled={item.id === currentUserId} title="ตั้งรหัสผ่านใหม่" aria-label={`ตั้งรหัสผ่านใหม่ให้ ${item.displayName}`}><KeyRound size={17} /></Button>
+            <Button variant="icon" danger onClick={() => void setUserActive(item, !item.isActive)} disabled={item.id === currentUserId} title={item.isActive ? "ปิดใช้งาน" : "เปิดใช้งาน"} aria-label={item.isActive ? `ปิดใช้งาน ${item.displayName}` : `เปิดใช้งาน ${item.displayName}`}>{item.isActive ? <UserX size={17} /> : <CheckCircle2 size={17} />}</Button>
+            {canHardDelete && <Button variant="icon" danger onClick={() => void hardDeleteUser(item)} disabled={item.id === currentUserId} title="Hard Delete" aria-label={`Hard Delete ${item.displayName}`}><Trash2 size={17} /></Button>}
           </div>
         </div>
       ))}
@@ -158,7 +159,7 @@ function UserEditor({ user, roles, defaultOrganizationId, onClose, onSaved }: { 
             {!user && <label className="full-field">รหัสผ่านเริ่มต้น<input type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={12} maxLength={72} required /></label>}
             {user && <label className="toggle-field full-field"><input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} /> เปิดใช้งาน User</label>}
             {error && <p className="form-message error full-field">{error}</p>}
-            <div className="editor-actions full-field"><button type="button" className="secondary-button" onClick={onClose} disabled={pending}>ยกเลิก</button><button className="primary-button" disabled={pending}><Save size={17} /> {pending ? "กำลังบันทึก" : "บันทึกผู้ใช้"}</button></div>
+            <div className="editor-actions full-field"><Button type="button" variant="secondary" onClick={onClose} disabled={pending}>ยกเลิก</Button><Button disabled={pending}><Save size={17} /> {pending ? "กำลังบันทึก" : "บันทึกผู้ใช้"}</Button></div>
           </form>
         </DialogBody>
       </DialogContent>
@@ -195,7 +196,7 @@ function PasswordResetDialog({ user, onClose, onSaved }: { user: ManagedUser; on
             <label className="full-field">รหัสผ่านใหม่<input type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={12} maxLength={72} required /></label>
             <p className="full-field text-xs text-slate-500">ทุก session และ reset token ของ User จะถูก revoke</p>
             {error && <p className="form-message error full-field">{error}</p>}
-            <div className="editor-actions full-field"><button type="button" className="secondary-button" onClick={onClose} disabled={pending}>ยกเลิก</button><button className="primary-button" disabled={pending}><KeyRound size={17} /> {pending ? "กำลังบันทึก" : "ตั้งรหัสผ่าน"}</button></div>
+            <div className="editor-actions full-field"><Button type="button" variant="secondary" onClick={onClose} disabled={pending}>ยกเลิก</Button><Button disabled={pending}><KeyRound size={17} /> {pending ? "กำลังบันทึก" : "ตั้งรหัสผ่าน"}</Button></div>
           </form>
         </DialogBody>
       </DialogContent>

@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../../components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "../../components/ui/tabs";
 import { toast } from "../../components/ui/sonner";
+import { Button } from "../../components/ui/button";
 
 const severityStatusClass: Record<AlarmRule["severity"], string> = {
   warning: "status no_devices",
@@ -111,8 +112,8 @@ export function AlarmsPage() {
               <TabsTrigger value="rules">Rules</TabsTrigger>
             </TabsList>
           </Tabs>
-          <button className="icon-button" onClick={() => void loadAlarms()} title="รีเฟรช" aria-label="รีเฟรช Alarm"><RefreshCw size={18} /></button>
-          {tab === "rules" && <button className="primary-button compact" onClick={() => setEditor("create")}><Plus size={18} /> เพิ่มกฎ</button>}
+          <Button variant="icon" onClick={() => void loadAlarms()} title="รีเฟรช" aria-label="รีเฟรช Alarm"><RefreshCw size={18} /></Button>
+          {tab === "rules" && <Button compact onClick={() => setEditor("create")}><Plus size={18} /> เพิ่มกฎ</Button>}
         </div>
       </div>
       {error && <p className="form-message error">{error}</p>}
@@ -128,7 +129,7 @@ export function AlarmsPage() {
               {event.acknowledgedBy ? (
                 <span className="status active">Acked {event.acknowledgedAt ? formatDate(event.acknowledgedAt) : ""}</span>
               ) : (
-                <button className="icon-button" onClick={() => void acknowledge(event)} title="Acknowledge" aria-label={`Acknowledge alarm ${event.id}`}><Check size={17} /></button>
+                <Button variant="icon" onClick={() => void acknowledge(event)} title="Acknowledge" aria-label={`Acknowledge alarm ${event.id}`}><Check size={17} /></Button>
               )}
             </div>
           ))}
@@ -145,8 +146,8 @@ export function AlarmsPage() {
               <div><span>{rule.minValue != null ? `min ${rule.minValue}` : "-"}</span><small>{rule.maxValue != null ? `max ${rule.maxValue}` : "-"}</small></div>
               <span className={rule.isActive ? "status active" : "status revoked"}>{rule.isActive ? "ใช้งาน" : "ปิดใช้งาน"}</span>
               <div className="row-actions">
-                <button className="icon-button" onClick={() => setEditor(rule)} title="แก้ไขกฎ" aria-label={`แก้ไข ${rule.label}`}><Pencil size={17} /></button>
-                <button className="icon-button danger" onClick={() => void deleteRule(rule)} title="ลบกฎ" aria-label={`ลบ ${rule.label}`}><Trash2 size={17} /></button>
+                <Button variant="icon" onClick={() => setEditor(rule)} title="แก้ไขกฎ" aria-label={`แก้ไข ${rule.label}`}><Pencil size={17} /></Button>
+                <Button variant="icon" danger onClick={() => void deleteRule(rule)} title="ลบกฎ" aria-label={`ลบ ${rule.label}`}><Trash2 size={17} /></Button>
               </div>
             </div>
           ))}
@@ -237,7 +238,7 @@ function AlarmRuleEditor({ plantId, rule, devices, onClose, onSaved }: { plantId
             </label>
             {rule && <label className="toggle-field full-field"><input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} /><span>เปิดใช้งานกฎนี้</span></label>}
             {error && <p className="form-message error full-field">{error}</p>}
-            <div className="editor-actions full-field"><button type="button" className="secondary-button" onClick={onClose} disabled={pending}>ยกเลิก</button><button className="primary-button" disabled={pending}>{pending ? "กำลังบันทึก" : "บันทึก"}</button></div>
+            <div className="editor-actions full-field"><Button type="button" variant="secondary" onClick={onClose} disabled={pending}>ยกเลิก</Button><Button disabled={pending}>{pending ? "กำลังบันทึก" : "บันทึก"}</Button></div>
           </form>
         </DialogBody>
       </DialogContent>

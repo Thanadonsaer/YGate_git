@@ -58,6 +58,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../../components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "../../components/ui/tabs";
 import { Tooltip, TooltipTrigger, TooltipContent } from "../../components/ui/tooltip";
+import { Button } from "../../components/ui/button";
 import type {
   Device,
   LatestTelemetry,
@@ -339,7 +340,7 @@ export function ScadaPage() {
   return <div className="content scada-content">
     <div className="scada-titlebar">
       <div className="registry-title">
-        <button className="icon-button" onClick={() => { setScreen(null); setDraftDesign(null); void loadLibrary(); }} title="กลับไปรายการ Screen" aria-label="กลับไปรายการ Screen"><ArrowLeft size={18} /></button>
+        <Button variant="icon" onClick={() => { setScreen(null); setDraftDesign(null); void loadLibrary(); }} title="กลับไปรายการ Screen" aria-label="กลับไปรายการ Screen"><ArrowLeft size={18} /></Button>
         <div><p>{screen.plantCode} · {screen.plantName}</p><input aria-label="ชื่อ SCADA Screen" value={draftName} onChange={(event) => markName(event.target.value)} disabled={!editable} maxLength={100} /></div>
       </div>
       <div className="scada-actions">
@@ -351,12 +352,12 @@ export function ScadaPage() {
             <TabsTrigger value="published"><Radio size={15} /> Published</TabsTrigger>
           </TabsList>
         </Tabs>
-        {screen.canPublish && <button className="primary-button compact" disabled={saveState !== "saved"} onClick={() => void publishScreen()}><Send size={16} /> Publish</button>}
-        {screen.canHardDelete && <button className="icon-button danger" onClick={() => void hardDelete()} title="ลบ Screen ถาวร" aria-label="ลบ Screen ถาวร"><Trash2 size={17} /></button>}
+        {screen.canPublish && <Button compact disabled={saveState !== "saved"} onClick={() => void publishScreen()}><Send size={16} /> Publish</Button>}
+        {screen.canHardDelete && <Button variant="icon" danger onClick={() => void hardDelete()} title="ลบ Screen ถาวร" aria-label="ลบ Screen ถาวร"><Trash2 size={17} /></Button>}
       </div>
     </div>
     {error && <p className="form-message error">{error}</p>}
-    {saveState === "conflict" && <div className="scada-conflict"><strong>Draft มีการแก้ไขจากที่อื่น</strong><span>โหลดเวอร์ชันล่าสุดก่อนแก้ต่อเพื่อป้องกันข้อมูลหาย</span><button className="secondary-button compact" onClick={() => void loadScreen(screen.id)}><RefreshCw size={16} /> โหลดใหม่</button></div>}
+    {saveState === "conflict" && <div className="scada-conflict"><strong>Draft มีการแก้ไขจากที่อื่น</strong><span>โหลดเวอร์ชันล่าสุดก่อนแก้ต่อเพื่อป้องกันข้อมูลหาย</span><Button variant="secondary" compact onClick={() => void loadScreen(screen.id)}><RefreshCw size={16} /> โหลดใหม่</Button></div>}
     {activeDesign ? <ScadaCanvas key={`${screen.id}-${canvasEpoch}-${mode}`} design={activeDesign} editable={editable} devices={devices} latestByDevice={latestByDevice} versions={versions} canPublish={screen.canPublish} onDesignChange={markDesign} onRollback={rollback} /> : <div className="table-state">ยังไม่มี Published version</div>}
   </div>;
 }
@@ -366,7 +367,7 @@ function ScadaLibrary({ plants, screens, loading, error, createOpen, createPlant
   onRefresh: () => Promise<void>; onOpen: (id: string) => Promise<void>; onCreateOpen: (open: boolean) => void; onCreatePlantID: (value: string) => void; onCreateName: (value: string) => void; onCreate: (event: FormEvent) => Promise<void>;
 }) {
   return <div className="content scada-content">
-    <div className="section-heading"><div><p>Fixed-canvas operational screens</p><h2>SCADA Screens</h2></div><div className="heading-actions"><button className="icon-button" onClick={() => void onRefresh()} title="รีเฟรช" aria-label="รีเฟรช SCADA Screens"><RefreshCw size={18} /></button><button className="primary-button compact" onClick={() => onCreateOpen(true)}><FilePlus2 size={17} /> สร้าง Screen</button></div></div>
+    <div className="section-heading"><div><p>Fixed-canvas operational screens</p><h2>SCADA Screens</h2></div><div className="heading-actions"><Button variant="icon" onClick={() => void onRefresh()} title="รีเฟรช" aria-label="รีเฟรช SCADA Screens"><RefreshCw size={18} /></Button><Button compact onClick={() => onCreateOpen(true)}><FilePlus2 size={17} /> สร้าง Screen</Button></div></div>
     {error && <p className="form-message error">{error}</p>}
     <section className="scada-library" aria-label="SCADA Screens">
       <div className="scada-library-head"><span>Screen</span><span>Plant</span><span>Draft</span><span>Published</span><span>Updated</span><span aria-label="คำสั่ง" /></div>
@@ -390,7 +391,7 @@ function ScadaLibrary({ plants, screens, loading, error, createOpen, createPlant
               </Select>
             </label>
             <label className="full-field">ชื่อ Screen<input autoFocus value={createName} onChange={(event) => onCreateName(event.target.value)} maxLength={100} placeholder="Single Line Diagram" required /></label>
-            <div className="editor-actions full-field"><button type="button" className="secondary-button" onClick={() => onCreateOpen(false)}>ยกเลิก</button><button className="primary-button"><FilePlus2 size={17} /> สร้าง Draft</button></div>
+            <div className="editor-actions full-field"><Button type="button" variant="secondary" onClick={() => onCreateOpen(false)}>ยกเลิก</Button><Button><FilePlus2 size={17} /> สร้าง Draft</Button></div>
           </form>
         </DialogBody>
       </DialogContent>
@@ -487,7 +488,7 @@ export function ScadaCanvas({ design, editable, devices, latestByDevice, version
   return <div className={editable ? "scada-workbench editing scada-dark" : hideInspector ? "scada-workbench solo scada-dark" : "scada-workbench viewing scada-dark"}>
     {editable && <aside className="scada-palette"><header><Grid2X2 size={17} /><div><strong>Node palette</strong><small>เพิ่มองค์ประกอบลง fixed canvas</small></div></header>{paletteEntries.map(({ type, title, description, icon: Icon, requiresDevice }) => <button key={type} onClick={() => addNode(type)} disabled={requiresDevice && devices.length === 0} title={requiresDevice && devices.length === 0 ? "Plant นี้ยังไม่มี Device" : undefined}><Icon size={18} /><span><strong>{title}</strong><small>{description}</small></span></button>)}<div className="palette-note"><Workflow size={16} /><p>ใช้ Edge ของ React Flow สำหรับเส้นและลูกศรระหว่าง Node</p></div></aside>}
     <section className="scada-stage-shell" ref={stageRef}>
-      <div className="scada-stage-toolbar"><span>{editable ? "Draft canvas · Snap 20px" : "Operational viewer · Read only"}</span><button className="icon-button" onClick={() => void stageRef.current?.requestFullscreen()} title="เต็มจอ" aria-label="แสดง SCADA เต็มจอ"><Fullscreen size={17} /></button></div>
+      <div className="scada-stage-toolbar"><span>{editable ? "Draft canvas · Snap 20px" : "Operational viewer · Read only"}</span><Button variant="icon" onClick={() => void stageRef.current?.requestFullscreen()} title="เต็มจอ" aria-label="แสดง SCADA เต็มจอ"><Fullscreen size={17} /></Button></div>
       <div className="scada-stage">
         <ReactFlow<FlowNode, FlowEdge> nodes={nodes.map((node) => ({ ...node, data: { ...node.data, latest: latestByDevice[node.data.binding?.deviceId || ""], latestByDevice } }))} edges={edges} nodeTypes={nodeTypes} onNodesChange={nodesChanged} onEdgesChange={edgesChanged} onConnect={connect} onNodeClick={(_, node) => setSelectedID(node.id)} onPaneClick={() => setSelectedID("")} onMoveEnd={(_, next) => { setViewport(next); if (editable) emit(nodes, edges, next); }} defaultViewport={viewport} nodesDraggable={editable} nodesConnectable={editable} elementsSelectable={editable} deleteKeyCode={editable ? ["Backspace", "Delete"] : null} panOnDrag={!locked} panOnScroll={!locked} zoomOnScroll={!locked} zoomOnPinch={!locked} zoomOnDoubleClick={!locked} snapToGrid snapGrid={[20, 20]} fitView minZoom={0.1} maxZoom={4} attributionPosition="bottom-left">
           <Background variant={BackgroundVariant.Lines} gap={20} size={1} color="var(--line)" />
@@ -502,7 +503,7 @@ export function ScadaCanvas({ design, editable, devices, latestByDevice, version
 }
 
 function VersionHistory({ versions, canPublish, onRollback }: { versions: ScadaScreenVersion[]; canPublish: boolean; onRollback: (version: ScadaScreenVersion) => Promise<void> }) {
-  return <div className="version-list">{versions.map((version) => <div key={version.version}><span><strong>Version {version.version}</strong><small><Clock3 size={12} /> {formatDate(version.publishedAt)} · Draft {version.sourceDraftVersion}</small></span>{version.current ? <span className="status active">Current</span> : canPublish ? <button className="icon-button" onClick={() => void onRollback(version)} title={`Rollback ไป Version ${version.version}`} aria-label={`Rollback ไป Version ${version.version}`}><RotateCcw size={15} /></button> : null}</div>)}{versions.length === 0 && <p className="muted-text">ยังไม่มี Published version</p>}</div>;
+  return <div className="version-list">{versions.map((version) => <div key={version.version}><span><strong>Version {version.version}</strong><small><Clock3 size={12} /> {formatDate(version.publishedAt)} · Draft {version.sourceDraftVersion}</small></span>{version.current ? <span className="status active">Current</span> : canPublish ? <Button variant="icon" onClick={() => void onRollback(version)} title={`Rollback ไป Version ${version.version}`} aria-label={`Rollback ไป Version ${version.version}`}><RotateCcw size={15} /></Button> : null}</div>)}{versions.length === 0 && <p className="muted-text">ยังไม่มี Published version</p>}</div>;
 }
 
 function SaveState({ state }: { state: "saved" | "dirty" | "saving" | "conflict" | "error" }) {
@@ -533,7 +534,7 @@ function ScadaInspector({ selected, devices, latestByDevice, versions, canPublis
     {selected.type === "image" && <label>Image URL<input value={data.imageUrl || ""} maxLength={2048} placeholder="https://… or /images/…" onChange={(event) => update({ imageUrl: event.target.value })} /></label>}
     {selected.type === "ticker" && <label>Message<input value={data.text || ""} maxLength={200} onChange={(event) => update({ text: event.target.value })} /></label>}
     {listed && <DataItemsEditor items={data.items || []} devices={devices} latestByDevice={latestByDevice} alarms={selected.type === "alarms"} onChange={(items) => update({ items })} />}
-    <button className="secondary-button danger" onClick={onRemove}><Trash2 size={16} /> ลบ Node</button>
+    <Button variant="secondary" danger onClick={onRemove}><Trash2 size={16} /> ลบ Node</Button>
   </aside>;
 }
 
@@ -564,7 +565,7 @@ function DataItemsEditor({ items, devices, latestByDevice, alarms, onChange }: {
   const fallbackPointKey = Object.keys(latestByDevice[fallbackDeviceId]?.dataItemMap || {}).sort()[0] || "";
   const fallback = { deviceId: fallbackDeviceId, pointKey: fallbackPointKey, unit: "kW", decimals: 1 };
   const patch = (index: number, next: Partial<ScadaDataItem>) => onChange(items.map((item, itemIndex) => itemIndex === index ? { ...item, ...next } : item));
-  return <section className="scada-item-editor"><div className="item-editor-heading"><strong>{alarms ? "Alarm points" : "Table rows"}</strong><button type="button" className="icon-button" disabled={items.length >= 20 || devices.length === 0} onClick={() => onChange([...items, { label: `Point ${items.length + 1}`, binding: fallback }])} title="เพิ่ม point" aria-label="เพิ่ม point">+</button></div>{items.map((item, index) => <div className="scada-item-row" key={`${index}-${item.binding.deviceId}`}><label>Label<input value={item.label} maxLength={100} onChange={(event) => patch(index, { label: event.target.value })} /></label><BindingEditor binding={item.binding} devices={devices} latestByDevice={latestByDevice} onChange={(binding) => patch(index, { binding })} />{alarms && <div className="inspector-grid"><NumberField label="Low alarm" value={item.minAlarm} onChange={(minAlarm) => patch(index, { minAlarm })} /><NumberField label="High alarm" value={item.maxAlarm} onChange={(maxAlarm) => patch(index, { maxAlarm })} /></div>}<button type="button" className="text-button danger" disabled={items.length <= 1} onClick={() => onChange(items.filter((_, itemIndex) => itemIndex !== index))}>ลบแถว</button></div>)}</section>;
+  return <section className="scada-item-editor"><div className="item-editor-heading"><strong>{alarms ? "Alarm points" : "Table rows"}</strong><Button type="button" variant="icon" disabled={items.length >= 20 || devices.length === 0} onClick={() => onChange([...items, { label: `Point ${items.length + 1}`, binding: fallback }])} title="เพิ่ม point" aria-label="เพิ่ม point">+</Button></div>{items.map((item, index) => <div className="scada-item-row" key={`${index}-${item.binding.deviceId}`}><label>Label<input value={item.label} maxLength={100} onChange={(event) => patch(index, { label: event.target.value })} /></label><BindingEditor binding={item.binding} devices={devices} latestByDevice={latestByDevice} onChange={(binding) => patch(index, { binding })} />{alarms && <div className="inspector-grid"><NumberField label="Low alarm" value={item.minAlarm} onChange={(minAlarm) => patch(index, { minAlarm })} /><NumberField label="High alarm" value={item.maxAlarm} onChange={(maxAlarm) => patch(index, { maxAlarm })} /></div>}<Button type="button" variant="text" danger disabled={items.length <= 1} onClick={() => onChange(items.filter((_, itemIndex) => itemIndex !== index))}>ลบแถว</Button></div>)}</section>;
 }
 
 function EquipmentNode({ data, selected }: NodeProps<FlowNode>) {

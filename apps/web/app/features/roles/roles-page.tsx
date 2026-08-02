@@ -5,6 +5,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { api, csrfToken } from "../../lib/api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody } from "../../components/ui/dialog";
 import { toast } from "../../components/ui/sonner";
+import { Button } from "../../components/ui/button";
 import type { Permission, Role, RoleDetail } from "../../lib/types";
 
 export function RolesPage({ defaultOrganizationId }: { defaultOrganizationId?: string }) {
@@ -49,8 +50,8 @@ export function RolesPage({ defaultOrganizationId }: { defaultOrganizationId?: s
       <div className="section-heading">
         <div><p>Access management</p><h2>Role และสิทธิ์การใช้งาน</h2></div>
         <div className="heading-actions">
-          <button className="icon-button" onClick={() => void loadRoles()} title="รีเฟรช" aria-label="รีเฟรชรายการ Role"><RefreshCw size={18} /></button>
-          <button className="primary-button compact" onClick={() => setEditor("create")}><Plus size={18} /> เพิ่ม Role</button>
+          <Button variant="icon" onClick={() => void loadRoles()} title="รีเฟรช" aria-label="รีเฟรชรายการ Role"><RefreshCw size={18} /></Button>
+          <Button compact onClick={() => setEditor("create")}><Plus size={18} /> เพิ่ม Role</Button>
         </div>
       </div>
       {error && <p className="form-message error">{error}</p>}
@@ -64,8 +65,8 @@ export function RolesPage({ defaultOrganizationId }: { defaultOrganizationId?: s
             <span>{role.organizationId ? "เฉพาะองค์กร" : "ทั้งระบบ"}</span>
             <span className={role.isSystem ? "status revoked" : "status active"}>{role.isSystem ? "System" : "Custom"}</span>
             <div className="row-actions">
-              <button className="icon-button" onClick={() => setEditor(role)} disabled={role.isSystem} title={role.isSystem ? "System role แก้ไขไม่ได้" : "แก้ไข Role"} aria-label={`แก้ไข ${role.name}`}><Pencil size={17} /></button>
-              <button className="icon-button danger" onClick={() => void deleteRole(role)} disabled={role.isSystem} title={role.isSystem ? "System role ลบไม่ได้" : "ลบ Role"} aria-label={`ลบ ${role.name}`}><Trash2 size={17} /></button>
+              <Button variant="icon" onClick={() => setEditor(role)} disabled={role.isSystem} title={role.isSystem ? "System role แก้ไขไม่ได้" : "แก้ไข Role"} aria-label={`แก้ไข ${role.name}`}><Pencil size={17} /></Button>
+              <Button variant="icon" danger onClick={() => void deleteRole(role)} disabled={role.isSystem} title={role.isSystem ? "System role ลบไม่ได้" : "ลบ Role"} aria-label={`ลบ ${role.name}`}><Trash2 size={17} /></Button>
             </div>
           </div>
         ))}
@@ -178,7 +179,7 @@ function RoleEditor({ role, permissions, defaultOrganizationId, onClose, onSaved
                 ))}
               </fieldset>
               {error && <p className="form-message error full-field">{error}</p>}
-              <div className="editor-actions full-field"><button type="button" className="secondary-button" onClick={onClose} disabled={pending}>ยกเลิก</button><button className="primary-button" disabled={pending}>{pending ? "กำลังบันทึก" : "บันทึก"}</button></div>
+              <div className="editor-actions full-field"><Button type="button" variant="secondary" onClick={onClose} disabled={pending}>ยกเลิก</Button><Button disabled={pending}>{pending ? "กำลังบันทึก" : "บันทึก"}</Button></div>
             </form>
           )}
         </DialogBody>

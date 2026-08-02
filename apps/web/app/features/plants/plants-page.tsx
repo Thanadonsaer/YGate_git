@@ -8,6 +8,7 @@ import type { Device, DeviceModelOption, LatestTelemetry, Plant } from "../../li
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody } from "../../components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../../components/ui/select";
 import { toast } from "../../components/ui/sonner";
+import { Button } from "../../components/ui/button";
 
 export function PlantsPage({ defaultOrganizationId }: { defaultOrganizationId?: string }) {
   const [plants, setPlants] = useState<Plant[]>([]);
@@ -65,8 +66,8 @@ export function PlantsPage({ defaultOrganizationId }: { defaultOrganizationId?: 
       <div className="section-heading">
         <div><p>Plant registry</p><h2>โรงไฟฟ้าทั้งหมด</h2></div>
         <div className="heading-actions">
-          <button className="icon-button" onClick={() => void loadPlants()} title="รีเฟรช" aria-label="รีเฟรชรายการโรงไฟฟ้า"><RefreshCw size={18} /></button>
-          <button className="primary-button compact" onClick={() => setEditor("create")}><Plus size={18} /> เพิ่มโรงไฟฟ้า</button>
+          <Button variant="icon" onClick={() => void loadPlants()} title="รีเฟรช" aria-label="รีเฟรชรายการโรงไฟฟ้า"><RefreshCw size={18} /></Button>
+          <Button compact onClick={() => setEditor("create")}><Plus size={18} /> เพิ่มโรงไฟฟ้า</Button>
         </div>
       </div>
       {error && <p className="form-message error">{error}</p>}
@@ -81,10 +82,10 @@ export function PlantsPage({ defaultOrganizationId }: { defaultOrganizationId?: 
             <div><span>{plant.installedDcKw == null ? "-" : `${plant.installedDcKw.toLocaleString()} kWdc`}</span><small>{plant.installedAcKw == null ? "ไม่ระบุ AC" : `${plant.installedAcKw.toLocaleString()} kWac`}</small></div>
             <span className={plant.isActive ? "status active" : "status revoked"}>{plant.isActive ? "ใช้งาน" : "ปิดใช้งาน"}</span>
             <div className="row-actions">
-              <button className="icon-button" onClick={() => setSelectedPlant(plant)} title="จัดการ Device" aria-label={`จัดการ Device ใน ${plant.name}`}><Cpu size={17} /></button>
-              <button className="icon-button" onClick={() => setEditor(plant)} title="แก้ไขโรงไฟฟ้า" aria-label={`แก้ไข ${plant.name}`}><Pencil size={17} /></button>
-              {plant.isActive && <button className="icon-button" onClick={() => void decommissionPlant(plant)} title="ปิดใช้งาน" aria-label={`ปิดใช้งาน ${plant.name}`}><ArchiveX size={17} /></button>}
-              <button className="icon-button danger" onClick={() => void hardDeletePlant(plant)} title="ลบถาวร (Platform Admin)" aria-label={`ลบ ${plant.name} ถาวร`}><Trash2 size={17} /></button>
+              <Button variant="icon" onClick={() => setSelectedPlant(plant)} title="จัดการ Device" aria-label={`จัดการ Device ใน ${plant.name}`}><Cpu size={17} /></Button>
+              <Button variant="icon" onClick={() => setEditor(plant)} title="แก้ไขโรงไฟฟ้า" aria-label={`แก้ไข ${plant.name}`}><Pencil size={17} /></Button>
+              {plant.isActive && <Button variant="icon" onClick={() => void decommissionPlant(plant)} title="ปิดใช้งาน" aria-label={`ปิดใช้งาน ${plant.name}`}><ArchiveX size={17} /></Button>}
+              <Button variant="icon" danger onClick={() => void hardDeletePlant(plant)} title="ลบถาวร (Platform Admin)" aria-label={`ลบ ${plant.name} ถาวร`}><Trash2 size={17} /></Button>
             </div>
           </div>
         ))}
@@ -187,13 +188,13 @@ function DeviceManagement({ plant, onBack }: { plant: Plant; onBack: () => void 
     <div className="content devices-content">
       <div className="section-heading">
         <div className="registry-title">
-          <button className="icon-button" onClick={onBack} title="กลับไปโรงไฟฟ้า" aria-label="กลับไปโรงไฟฟ้า"><ArrowLeft size={18} /></button>
+          <Button variant="icon" onClick={onBack} title="กลับไปโรงไฟฟ้า" aria-label="กลับไปโรงไฟฟ้า"><ArrowLeft size={18} /></Button>
           <div><p>{plant.code}</p><h2>Device ใน {plant.name}</h2></div>
         </div>
         <div className="row-actions">
           <span className={`live-chip ${liveState}`}><Wifi size={15} />{liveState === "connected" ? "Live data" : liveState === "connecting" ? "Connecting" : "Offline"}</span>
-          <button className="icon-button" onClick={() => void loadDevices()} title="รีเฟรช" aria-label="รีเฟรชรายการ Device"><RefreshCw size={18} /></button>
-          <button className="primary-button compact" onClick={() => setEditor("create")}><Plus size={18} /> เพิ่ม Device</button>
+          <Button variant="icon" onClick={() => void loadDevices()} title="รีเฟรช" aria-label="รีเฟรชรายการ Device"><RefreshCw size={18} /></Button>
+          <Button compact onClick={() => setEditor("create")}><Plus size={18} /> เพิ่ม Device</Button>
         </div>
       </div>
       {error && <p className="form-message error">{error}</p>}
@@ -218,12 +219,12 @@ function DeviceManagement({ plant, onBack }: { plant: Plant; onBack: () => void 
               <LatestValues reading={latestByDevice[device.id]} />
               <span className={device.isActive ? "status active" : "status revoked"}>{device.isActive ? "ใช้งาน" : "ปิดใช้งาน"}</span>
               <div className="row-actions">
-                <button className="icon-button" disabled={!canTest || outcome?.pending} onClick={() => void runCommand("test-connection", device)} title={canTest ? "ทดสอบการเชื่อมต่อ" : "ต้องตั้งค่า IP/Port ก่อน"} aria-label={`ทดสอบการเชื่อมต่อ ${device.name}`}><PlugZap size={17} /></button>
-                <button className="icon-button" disabled={!canTest || outcome?.pending} onClick={() => void runCommand("test-read", device)} title="ทดสอบอ่านค่า" aria-label={`ทดสอบอ่านค่า ${device.name}`}><RefreshCw size={17} /></button>
-                <button className="icon-button" onClick={() => setSelectedDevice(device)} title="ดูค่าล่าสุดทั้งหมด" aria-label={`ดูค่าล่าสุดของ ${device.name}`}><Eye size={17} /></button>
-                <button className="icon-button" onClick={() => setEditor(device)} title="แก้ไข Device" aria-label={`แก้ไข ${device.name}`}><Pencil size={17} /></button>
-                {device.isActive && <button className="icon-button" onClick={() => void decommissionDevice(device)} title="ปิดใช้งาน" aria-label={`ปิดใช้งาน ${device.name}`}><ArchiveX size={17} /></button>}
-                <button className="icon-button danger" onClick={() => void hardDeleteDevice(device)} title="ลบถาวร (Platform Admin)" aria-label={`ลบ ${device.name} ถาวร`}><Trash2 size={17} /></button>
+                <Button variant="icon" disabled={!canTest || outcome?.pending} onClick={() => void runCommand("test-connection", device)} title={canTest ? "ทดสอบการเชื่อมต่อ" : "ต้องตั้งค่า IP/Port ก่อน"} aria-label={`ทดสอบการเชื่อมต่อ ${device.name}`}><PlugZap size={17} /></Button>
+                <Button variant="icon" disabled={!canTest || outcome?.pending} onClick={() => void runCommand("test-read", device)} title="ทดสอบอ่านค่า" aria-label={`ทดสอบอ่านค่า ${device.name}`}><RefreshCw size={17} /></Button>
+                <Button variant="icon" onClick={() => setSelectedDevice(device)} title="ดูค่าล่าสุดทั้งหมด" aria-label={`ดูค่าล่าสุดของ ${device.name}`}><Eye size={17} /></Button>
+                <Button variant="icon" onClick={() => setEditor(device)} title="แก้ไข Device" aria-label={`แก้ไข ${device.name}`}><Pencil size={17} /></Button>
+                {device.isActive && <Button variant="icon" onClick={() => void decommissionDevice(device)} title="ปิดใช้งาน" aria-label={`ปิดใช้งาน ${device.name}`}><ArchiveX size={17} /></Button>}
+                <Button variant="icon" danger onClick={() => void hardDeleteDevice(device)} title="ลบถาวร (Platform Admin)" aria-label={`ลบ ${device.name} ถาวร`}><Trash2 size={17} /></Button>
               </div>
             </div>
           );
@@ -349,7 +350,7 @@ function DeviceEditor({ plant, device, onClose, onSaved }: { plant: Plant; devic
             <label>Poll interval (s)<input type="number" min="1" max="3600" value={pollIntervalSeconds} onChange={(event) => setPollIntervalSeconds(event.target.value)} /></label>
             <label className="toggle-field full-field"><input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} /><span>เปิดใช้งาน Device</span></label>
             {error && <p className="form-message error full-field">{error}</p>}
-            <div className="editor-actions full-field"><button type="button" className="secondary-button" onClick={onClose} disabled={pending}>ยกเลิก</button><button className="primary-button" disabled={pending}>{pending ? "กำลังบันทึก" : device ? "บันทึก" : "สร้าง Device"}</button></div>
+            <div className="editor-actions full-field"><Button type="button" variant="secondary" onClick={onClose} disabled={pending}>ยกเลิก</Button><Button disabled={pending}>{pending ? "กำลังบันทึก" : device ? "บันทึก" : "สร้าง Device"}</Button></div>
           </form>
         </DialogBody>
       </DialogContent>
@@ -424,7 +425,7 @@ function PlantEditor({ plant, defaultOrganizationId, onClose, onSaved }: { plant
             <label>Installed AC (kW)<input type="number" min="0" step="any" value={installedAcKw} onChange={(event) => setInstalledAcKw(event.target.value)} /></label>
             {plant && <label className="toggle-field full-field"><input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} /><span>เปิดใช้งานโรงไฟฟ้า</span></label>}
             {error && <p className="form-message error full-field">{error}</p>}
-            <div className="editor-actions full-field"><button type="button" className="secondary-button" onClick={onClose} disabled={pending}>ยกเลิก</button><button className="primary-button" disabled={pending}>{pending ? "กำลังบันทึก" : "บันทึก"}</button></div>
+            <div className="editor-actions full-field"><Button type="button" variant="secondary" onClick={onClose} disabled={pending}>ยกเลิก</Button><Button disabled={pending}>{pending ? "กำลังบันทึก" : "บันทึก"}</Button></div>
           </form>
         </DialogBody>
       </DialogContent>

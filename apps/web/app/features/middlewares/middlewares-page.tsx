@@ -9,6 +9,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from ".
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../../components/ui/tabs";
 import { Tooltip, TooltipTrigger, TooltipContent } from "../../components/ui/tooltip";
 import { toast } from "../../components/ui/sonner";
+import { Button } from "../../components/ui/button";
 
 export function MiddlewaresPage({ defaultOrganizationId }: { defaultOrganizationId?: string }) {
   const [gateways, setGateways] = useState<MiddlewareGateway[]>([]);
@@ -69,16 +70,16 @@ export function MiddlewaresPage({ defaultOrganizationId }: { defaultOrganization
       <div className="section-heading">
         <div><p>Site gateways</p><h2>Middleware Gateways</h2></div>
         <div className="heading-actions">
-          <button className="icon-button" onClick={() => void loadGateways()} title="รีเฟรช" aria-label="รีเฟรช Middleware"><RefreshCw size={18} /></button>
-          <button className="primary-button compact" onClick={() => setEditor("create")}><Plus size={18} /> เพิ่ม Middleware</button>
+          <Button variant="icon" onClick={() => void loadGateways()} title="รีเฟรช" aria-label="รีเฟรช Middleware"><RefreshCw size={18} /></Button>
+          <Button compact onClick={() => setEditor("create")}><Plus size={18} /> เพิ่ม Middleware</Button>
         </div>
       </div>
       {createdKey && (
         <section className="secret-panel">
           <div><strong>API key ใหม่สำหรับ {createdKey.name}</strong><small>ระบบจะแสดง key เต็มเฉพาะครั้งนี้ ใช้ตั้งค่าที่ site ด้วย -api-key flag หรือ gateway-config</small></div>
           <code>{createdKey.apiKey}</code>
-          <button className="secondary-button compact" onClick={() => void navigator.clipboard.writeText(createdKey.apiKey)}>คัดลอก</button>
-          <button className="icon-button" onClick={() => setCreatedKey(null)} title="ปิด" aria-label="ปิดข้อความ API key"><X size={17} /></button>
+          <Button variant="secondary" compact onClick={() => void navigator.clipboard.writeText(createdKey.apiKey)}>คัดลอก</Button>
+          <Button variant="icon" onClick={() => setCreatedKey(null)} title="ปิด" aria-label="ปิดข้อความ API key"><X size={17} /></Button>
         </section>
       )}
       {error && <p className="form-message error">{error}</p>}
@@ -96,12 +97,12 @@ export function MiddlewaresPage({ defaultOrganizationId }: { defaultOrganization
             <div><span>v{gateway.configAppliedVersion} / v{gateway.configVersion}</span><small>{gateway.configAppliedVersion < gateway.configVersion ? "รอ push ไป gateway" : "อัปเดตล่าสุดแล้ว"}</small></div>
             <span className={gateway.isActive ? "status active" : "status revoked"}>{gateway.isActive ? "ใช้งาน" : "ปิดใช้งาน"}</span>
             <div className="row-actions">
-              <button className="icon-button" onClick={() => setSelected(gateway)} title="ตั้งค่า Config" aria-label={`ตั้งค่า Config ของ ${gateway.name}`}><Settings2 size={17} /></button>
-              <button className="icon-button" onClick={() => setEditor(gateway)} title="แก้ไข" aria-label={`แก้ไข ${gateway.name}`}><Pencil size={17} /></button>
-              <button className="icon-button" onClick={() => void setGatewayActive(gateway, !gateway.isActive)} title={gateway.isActive ? "ปิดใช้งาน" : "เปิดใช้งาน"} aria-label={gateway.isActive ? `ปิดใช้งาน ${gateway.name}` : `เปิดใช้งาน ${gateway.name}`}>
+              <Button variant="icon" onClick={() => setSelected(gateway)} title="ตั้งค่า Config" aria-label={`ตั้งค่า Config ของ ${gateway.name}`}><Settings2 size={17} /></Button>
+              <Button variant="icon" onClick={() => setEditor(gateway)} title="แก้ไข" aria-label={`แก้ไข ${gateway.name}`}><Pencil size={17} /></Button>
+              <Button variant="icon" onClick={() => void setGatewayActive(gateway, !gateway.isActive)} title={gateway.isActive ? "ปิดใช้งาน" : "เปิดใช้งาน"} aria-label={gateway.isActive ? `ปิดใช้งาน ${gateway.name}` : `เปิดใช้งาน ${gateway.name}`}>
                 {gateway.isActive ? <ArchiveX size={17} /> : <CheckCircle2 size={17} />}
-              </button>
-              <button className="icon-button danger" onClick={() => void hardDeleteGateway(gateway)} title="ลบถาวร (Platform Admin)" aria-label={`ลบ ${gateway.name} ถาวร`}><Trash2 size={17} /></button>
+              </Button>
+              <Button variant="icon" danger onClick={() => void hardDeleteGateway(gateway)} title="ลบถาวร (Platform Admin)" aria-label={`ลบ ${gateway.name} ถาวร`}><Trash2 size={17} /></Button>
             </div>
           </div>
         ))}
@@ -162,7 +163,7 @@ function MiddlewareEditor({ gateway, defaultOrganizationId, onClose, onSaved }: 
             <label className="toggle-field full-field"><input type="checkbox" checked={autoOnboard} onChange={(event) => setAutoOnboard(event.target.checked)} /> Auto onboard Plant/Device</label>
             {gateway && <label className="toggle-field full-field"><input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} /> เปิดใช้งาน Middleware</label>}
             {error && <p className="form-message error full-field">{error}</p>}
-            <div className="editor-actions full-field"><button type="button" className="secondary-button" onClick={onClose} disabled={pending}>ยกเลิก</button><button className="primary-button" disabled={pending}><Save size={17} /> {pending ? "กำลังบันทึก" : "บันทึก Middleware"}</button></div>
+            <div className="editor-actions full-field"><Button type="button" variant="secondary" onClick={onClose} disabled={pending}>ยกเลิก</Button><Button disabled={pending}><Save size={17} /> {pending ? "กำลังบันทึก" : "บันทึก Middleware"}</Button></div>
           </form>
         </DialogBody>
       </DialogContent>
@@ -399,12 +400,12 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
     <div className="content api-keys-content">
       <div className="section-heading">
         <div className="registry-title">
-          <button className="icon-button" onClick={onBack} title="กลับไป Middleware" aria-label="กลับไป Middleware"><ArrowLeft size={18} /></button>
+          <Button variant="icon" onClick={onBack} title="กลับไป Middleware" aria-label="กลับไป Middleware"><ArrowLeft size={18} /></Button>
           <div><p>{gateway.siteName || gateway.name}</p><h2>{gateway.name}</h2></div>
         </div>
         <div className="row-actions">
           <span className={gateway.isOnline ? "status active" : "status revoked"}>{gateway.isOnline ? "Online" : "Offline"}</span>
-          <button className="icon-button" onClick={() => void load()} title="รีเฟรช" aria-label="รีเฟรช"><RefreshCw size={18} /></button>
+          <Button variant="icon" onClick={() => void load()} title="รีเฟรช" aria-label="รีเฟรช"><RefreshCw size={18} /></Button>
         </div>
       </div>
       {error && <p className="form-message error">{error}</p>}
@@ -428,7 +429,7 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
               <div className="api-key-row" role="row" key={plant.id}>
                 <div><strong>{plant.name}</strong><small>{plant.code}</small></div>
                 <span>{plant.timezone}</span>
-                <div className="row-actions"><button className="icon-button danger" disabled={pending} onClick={() => void unassignPlant(plant)} title="เอาออก" aria-label={`เอา ${plant.name} ออก`}><Trash2 size={17} /></button></div>
+                <div className="row-actions"><Button variant="icon" danger disabled={pending} onClick={() => void unassignPlant(plant)} title="เอาออก" aria-label={`เอา ${plant.name} ออก`}><Trash2 size={17} /></Button></div>
               </div>
             ))}
             {!loading && assignedPlants.length === 0 && <div className="table-state">ยังไม่ได้มอบหมาย Plant ให้ Middleware นี้</div>}
@@ -438,7 +439,7 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
               <SelectTrigger className="w-64"><SelectValue placeholder="เลือก Plant ที่จะมอบหมาย..." /></SelectTrigger>
               <SelectContent>{unassignedPlants.map((p) => <SelectItem key={p.id} value={p.id}>{p.code} - {p.name}</SelectItem>)}</SelectContent>
             </Select>
-            <button className="primary-button compact" disabled={!addPlantId || pending} onClick={() => void assignPlant()}><Plus size={16} /> มอบหมาย Plant</button>
+            <Button compact disabled={!addPlantId || pending} onClick={() => void assignPlant()}><Plus size={16} /> มอบหมาย Plant</Button>
           </div>
         </TabsContent>
 
@@ -448,17 +449,17 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
             <div className="heading-actions">
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <button className="secondary-button compact icon-only" disabled={pushing || importing} onClick={() => void pushConfig()} aria-label="ส่ง Config ไปที่ Middleware">
+                  <Button variant="secondary" compact iconOnly disabled={pushing || importing} onClick={() => void pushConfig()} aria-label="ส่ง Config ไปที่ Middleware">
                     {pushing ? <Loader2 size={17} className="animate-spin" /> : <ArrowUpToLine size={17} />}
-                  </button>
+                  </Button>
                 </TooltipTrigger>
                 <TooltipContent>{pushing ? "กำลังส่ง Config..." : "ส่ง Config ไปที่ Middleware (เขียนทับค่าบน Middleware)"}</TooltipContent>
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <button className="secondary-button compact icon-only" disabled={!gateway.isOnline || importing || pushing} onClick={() => void importConfig()} aria-label="ดึง Config จาก Middleware">
+                  <Button variant="secondary" compact iconOnly disabled={!gateway.isOnline || importing || pushing} onClick={() => void importConfig()} aria-label="ดึง Config จาก Middleware">
                     {importing ? <Loader2 size={17} className="animate-spin" /> : <ArrowDownToLine size={17} />}
-                  </button>
+                  </Button>
                 </TooltipTrigger>
                 <TooltipContent>{!gateway.isOnline ? "Middleware ต้อง Online ก่อน" : importing ? "กำลังดึง Config..." : "ดึง Config จาก Middleware"}</TooltipContent>
               </Tooltip>
@@ -501,20 +502,20 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
                 {patches.map((p) => <SelectItem key={p.id} value={p.id}>{p.version} ({p.os}/{p.arch})</SelectItem>)}
               </SelectContent>
             </Select>
-            <button className="secondary-button compact" disabled={!selectedPatchId || lifecycleBusy} onClick={() => void stageUpdate()}>
+            <Button variant="secondary" compact disabled={!selectedPatchId || lifecycleBusy} onClick={() => void stageUpdate()}>
               {staging ? "กำลัง Stage..." : "Stage"}
-            </button>
-            <button className="primary-button compact" disabled={lifecycleBusy} onClick={() => void applyUpdate()}>
+            </Button>
+            <Button compact disabled={lifecycleBusy} onClick={() => void applyUpdate()}>
               {applying ? "กำลัง Apply..." : "Apply"}
-            </button>
-            <button className="text-button compact" disabled={lifecycleBusy} onClick={() => void rollbackUpdate()}>
+            </Button>
+            <Button variant="text" compact disabled={lifecycleBusy} onClick={() => void rollbackUpdate()}>
               {rollingBack ? "กำลัง Rollback..." : "Rollback"}
-            </button>
+            </Button>
             <Tooltip>
               <TooltipTrigger asChild>
-                <button className="text-button compact icon-only" disabled={lifecycleBusy} onClick={() => void restartMiddlewareService()} aria-label="Restart Service">
+                <Button variant="text" compact iconOnly disabled={lifecycleBusy} onClick={() => void restartMiddlewareService()} aria-label="Restart Service">
                   {restarting ? <Loader2 size={17} className="animate-spin" /> : <RotateCcw size={17} />}
-                </button>
+                </Button>
               </TooltipTrigger>
               <TooltipContent>{restarting ? "กำลัง Restart..." : "Restart service (ไม่เปลี่ยน binary แค่ restart)"}</TooltipContent>
             </Tooltip>

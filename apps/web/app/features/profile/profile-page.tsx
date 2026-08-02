@@ -7,6 +7,7 @@ import { api, csrfToken } from "../../lib/api";
 import type { SelfProfile } from "../../lib/types";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody } from "../../components/ui/dialog";
 import { toast } from "../../components/ui/sonner";
+import { Button } from "../../components/ui/button";
 
 export function ProfilePage() {
   const { updateCurrentUser } = usePlatformSession();
@@ -32,7 +33,7 @@ export function ProfilePage() {
       <section className="profile-card">
         <header>
           <UserRound size={20} /><div><h3>ข้อมูลส่วนตัว</h3><p>ชื่อ อีเมล และชื่อผู้ใช้สำหรับเข้าสู่ระบบ</p></div>
-          <button className="icon-button" onClick={() => setEditingProfile(true)} disabled={!profile} title="แก้ไขข้อมูลส่วนตัว" aria-label="แก้ไขข้อมูลส่วนตัว"><Pencil size={17} /></button>
+          <Button variant="icon" onClick={() => setEditingProfile(true)} disabled={!profile} title="แก้ไขข้อมูลส่วนตัว" aria-label="แก้ไขข้อมูลส่วนตัว"><Pencil size={17} /></Button>
         </header>
         <div className="profile-preview">
           {loadError && <p className="form-message error">{loadError}</p>}
@@ -48,7 +49,7 @@ export function ProfilePage() {
           <KeyRound size={20} /><div><h3>ความปลอดภัย</h3><p>เปลี่ยนรหัสผ่านเข้าสู่ระบบ — หลังเปลี่ยนแล้ว เซสชันอื่นจะถูกยกเลิก</p></div>
         </header>
         <div className="profile-preview">
-          <button className="secondary-button" onClick={() => setEditingPassword(true)}><KeyRound size={17} /> เปลี่ยนรหัสผ่าน</button>
+          <Button variant="secondary" onClick={() => setEditingPassword(true)}><KeyRound size={17} /> เปลี่ยนรหัสผ่าน</Button>
         </div>
       </section>
     </div>
@@ -94,7 +95,7 @@ function EditProfileDialog({ profile, onClose, onSaved }: { profile: SelfProfile
             <label className="full-field">อีเมล<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} maxLength={320} required /></label>
             <label className="full-field">Username<input value={username} onChange={(event) => setUsername(event.target.value)} maxLength={100} /></label>
             {error && <p className="form-message error full-field">{error}</p>}
-            <div className="editor-actions full-field"><button type="button" className="secondary-button" onClick={onClose} disabled={pending}>ยกเลิก</button><button className="primary-button" disabled={pending}><Save size={17} /> {pending ? "กำลังบันทึก" : "บันทึก"}</button></div>
+            <div className="editor-actions full-field"><Button type="button" variant="secondary" onClick={onClose} disabled={pending}>ยกเลิก</Button><Button disabled={pending}><Save size={17} /> {pending ? "กำลังบันทึก" : "บันทึก"}</Button></div>
           </form>
         </DialogBody>
       </DialogContent>
@@ -141,7 +142,7 @@ function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
             <label className="full-field">รหัสผ่านใหม่<input type="password" autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} minLength={12} maxLength={72} required /></label>
             <label className="full-field">ยืนยันรหัสผ่านใหม่<input type="password" autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} minLength={12} maxLength={72} required /></label>
             {error && <p className="form-message error full-field">{error}</p>}
-            <div className="editor-actions full-field"><button type="button" className="secondary-button" onClick={onClose} disabled={pending}>ยกเลิก</button><button className="primary-button" disabled={pending}><KeyRound size={17} /> {pending ? "กำลังเปลี่ยน" : "เปลี่ยนรหัสผ่าน"}</button></div>
+            <div className="editor-actions full-field"><Button type="button" variant="secondary" onClick={onClose} disabled={pending}>ยกเลิก</Button><Button disabled={pending}><KeyRound size={17} /> {pending ? "กำลังเปลี่ยน" : "เปลี่ยนรหัสผ่าน"}</Button></div>
           </form>
         </DialogBody>
       </DialogContent>
