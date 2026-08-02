@@ -3,7 +3,7 @@
 import * as React from "react";
 import { Select as PrimeSelect } from "primereact/select";
 import type { SelectValueChangeEvent } from "@primereact/types/primitive/select";
-import { ChevronDown } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
 import { collectByType } from "./collect-children";
 import { cn } from "../../lib/cn";
 
@@ -62,7 +62,7 @@ function Select({
       unstyled
       pt={{
         option:
-          "relative flex w-full cursor-pointer select-none items-center gap-2 rounded-[var(--radius-sm)] py-2 px-3 text-sm text-ink outline-none data-[focused]:bg-canvas data-[disabled]:pointer-events-none data-[disabled]:opacity-48",
+          "relative flex w-full cursor-pointer select-none items-center gap-2 rounded-[var(--radius-sm)] py-2 pl-8 pr-2 text-sm text-ink outline-none data-[focused]:bg-canvas data-[disabled]:pointer-events-none data-[disabled]:opacity-48",
       }}
     >
       <PrimeSelect.Trigger
@@ -85,7 +85,18 @@ function Select({
             unstyled
             className="max-h-96 overflow-y-auto rounded-[var(--radius-sm)] border border-line bg-surface p-1 shadow-[var(--shadow-lg)]"
           >
-            <PrimeSelect.List unstyled />
+            <PrimeSelect.List unstyled>
+              {options.map((option, index) => (
+                <PrimeSelect.Option key={String(option.value)} index={index} unstyled>
+                  <span className="absolute left-2 flex size-3.5 items-center justify-center">
+                    <PrimeSelect.OptionIndicator unstyled className="hidden items-center justify-center data-[selected]:flex">
+                      <Check size={14} className="text-brand" />
+                    </PrimeSelect.OptionIndicator>
+                  </span>
+                  {option.label}
+                </PrimeSelect.Option>
+              ))}
+            </PrimeSelect.List>
           </PrimeSelect.Popup>
         </PrimeSelect.Positioner>
       </PrimeSelect.Portal>
