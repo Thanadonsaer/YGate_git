@@ -90,7 +90,7 @@ export function ScadaViewerPage() {
       <div className="table-state scada-viewer-empty">
         <Radio size={22} />
         <p>ยังไม่มี Screen ที่ Publish</p>
-        <Link href="/scada" className="secondary-button compact"><FilePlus2 size={16} /> ไปที่ SCADA Builder</Link>
+        <Link href="/scada" className="inline-flex items-center justify-center gap-1.5 rounded-[var(--radius-md)] border border-line bg-surface px-2.5 py-1.5 text-xs font-bold text-ink transition hover:bg-canvas focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"><FilePlus2 size={16} /> ไปที่ SCADA Builder</Link>
       </div>
     )}
     {screens.length > 0 && (
