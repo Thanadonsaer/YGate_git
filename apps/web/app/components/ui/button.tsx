@@ -16,7 +16,7 @@ const variantClass: Record<Variant, string> = {
   text: "text-sm text-[var(--brand)] hover:underline",
 };
 
-type Props = PrimeButtonProps & {
+type Props = Omit<PrimeButtonProps, "variant"> & {
   variant?: Variant;
   compact?: boolean;
   danger?: boolean;
