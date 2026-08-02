@@ -1,31 +1,61 @@
 "use client";
 
 import * as React from "react";
-import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { cn } from "../../lib/cn";
 
-function Popover(props: React.ComponentProps<typeof PopoverPrimitive.Root>) {
-  return <PopoverPrimitive.Root data-slot="popover" {...props} />;
-}
+type PopoverContextValue = { open: boolean; setOpen: (open: boolean) => void };
+const PopoverContext = React.createContext<PopoverContextValue | null>(null);
 
-function PopoverTrigger(props: React.ComponentProps<typeof PopoverPrimitive.Trigger>) {
-  return <PopoverPrimitive.Trigger data-slot="popover-trigger" {...props} />;
-}
-
-function PopoverContent({ className, align = "center", sideOffset = 6, ...props }: React.ComponentProps<typeof PopoverPrimitive.Content>) {
+function Popover({ children }: { children: React.ReactNode }) {
+  const [open, setOpen] = React.useState(false);
+  const rootRef = React.useRef<HTMLSpanElement>(null);
+  React.useEffect(() => {
+    if (!open) return;
+    function handleClickOutside(event: MouseEvent) {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [open]);
   return (
-    <PopoverPrimitive.Portal>
-      <PopoverPrimitive.Content
-        data-slot="popover-content"
-        align={align}
-        sideOffset={sideOffset}
-        className={cn(
-          "z-50 w-72 rounded-[var(--radius-md)] border border-line bg-surface p-4 text-sm text-ink shadow-[var(--shadow-lg)] outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
-          className,
-        )}
-        {...props}
-      />
-    </PopoverPrimitive.Portal>
+    <PopoverContext.Provider value={{ open, setOpen }}>
+      <span ref={rootRef} className="relative inline-block">
+        {children}
+      </span>
+    </PopoverContext.Provider>
+  );
+}
+
+function PopoverTrigger({ children }: { asChild?: boolean; children: React.ReactElement }) {
+  const ctx = React.useContext(PopoverContext);
+  if (!ctx) throw new Error("PopoverTrigger must be used inside Popover");
+  return React.cloneElement(children, {
+    onClick: () => ctx.setOpen(!ctx.open),
+  } as React.HTMLAttributes<HTMLElement>);
+}
+
+function PopoverContent({
+  className,
+  align = "center",
+  children,
+}: {
+  className?: string;
+  align?: "start" | "center" | "end";
+  children: React.ReactNode;
+}) {
+  const ctx = React.useContext(PopoverContext);
+  if (!ctx?.open) return null;
+  const alignClass = align === "start" ? "left-0" : align === "end" ? "right-0" : "left-1/2 -translate-x-1/2";
+  return (
+    <div
+      className={cn(
+        "absolute top-full z-50 mt-2 w-72 rounded-[var(--radius-md)] border border-line bg-surface p-4 text-sm text-ink shadow-[var(--shadow-lg)]",
+        alignClass,
+        className,
+      )}
+    >
+      {children}
+    </div>
   );
 }
 

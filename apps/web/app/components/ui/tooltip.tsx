@@ -1,41 +1,45 @@
 "use client";
 
 import * as React from "react";
-import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 import { cn } from "../../lib/cn";
 
-function TooltipProvider({ delayDuration = 200, ...props }: React.ComponentProps<typeof TooltipPrimitive.Provider>) {
-  return <TooltipPrimitive.Provider data-slot="tooltip-provider" delayDuration={delayDuration} {...props} />;
-}
+type TooltipContextValue = { open: boolean; setOpen: (open: boolean) => void };
+const TooltipContext = React.createContext<TooltipContextValue | null>(null);
 
-function Tooltip(props: React.ComponentProps<typeof TooltipPrimitive.Root>) {
+function Tooltip({ children }: { children: React.ReactNode }) {
+  const [open, setOpen] = React.useState(false);
   return (
-    <TooltipProvider>
-      <TooltipPrimitive.Root data-slot="tooltip" {...props} />
-    </TooltipProvider>
+    <TooltipContext.Provider value={{ open, setOpen }}>
+      <span className="relative inline-block">{children}</span>
+    </TooltipContext.Provider>
   );
 }
 
-function TooltipTrigger(props: React.ComponentProps<typeof TooltipPrimitive.Trigger>) {
-  return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />;
+function TooltipTrigger({ children }: { asChild?: boolean; children: React.ReactElement }) {
+  const ctx = React.useContext(TooltipContext);
+  if (!ctx) throw new Error("TooltipTrigger must be used inside Tooltip");
+  return React.cloneElement(children, {
+    onMouseEnter: () => ctx.setOpen(true),
+    onMouseLeave: () => ctx.setOpen(false),
+    onFocus: () => ctx.setOpen(true),
+    onBlur: () => ctx.setOpen(false),
+  } as React.HTMLAttributes<HTMLElement>);
 }
 
-function TooltipContent({ className, sideOffset = 6, children, ...props }: React.ComponentProps<typeof TooltipPrimitive.Content>) {
+function TooltipContent({ className, children }: { className?: string; children: React.ReactNode }) {
+  const ctx = React.useContext(TooltipContext);
+  if (!ctx?.open) return null;
   return (
-    <TooltipPrimitive.Portal>
-      <TooltipPrimitive.Content
-        data-slot="tooltip-content"
-        sideOffset={sideOffset}
-        className={cn(
-          "z-50 max-w-64 rounded-[var(--radius-sm)] bg-ink px-2.5 py-1.5 text-xs font-semibold text-surface shadow-[var(--shadow-sm)] data-[state=delayed-open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=delayed-open]:fade-in-0",
-          className,
-        )}
-        {...props}
-      >
-        {children}
-      </TooltipPrimitive.Content>
-    </TooltipPrimitive.Portal>
+    <span
+      role="tooltip"
+      className={cn(
+        "absolute left-0 top-full z-50 mt-1 max-w-64 rounded-[var(--radius-sm)] bg-ink px-2.5 py-1.5 text-xs font-semibold text-surface shadow-[var(--shadow-sm)]",
+        className,
+      )}
+    >
+      {children}
+    </span>
   );
 }
 
-export { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent };
+export { Tooltip, TooltipTrigger, TooltipContent };
