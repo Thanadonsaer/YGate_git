@@ -3,6 +3,7 @@ export type User = {
   organizationId?: string;
   email: string;
   displayName: string;
+  permissions: string[];
 };
 
 export type SelfProfile = User & {
