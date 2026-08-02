@@ -26,6 +26,14 @@ SELECT EXISTS (
       AND (rp.organization_id IS NULL OR rp.organization_id = ur.organization_id)
 )::boolean;
 
+-- name: ListUserPermissions :many
+SELECT DISTINCT pm.resource_type, pm.action
+FROM user_role ur
+JOIN role_permission rp ON rp.role_id = ur.role_id
+    AND (rp.organization_id IS NULL OR rp.organization_id = ur.organization_id)
+JOIN permission pm ON pm.id = rp.permission_id
+WHERE ur.user_id = sqlc.arg(user_id);
+
 -- name: CreateAuditEventFull :exec
 INSERT INTO audit_log (
     organization_id, actor_user_id, action, target_type, target_id,

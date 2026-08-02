@@ -204,6 +204,18 @@ func (s *Service) recordSuccess(ctx context.Context, user dbgen.GetLoginUserRow,
 		User: LoginUser{ID: uuidString(user.ID), OrganizationID: uuidString(user.OrganizationID), Email: user.Email, DisplayName: user.DisplayName},
 	}, nil
 }
+func (s *Service) Permissions(ctx context.Context, userID pgtype.UUID) ([]string, error) {
+	rows, err := s.queries.ListUserPermissions(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list user permissions: %w", err)
+	}
+	permissions := make([]string, len(rows))
+	for i, row := range rows {
+		permissions[i] = row.ResourceType + ":" + row.Action
+	}
+	return permissions, nil
+}
+
 func (s *Service) Authenticate(ctx context.Context, token string) (Principal, error) {
 	tokenHash, err := hashPresentedToken(token)
 	if err != nil {

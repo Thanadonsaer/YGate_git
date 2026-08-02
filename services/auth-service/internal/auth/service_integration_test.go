@@ -144,3 +144,65 @@ func TestAuthenticationLifecycleAgainstPostgreSQL(t *testing.T) {
 		t.Fatalf("login after reset: %v", err)
 	}
 }
+
+func TestPermissionsReflectsRoleGrantsAgainstPostgreSQL(t *testing.T) {
+	databaseURL := os.Getenv("PLATFORM_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("PLATFORM_TEST_DATABASE_URL is not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	pool, err := database.Open(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+
+	organizationID, err := newUUID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	userID, err := newUUID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	suffix := uuidString(userID)
+	if _, err = pool.Exec(ctx, "INSERT INTO organization(id,code,name) VALUES($1,$2,$3)", organizationID, "PERM-"+suffix, "Permissions Integration"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO app_user(id,organization_id,email,username,display_name,password_hash)
+		VALUES($1,$2,$3,$4,$5,'unused')`, userID, organizationID, "perm-"+suffix+"@example.com", "perm-"+suffix, "Permissions Viewer"); err != nil {
+		t.Fatal(err)
+	}
+	// 00000000-0000-4000-8000-000000000206 is the seeded "Viewer" system role
+	// (read-only across organization/plant/asset_group/device_model/device),
+	// assigned scoped to this test's organization.
+	viewerRoleID, err := parseUUID("00000000-0000-4000-8000-000000000206")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assignmentID, err := newUUID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO user_role(id,organization_id,user_id,role_id) VALUES($1,$2,$3,$4)`,
+		assignmentID, organizationID, userID, viewerRoleID); err != nil {
+		t.Fatal(err)
+	}
+
+	service := New(pool, 30*time.Minute, 24*time.Hour)
+	permissions, err := service.Permissions(ctx, userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byValue := map[string]bool{}
+	for _, permission := range permissions {
+		byValue[permission] = true
+	}
+	if !byValue["plant:read"] || !byValue["device:read"] {
+		t.Fatalf("expected read grants missing, got %v", permissions)
+	}
+	if byValue["user:create"] || byValue["plant:create"] {
+		t.Fatalf("viewer role must not carry write grants, got %v", permissions)
+	}
+}

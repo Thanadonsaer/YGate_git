@@ -111,3 +111,37 @@ func (q *Queries) HasUserPermission(ctx context.Context, arg HasUserPermissionPa
 	err := row.Scan(&column_1)
 	return column_1, err
 }
+
+const listUserPermissions = `-- name: ListUserPermissions :many
+SELECT DISTINCT pm.resource_type, pm.action
+FROM user_role ur
+JOIN role_permission rp ON rp.role_id = ur.role_id
+    AND (rp.organization_id IS NULL OR rp.organization_id = ur.organization_id)
+JOIN permission pm ON pm.id = rp.permission_id
+WHERE ur.user_id = $1
+`
+
+type ListUserPermissionsRow struct {
+	ResourceType string
+	Action       string
+}
+
+func (q *Queries) ListUserPermissions(ctx context.Context, userID pgtype.UUID) ([]ListUserPermissionsRow, error) {
+	rows, err := q.db.Query(ctx, listUserPermissions, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUserPermissionsRow
+	for rows.Next() {
+		var i ListUserPermissionsRow
+		if err := rows.Scan(&i.ResourceType, &i.Action); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

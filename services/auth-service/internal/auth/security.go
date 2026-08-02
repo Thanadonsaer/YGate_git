@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"golang.org/x/crypto/bcrypt"
@@ -64,4 +65,12 @@ func uuidString(value pgtype.UUID) string {
 	}
 	b := value.Bytes
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+}
+
+func parseUUID(value string) (pgtype.UUID, error) {
+	var id pgtype.UUID
+	if err := id.Scan(strings.TrimSpace(value)); err != nil || !id.Valid {
+		return id, fmt.Errorf("invalid uuid")
+	}
+	return id, nil
 }
