@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono, Manrope } from "next/font/google";
+import { PrimeReactProvider } from "@primereact/core/config";
 import "react-grid-layout/css/styles.css";
 import "react-resizable/css/styles.css";
 import "./globals.css";
@@ -18,7 +19,11 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="th" className={`${manrope.variable} ${inter.variable} ${jetbrainsMono.variable}`}>
-      <body>{children}</body>
+      <body>
+        <PrimeReactProvider unstyled={true}>
+          {children}
+        </PrimeReactProvider>
+      </body>
     </html>
   );
 }
