@@ -32,11 +32,21 @@ type Client struct {
 	Store          *store.Store
 	Cache          *configcache.Cache
 	App            *app.Service
-	GatewayID      string
-	Endpoint       string
-	APIKey         string
 	Version        string
 	CanApplyUpdate bool
+	// Reload, if non-nil, lets a config-save handler wake up a Client that's
+	// idling (no endpoint/key configured yet) or backing off after a failed
+	// attempt, so a saved Gateway Endpoint/API Key takes effect immediately
+	// instead of waiting for the next poll tick or backoff timer. Buffer it
+	// at least 1 so a send from the HTTP handler never blocks.
+	Reload chan struct{}
+}
+
+func (c *Client) reloadChan() <-chan struct{} {
+	if c.Reload == nil {
+		return nil // nil channel: select never fires on it, which is fine
+	}
+	return c.Reload
 }
 
 func (c *Client) updater() *updater.Manager {
@@ -78,7 +88,22 @@ type envelope struct {
 func (c *Client) Run(ctx context.Context) {
 	attempts := 0
 	for ctx.Err() == nil {
-		connected, err := c.runOnce(ctx)
+		cfg, err := c.Store.GatewayConfig()
+		if err != nil || cfg.Endpoint == "" || cfg.APIKey == "" {
+			// Nothing configured yet (or the store is unreadable, unlikely).
+			// Wait for either a reload signal (config just got saved) or a
+			// short poll so this picks up a first-time config without a
+			// process restart -- this loop only spins at all once endpoint
+			// and key are both set.
+			select {
+			case <-c.reloadChan():
+			case <-time.After(5 * time.Second):
+			case <-ctx.Done():
+				return
+			}
+			continue
+		}
+		connected, err := c.runOnce(ctx, cfg)
 		if err != nil {
 			log.Printf("realtime client: %v", err)
 		}
@@ -92,20 +117,21 @@ func (c *Client) Run(ctx context.Context) {
 		wait := time.Duration(1<<min(attempts, 8)) * time.Second
 		select {
 		case <-time.After(wait):
+		case <-c.reloadChan():
 		case <-ctx.Done():
 			return
 		}
 	}
 }
 
-func (c *Client) runOnce(ctx context.Context) (connected bool, err error) {
-	wsURL, err := wsURLFromEndpoint(c.Endpoint)
+func (c *Client) runOnce(ctx context.Context, cfg domain.GatewayConfig) (connected bool, err error) {
+	wsURL, err := wsURLFromEndpoint(cfg.Endpoint)
 	if err != nil {
 		return false, err
 	}
 	dialCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	conn, _, err := websocket.Dial(dialCtx, wsURL, &websocket.DialOptions{
-		HTTPHeader: http.Header{"X-Api-Key": {strings.TrimSpace(c.APIKey)}},
+		HTTPHeader: http.Header{"X-Api-Key": {strings.TrimSpace(cfg.APIKey)}},
 	})
 	cancel()
 	if err != nil {
@@ -118,7 +144,7 @@ func (c *Client) runOnce(ctx context.Context) (connected bool, err error) {
 	if err != nil {
 		return true, fmt.Errorf("read local config version: %w", err)
 	}
-	if err = wsjson.Write(ctx, conn, envelope{Type: "hello", GatewayID: c.GatewayID, AppliedVersion: version, SoftwareVersion: c.Version}); err != nil {
+	if err = wsjson.Write(ctx, conn, envelope{Type: "hello", GatewayID: cfg.GatewayID, AppliedVersion: version, SoftwareVersion: c.Version}); err != nil {
 		return true, fmt.Errorf("send hello: %w", err)
 	}
 
@@ -162,6 +188,24 @@ func (c *Client) handleConfigSnapshot(ctx context.Context, conn *websocket.Conn,
 			log.Printf("realtime client: rebuild cache after applied config v%d: %v", snapshot.Version, rebuildErr)
 		} else {
 			c.Cache.Swap(cfg)
+		}
+		if gwCfg, err := c.Store.GatewayConfig(); err != nil {
+			log.Printf("realtime client: load gateway config to apply pushed settings: %v", err)
+		} else {
+			changed := false
+			if snapshot.SendIntervalSeconds > 0 && gwCfg.SendIntervalSeconds != snapshot.SendIntervalSeconds {
+				gwCfg.SendIntervalSeconds = snapshot.SendIntervalSeconds
+				changed = true
+			}
+			if gwCfg.APIPollingEnabled != snapshot.APIPollingEnabled {
+				gwCfg.APIPollingEnabled = snapshot.APIPollingEnabled
+				changed = true
+			}
+			if changed {
+				if _, err := c.Store.SaveGatewayConfig(gwCfg); err != nil {
+					log.Printf("realtime client: save pushed settings from config v%d: %v", snapshot.Version, err)
+				}
+			}
 		}
 	}
 	if err := wsjson.Write(ctx, conn, ack); err != nil {
@@ -244,11 +288,15 @@ func (c *Client) stageUpdate(ctx context.Context, msg envelope) error {
 	if msg.DownloadURL == "" {
 		return fmt.Errorf("update.stage: downloadUrl is required")
 	}
+	cfg, err := c.Store.GatewayConfig()
+	if err != nil {
+		return fmt.Errorf("read gateway config: %w", err)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, msg.DownloadURL, nil)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("X-Api-Key", strings.TrimSpace(c.APIKey))
+	req.Header.Set("X-Api-Key", strings.TrimSpace(cfg.APIKey))
 	httpClient := &http.Client{Timeout: 60 * time.Second}
 	resp, err := httpClient.Do(req)
 	if err != nil {
