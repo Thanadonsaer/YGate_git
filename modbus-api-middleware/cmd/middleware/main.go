@@ -169,13 +169,14 @@ func run(ctx context.Context) error {
 	}}
 	go runDelivery(ctx, worker)
 
-	if cfg.Endpoint != "" && cfg.APIKey != "" {
-		rtClient := &realtimeclient.Client{Store: st, Cache: cache, App: svc, GatewayID: cfg.GatewayID, Endpoint: cfg.Endpoint, APIKey: cfg.APIKey,
-			Version: version, CanApplyUpdate: serviceMode || os.Getenv("INVOCATION_ID") != ""}
-		go rtClient.Run(ctx)
-	}
+	// Always started, even with endpoint/key still empty: Client.Run polls the
+	// store for a usable config and reacts to Reload, so saving Endpoint/API
+	// Key from the web UI takes effect immediately -- no restart required.
+	rtClient := &realtimeclient.Client{Store: st, Cache: cache, App: svc,
+		Version: version, CanApplyUpdate: serviceMode || os.Getenv("INVOCATION_ID") != "", Reload: make(chan struct{}, 1)}
+	go rtClient.Run(ctx)
 
-	server := &webui.Server{Store: st, App: svc, Cache: cache, GatewayID: cfg.GatewayID, Version: version, CanApplyUpdate: serviceMode || os.Getenv("INVOCATION_ID") != "", LicensePublicKey: publicKey, LicenseFile: *licenseFile}
+	server := &webui.Server{Store: st, App: svc, Cache: cache, GatewayID: cfg.GatewayID, Version: version, CanApplyUpdate: serviceMode || os.Getenv("INVOCATION_ID") != "", LicensePublicKey: publicKey, LicenseFile: *licenseFile, AdminUsername: firstNonEmpty(os.Getenv("CHPP_WEB_USERNAME"), "admin"), AdminPassword: firstNonEmpty(os.Getenv("CHPP_WEB_PASSWORD"), "admin"), RealtimeReload: rtClient.Reload}
 	httpServer := &http.Server{Addr: *listen, Handler: server.FullHandler()}
 	errCh := make(chan error, 1)
 	if *gui {
