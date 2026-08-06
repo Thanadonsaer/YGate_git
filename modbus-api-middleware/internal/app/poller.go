@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"chpp/modbus-api-middleware/internal/domain"
 )
@@ -64,4 +65,20 @@ func (s *Service) LogPoll(connectionID int64, name, status, message, detail stri
 }
 func (s *Service) logPoll(connectionID int64, name, status, message, detail string) {
 	_ = s.Store.SavePollLog(domain.PollLog{ConnectionID: connectionID, ConnectionName: name, Status: status, Message: message, Detail: detail})
+}
+
+func (s *Service) PollInterval() time.Duration {
+	seconds := 5
+	if s.Store != nil {
+		if cfg, err := s.Store.GatewayConfig(); err == nil && cfg.SendIntervalSeconds > 0 {
+			seconds = cfg.SendIntervalSeconds
+		}
+	}
+	if seconds < 1 {
+		seconds = 1
+	}
+	if seconds > 3600 {
+		seconds = 3600
+	}
+	return time.Duration(seconds) * time.Second
 }

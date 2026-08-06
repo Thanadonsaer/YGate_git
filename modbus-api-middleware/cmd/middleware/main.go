@@ -3,7 +3,6 @@ package main
 import (
 	"chpp/modbus-api-middleware/internal/app"
 	"chpp/modbus-api-middleware/internal/configcache"
-	"chpp/modbus-api-middleware/internal/delivery"
 	"chpp/modbus-api-middleware/internal/license"
 	"chpp/modbus-api-middleware/internal/modbus"
 	"chpp/modbus-api-middleware/internal/realtimeclient"
@@ -164,10 +163,7 @@ func run(ctx context.Context) error {
 	svc := &app.Service{Store: st, Client: &modbus.Client{Timeout: 3 * time.Second}, Cache: cache}
 	go runCleanup(ctx, st, *cleanupRetentionDays, *cleanupIntervalHours)
 
-	worker := &delivery.Worker{Store: st, BatchSize: 20, Client: &http.Client{Timeout: 10 * time.Second}, BeforeSend: func() error {
-		return svc.PollEnabledConnections(cfg.GatewayID, log.Printf)
-	}}
-	go runDelivery(ctx, worker)
+	go runPollScan(ctx, svc, cfg.GatewayID)
 
 	// Always started, even with endpoint/key still empty: Client.Run polls the
 	// store for a usable config and reacts to Reload, so saving Endpoint/API
@@ -208,12 +204,12 @@ func run(ctx context.Context) error {
 	}
 }
 
-func runDelivery(ctx context.Context, worker *delivery.Worker) {
+func runPollScan(ctx context.Context, svc *app.Service, gatewayID string) {
 	for {
-		if _, err := worker.SendOnce(); err != nil {
-			log.Printf("delivery: %v", err)
+		if err := svc.PollEnabledConnections(gatewayID, log.Printf); err != nil {
+			log.Printf("poll scan: %v", err)
 		}
-		timer := time.NewTimer(worker.Interval())
+		timer := time.NewTimer(svc.PollInterval())
 		select {
 		case <-ctx.Done():
 			timer.Stop()
