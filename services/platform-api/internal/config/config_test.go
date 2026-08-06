@@ -22,7 +22,7 @@ func TestLoad(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.ListenAddr != "127.0.0.1:44441" || cfg.DatabaseURL != "postgres://platform@localhost/platform" || cfg.SessionIdleTimeout != 15*time.Minute || cfg.SessionAbsoluteTimeout != 8*time.Hour || cfg.PasswordResetTTL != 20*time.Minute || cfg.CookieSecure {
+	if cfg.ListenAddr != "127.0.0.1:44441" || cfg.DatabaseURL != "postgres://platform@localhost/platform?pool_max_conns=10" || cfg.SessionIdleTimeout != 15*time.Minute || cfg.SessionAbsoluteTimeout != 8*time.Hour || cfg.PasswordResetTTL != 20*time.Minute || cfg.CookieSecure {
 		t.Fatalf("config=%+v", cfg)
 	}
 }

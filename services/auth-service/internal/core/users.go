@@ -77,15 +77,15 @@ func (s *Service) Users(ctx context.Context, principal auth.Principal) ([]Manage
 SELECT u.id, u.organization_id, o.name, u.email, COALESCE(u.username,''), u.display_name,
        u.status, u.failed_login_count, u.locked_until, u.created_at, u.updated_at,
        COALESCE(array_agg(r.name ORDER BY r.name) FILTER (WHERE r.id IS NOT NULL), '{}')::text[] AS roles
-FROM app_user u
+FROM auth.app_user u
 JOIN organization o ON o.id = u.organization_id
-LEFT JOIN user_role ur_user ON ur_user.user_id = u.id
-LEFT JOIN role r ON r.id = ur_user.role_id
+LEFT JOIN auth.user_role ur_user ON ur_user.user_id = u.id
+LEFT JOIN auth.role r ON r.id = ur_user.role_id
 WHERE EXISTS (
-    SELECT 1 FROM user_role ur
-    JOIN role rr ON rr.id = ur.role_id
-    JOIN role_permission rp ON rp.role_id = ur.role_id
-    JOIN permission pm ON pm.id = rp.permission_id
+    SELECT 1 FROM auth.user_role ur
+    JOIN auth.role rr ON rr.id = ur.role_id
+    JOIN auth.role_permission rp ON rp.role_id = ur.role_id
+    JOIN auth.permission pm ON pm.id = rp.permission_id
     WHERE ur.user_id = $1
       AND pm.action = 'read' AND pm.resource_type = 'user'
       AND (rr.organization_id IS NULL OR rr.organization_id = ur.organization_id)
@@ -133,12 +133,10 @@ func (s *Service) Roles(ctx context.Context, principal auth.Principal) ([]Role, 
 	}
 	rows, err := s.pool.Query(ctx, `
 SELECT id, organization_id, name, description, is_system
-FROM role
+FROM auth.role
 WHERE (organization_id IS NULL OR organization_id = $2)
-  AND ($1::boolean OR name <> 'Platform Admin')
-ORDER BY organization_id IS NOT NULL, CASE name
-    WHEN 'Platform Admin' THEN 1 WHEN 'Organization Admin' THEN 2 WHEN 'Plant Manager' THEN 3
-    WHEN 'Engineer' THEN 4 WHEN 'Operator' THEN 5 WHEN 'Viewer' THEN 6 WHEN 'Auditor' THEN 7 ELSE 99 END, name`, global, principal.OrganizationID)
+  AND ($1::boolean OR name <> $3)
+ORDER BY organization_id IS NOT NULL, name <> $3 DESC, name`, global, principal.OrganizationID, systemAdminRoleName)
 	if err != nil {
 		return nil, fmt.Errorf("list roles: %w", err)
 	}
@@ -210,14 +208,14 @@ func (s *Service) CreateUser(ctx context.Context, principal auth.Principal, inpu
 	if input.Username != "" {
 		username = input.Username
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO app_user(id, organization_id, email, username, display_name, password_hash) VALUES($1,$2,$3,$4,$5,$6)`, userID, organizationID, input.Email, username, input.DisplayName, passwordHash); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO auth.app_user(id, organization_id, email, username, display_name, password_hash, email_verified_at) VALUES($1,$2,$3,$4,$5,$6,now())`, userID, organizationID, input.Email, username, input.DisplayName, passwordHash); err != nil {
 		return ManagedUser{}, mapUserWriteError(err)
 	}
 	var assignmentOrganization any = organizationID
-	if roleName == "Platform Admin" {
+	if roleName == systemAdminRoleName {
 		assignmentOrganization = nil
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO user_role(id, organization_id, user_id, role_id) VALUES($1,$2,$3,$4)`, assignmentID, assignmentOrganization, userID, roleID); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO auth.user_role(id, organization_id, user_id, role_id) VALUES($1,$2,$3,$4)`, assignmentID, assignmentOrganization, userID, roleID); err != nil {
 		return ManagedUser{}, mapUserWriteError(err)
 	}
 	user, err := s.getUserInTx(ctx, tx, userID)
@@ -263,6 +261,15 @@ func (s *Service) UpdateUser(ctx context.Context, principal auth.Principal, user
 	if err != nil {
 		return ManagedUser{}, err
 	}
+	if input.IsActive {
+		var emailVerified bool
+		if err = tx.QueryRow(ctx, `SELECT email_verified_at IS NOT NULL FROM auth.app_user WHERE id=$1`, id).Scan(&emailVerified); err != nil {
+			return ManagedUser{}, fmt.Errorf("check user email verification: %w", err)
+		}
+		if !emailVerified {
+			return ManagedUser{}, ErrUserInvalid
+		}
+	}
 	organizationID, err := parseUUID(before.OrganizationID)
 	if err != nil {
 		return ManagedUser{}, ErrUserNotFound
@@ -282,7 +289,7 @@ func (s *Service) UpdateUser(ctx context.Context, principal auth.Principal, user
 	if err != nil {
 		return ManagedUser{}, err
 	}
-	if hasRole(before.Roles, "Platform Admin") && roleName != "Platform Admin" {
+	if hasRole(before.Roles, systemAdminRoleName) && roleName != systemAdminRoleName {
 		last, err := isLastActivePlatformAdmin(ctx, tx, id)
 		if err != nil {
 			return ManagedUser{}, err
@@ -299,10 +306,10 @@ func (s *Service) UpdateUser(ctx context.Context, principal auth.Principal, user
 	if input.Username != "" {
 		username = input.Username
 	}
-	if _, err = tx.Exec(ctx, `UPDATE app_user SET email=$2, username=$3, display_name=$4, status=$5, updated_at=now() WHERE id=$1`, id, input.Email, username, input.DisplayName, status); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE auth.app_user SET email=$2, username=$3, display_name=$4, status=$5, updated_at=now() WHERE id=$1`, id, input.Email, username, input.DisplayName, status); err != nil {
 		return ManagedUser{}, mapUserWriteError(err)
 	}
-	if _, err = tx.Exec(ctx, `DELETE FROM user_role WHERE user_id=$1 AND plant_id IS NULL`, id); err != nil {
+	if _, err = tx.Exec(ctx, `DELETE FROM auth.user_role WHERE user_id=$1 AND plant_id IS NULL`, id); err != nil {
 		return ManagedUser{}, fmt.Errorf("replace user baseline role: %w", err)
 	}
 	assignmentID, err := newUUID()
@@ -310,14 +317,14 @@ func (s *Service) UpdateUser(ctx context.Context, principal auth.Principal, user
 		return ManagedUser{}, err
 	}
 	var assignmentOrganization any = organizationID
-	if roleName == "Platform Admin" {
+	if roleName == systemAdminRoleName {
 		assignmentOrganization = nil
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO user_role(id, organization_id, user_id, role_id) VALUES($1,$2,$3,$4)`, assignmentID, assignmentOrganization, id, roleID); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO auth.user_role(id, organization_id, user_id, role_id) VALUES($1,$2,$3,$4)`, assignmentID, assignmentOrganization, id, roleID); err != nil {
 		return ManagedUser{}, mapUserWriteError(err)
 	}
 	if !input.IsActive {
-		if _, err = tx.Exec(ctx, `UPDATE user_session SET revoked_at=COALESCE(revoked_at,now()) WHERE user_id=$1 AND revoked_at IS NULL`, id); err != nil {
+		if _, err = tx.Exec(ctx, `UPDATE auth.user_session SET revoked_at=COALESCE(revoked_at,now()) WHERE user_id=$1 AND revoked_at IS NULL`, id); err != nil {
 			return ManagedUser{}, fmt.Errorf("revoke updated user sessions: %w", err)
 		}
 	}
@@ -366,13 +373,13 @@ func (s *Service) ResetUserPassword(ctx context.Context, principal auth.Principa
 	if err = s.requireOrganizationPermission(ctx, q, principal, "reset_password", "user", organizationID); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE app_user SET password_hash=$2, password_changed_at=now(), failed_login_count=0, locked_until=NULL, updated_at=now() WHERE id=$1`, id, passwordHash); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE auth.app_user SET password_hash=$2, password_changed_at=now(), failed_login_count=0, locked_until=NULL, updated_at=now() WHERE id=$1`, id, passwordHash); err != nil {
 		return mapUserWriteError(err)
 	}
-	if _, err = tx.Exec(ctx, `UPDATE user_session SET revoked_at=COALESCE(revoked_at,now()) WHERE user_id=$1 AND revoked_at IS NULL`, id); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE auth.user_session SET revoked_at=COALESCE(revoked_at,now()) WHERE user_id=$1 AND revoked_at IS NULL`, id); err != nil {
 		return fmt.Errorf("revoke reset user sessions: %w", err)
 	}
-	if _, err = tx.Exec(ctx, `UPDATE password_reset_token SET used_at=COALESCE(used_at,now()) WHERE user_id=$1 AND used_at IS NULL`, id); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE auth.password_reset_token SET used_at=COALESCE(used_at,now()) WHERE user_id=$1 AND used_at IS NULL`, id); err != nil {
 		return fmt.Errorf("invalidate user reset tokens: %w", err)
 	}
 	after, err := s.getUserInTx(ctx, tx, id)
@@ -416,7 +423,7 @@ func (s *Service) HardDeleteUser(ctx context.Context, principal auth.Principal, 
 	if !validHardDeleteConfirmation(confirmation, "DELETE "+before.Email) {
 		return ErrUserInvalid
 	}
-	if hasRole(before.Roles, "Platform Admin") {
+	if hasRole(before.Roles, systemAdminRoleName) {
 		last, err := isLastActivePlatformAdmin(ctx, tx, id)
 		if err != nil {
 			return err
@@ -438,7 +445,7 @@ func (s *Service) HardDeleteUser(ctx context.Context, principal auth.Principal, 
 	if err = q.CreateAuditEventFull(ctx, dbgen.CreateAuditEventFullParams{OrganizationID: organizationID, ActorUserID: principal.UserID, Action: "user.hard_deleted", TargetType: "app_user", TargetID: id, BeforeData: beforeJSON, AfterData: afterJSON, SourceIp: sourceIP, CorrelationID: correlationID}); err != nil {
 		return fmt.Errorf("audit user hard delete: %w", err)
 	}
-	if _, err = tx.Exec(ctx, `DELETE FROM app_user WHERE id=$1`, id); err != nil {
+	if _, err = tx.Exec(ctx, `DELETE FROM auth.app_user WHERE id=$1`, id); err != nil {
 		return fmt.Errorf("hard delete user: %w", err)
 	}
 	return tx.Commit(ctx)
@@ -465,6 +472,24 @@ func (s *Service) SetUserActive(ctx context.Context, principal auth.Principal, u
 	if err != nil {
 		return ManagedUser{}, err
 	}
+	if active {
+		var emailVerified bool
+		if err = tx.QueryRow(ctx, `SELECT email_verified_at IS NOT NULL FROM auth.app_user WHERE id=$1`, id).Scan(&emailVerified); err != nil {
+			return ManagedUser{}, fmt.Errorf("check user email verification: %w", err)
+		}
+		if !emailVerified {
+			return ManagedUser{}, ErrUserInvalid
+		}
+	}
+	if active {
+		var hasRole bool
+		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM auth.user_role WHERE user_id=$1 AND plant_id IS NULL)`, id).Scan(&hasRole); err != nil {
+			return ManagedUser{}, fmt.Errorf("check user role assignment: %w", err)
+		}
+		if !hasRole {
+			return ManagedUser{}, ErrUserInvalid
+		}
+	}
 	organizationID, err := parseUUID(before.OrganizationID)
 	if err != nil {
 		return ManagedUser{}, ErrUserNotFound
@@ -480,11 +505,11 @@ func (s *Service) SetUserActive(ctx context.Context, principal auth.Principal, u
 	if active {
 		status = "ACTIVE"
 	}
-	if _, err = tx.Exec(ctx, `UPDATE app_user SET status=$2, updated_at=now() WHERE id=$1`, id, status); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE auth.app_user SET status=$2, updated_at=now() WHERE id=$1`, id, status); err != nil {
 		return ManagedUser{}, mapUserWriteError(err)
 	}
 	if !active {
-		if _, err = tx.Exec(ctx, `UPDATE user_session SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL`, id); err != nil {
+		if _, err = tx.Exec(ctx, `UPDATE auth.user_session SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL`, id); err != nil {
 			return ManagedUser{}, fmt.Errorf("revoke disabled user sessions: %w", err)
 		}
 	}
@@ -532,7 +557,7 @@ func (s *Service) UnlockUser(ctx context.Context, principal auth.Principal, user
 	if err = s.requireOrganizationPermission(ctx, q, principal, "unlock", "user", organizationID); err != nil {
 		return ManagedUser{}, err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE app_user SET failed_login_count=0, locked_until=NULL, updated_at=now() WHERE id=$1`, id); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE auth.app_user SET failed_login_count=0, locked_until=NULL, updated_at=now() WHERE id=$1`, id); err != nil {
 		return ManagedUser{}, mapUserWriteError(err)
 	}
 	after, err := s.getUserInTx(ctx, tx, id)
@@ -586,12 +611,12 @@ func (s *Service) hasGlobalPermission(ctx context.Context, principal auth.Princi
 func (s *Service) authorizedRoleName(ctx context.Context, tx pgx.Tx, principal auth.Principal, organizationID, roleID pgtype.UUID) (string, error) {
 	var roleName string
 	var roleOrganization pgtype.UUID
-	if err := tx.QueryRow(ctx, `SELECT name, organization_id FROM role WHERE id=$1 AND (organization_id IS NULL OR organization_id=$2)`, roleID, organizationID).Scan(&roleName, &roleOrganization); errors.Is(err, pgx.ErrNoRows) {
+	if err := tx.QueryRow(ctx, `SELECT name, organization_id FROM auth.role WHERE id=$1 AND (organization_id IS NULL OR organization_id=$2)`, roleID, organizationID).Scan(&roleName, &roleOrganization); errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrUserInvalid
 	} else if err != nil {
 		return "", fmt.Errorf("load user role: %w", err)
 	}
-	if roleName == "Platform Admin" {
+	if roleName == systemAdminRoleName {
 		global, err := hasGlobalPermissionQuery(ctx, tx, principal, "assign", "role")
 		if err != nil {
 			return "", err
@@ -616,12 +641,12 @@ func isLastActivePlatformAdmin(ctx context.Context, tx pgx.Tx, excludedUserID pg
 	var remaining int
 	err := tx.QueryRow(ctx, `
 SELECT count(DISTINCT u.id)
-FROM app_user u
-JOIN user_role ur ON ur.user_id=u.id AND ur.organization_id IS NULL
-JOIN role r ON r.id=ur.role_id AND r.organization_id IS NULL
-WHERE u.status='ACTIVE' AND r.name='Platform Admin' AND u.id<>$1`, excludedUserID).Scan(&remaining)
+FROM auth.app_user u
+JOIN auth.user_role ur ON ur.user_id=u.id AND ur.organization_id IS NULL
+JOIN auth.role r ON r.id=ur.role_id AND r.organization_id IS NULL
+WHERE u.status='ACTIVE' AND r.name=$2 AND u.id<>$1`, excludedUserID, systemAdminRoleName).Scan(&remaining)
 	if err != nil {
-		return false, fmt.Errorf("count remaining Platform Admin users: %w", err)
+		return false, fmt.Errorf("count remaining system admin users: %w", err)
 	}
 	return remaining == 0, nil
 }
@@ -646,7 +671,7 @@ func (s *Service) getUserInTx(ctx context.Context, tx pgx.Tx, id pgtype.UUID) (M
 	err := tx.QueryRow(ctx, `
 SELECT u.id, u.organization_id, o.name, u.email, COALESCE(u.username,''), u.display_name,
        u.status, u.failed_login_count, u.locked_until, u.created_at, u.updated_at
-FROM app_user u
+FROM auth.app_user u
 JOIN organization o ON o.id = u.organization_id
 WHERE u.id=$1
 FOR UPDATE OF u`, id).Scan(&userID, &organizationID, &user.OrganizationName, &user.Email, &user.Username, &user.DisplayName, &user.Status, &user.FailedLoginCount, &lockedUntil, &createdAt, &updatedAt)
@@ -668,7 +693,7 @@ FOR UPDATE OF u`, id).Scan(&userID, &organizationID, &user.OrganizationName, &us
 }
 
 func (s *Service) userRolesInTx(ctx context.Context, tx pgx.Tx, userID pgtype.UUID) ([]string, error) {
-	rows, err := tx.Query(ctx, `SELECT r.name FROM user_role ur JOIN role r ON r.id = ur.role_id WHERE ur.user_id=$1 ORDER BY r.name`, userID)
+	rows, err := tx.Query(ctx, `SELECT r.name FROM auth.user_role ur JOIN auth.role r ON r.id = ur.role_id WHERE ur.user_id=$1 ORDER BY r.name`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("list user roles: %w", err)
 	}

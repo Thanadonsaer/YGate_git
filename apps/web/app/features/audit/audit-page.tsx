@@ -4,7 +4,7 @@ import { RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "../../components/ui/sonner";
 import { Button } from "../../components/ui/button";
-import { api, csrfToken, formatDate } from "../../lib/api";
+import { api, errorMessage, csrfToken, formatDate } from "../../lib/api";
 import type { AuditEvent } from "../../lib/types";
 
 export function AuditPage() {
@@ -21,7 +21,7 @@ export function AuditPage() {
       if (!response.ok) throw new Error("ไม่สามารถโหลด Audit Log ได้");
       setEvents((await response.json()) as AuditEvent[]);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+      setError(errorMessage(cause));
     } finally {
       setLoading(false);
     }

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -44,9 +45,13 @@ func (w *Worker) SendOnce() (int, error) {
 		ids[i] = e.ID
 	}
 	body, _ := json.Marshal(map[string]any{"schemaVersion": "2.0", "data": data})
+	postURL, err := ingestURLFromEndpoint(endpoint)
+	if err != nil {
+		return 0, err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, postURL, bytes.NewReader(body))
 	if err != nil {
 		return 0, err
 	}
@@ -69,6 +74,21 @@ func (w *Worker) SendOnce() (int, error) {
 	retry := resp.StatusCode == 408 || resp.StatusCode == 429 || resp.StatusCode >= 500
 	_ = w.Store.Failed(ids, resp.StatusCode, string(message), retry)
 	return 0, fmt.Errorf("API returned %d", resp.StatusCode)
+}
+
+// ingestURLFromEndpoint builds the telemetry ingest POST URL from the same
+// base Endpoint (host[:port], no path) the Gateway settings UI collects for
+// the realtime WebSocket connection -- mirrors realtimeclient.wsURLFromEndpoint's
+// scheme+host handling so operators only ever type one base URL, not a
+// different full path per feature (POSTing the raw Endpoint with no path
+// suffix hit whatever unrelated route happened to live at "/", returning
+// 404/405 instead of ever reaching the ingest API).
+func ingestURLFromEndpoint(endpoint string) (string, error) {
+	u, err := url.Parse(strings.TrimSpace(endpoint))
+	if err != nil || u.Host == "" {
+		return "", fmt.Errorf("invalid gateway endpoint %q", endpoint)
+	}
+	return (&url.URL{Scheme: u.Scheme, Host: u.Host, Path: "/api/v2/ingestion/register-readings"}).String(), nil
 }
 
 func (w *Worker) Interval() time.Duration {

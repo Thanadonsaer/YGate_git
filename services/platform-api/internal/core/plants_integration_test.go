@@ -48,7 +48,7 @@ func TestPlantAuthorizationLifecycleAgainstPostgreSQL(t *testing.T) {
 		org   pgtype.UUID
 		email string
 	}{{adminID, orgA, "admin@test.invalid"}, {viewerAID, orgA, "viewer-a@test.invalid"}, {viewerBID, orgB, "viewer-b@test.invalid"}, {noGrantID, orgA, "none@test.invalid"}} {
-		if _, err = pool.Exec(ctx, `INSERT INTO app_user(id,organization_id,email,display_name,password_hash) VALUES($1,$2,$3,$4,'unused')`, user.id, user.org, user.email, user.email); err != nil {
+		if _, err = pool.Exec(ctx, `INSERT INTO auth.app_user(id,organization_id,email,display_name,password_hash) VALUES($1,$2,$3,$4,'unused')`, user.id, user.org, user.email, user.email); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -58,7 +58,7 @@ func TestPlantAuthorizationLifecycleAgainstPostgreSQL(t *testing.T) {
 		{mustUUID(t, "10000000-0000-4000-8000-000000000022"), viewerAID, mustUUID(t, "00000000-0000-4000-8000-000000000206"), orgA},
 		{mustUUID(t, "10000000-0000-4000-8000-000000000023"), viewerBID, mustUUID(t, "00000000-0000-4000-8000-000000000206"), orgB}}
 	for _, assignment := range assignments {
-		if _, err = pool.Exec(ctx, `INSERT INTO user_role(id,organization_id,user_id,role_id) VALUES($1,$2,$3,$4)`, assignment.id, assignment.organization, assignment.user, assignment.role); err != nil {
+		if _, err = pool.Exec(ctx, `INSERT INTO auth.user_role(id,organization_id,user_id,role_id) VALUES($1,$2,$3,$4)`, assignment.id, assignment.organization, assignment.user, assignment.role); err != nil {
 			t.Fatal(err)
 		}
 	}

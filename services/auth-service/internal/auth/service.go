@@ -29,12 +29,13 @@ var (
 const maxRecentFailures = 10
 
 type Service struct {
-	pool            *pgxpool.Pool
-	queries         *dbgen.Queries
-	idleTimeout     time.Duration
-	absoluteTimeout time.Duration
-	resetTTL        time.Duration
-	resetNotifier   ResetNotifier
+	pool                 *pgxpool.Pool
+	queries              *dbgen.Queries
+	idleTimeout          time.Duration
+	absoluteTimeout      time.Duration
+	resetTTL             time.Duration
+	resetNotifier        ResetNotifier
+	verificationNotifier VerificationNotifier
 }
 
 type LoginInput struct {

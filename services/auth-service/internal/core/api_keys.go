@@ -78,13 +78,13 @@ func (s *Service) APIKeys(ctx context.Context, principal auth.Principal) ([]APIK
 	rows, err := s.pool.Query(ctx, `
 SELECT mc.id, mc.organization_id, o.name, mc.name, mc.key_prefix, mc.auto_onboard,
        mc.is_active, mc.last_seen_at, mc.created_at, mc.updated_at
-FROM middleware_client mc
+FROM auth.middleware_client mc
 JOIN organization o ON o.id = mc.organization_id
 WHERE EXISTS (
-    SELECT 1 FROM user_role ur
-    JOIN role r ON r.id = ur.role_id
-    JOIN role_permission rp ON rp.role_id = ur.role_id
-    JOIN permission pm ON pm.id = rp.permission_id
+    SELECT 1 FROM auth.user_role ur
+    JOIN auth.role r ON r.id = ur.role_id
+    JOIN auth.role_permission rp ON rp.role_id = ur.role_id
+    JOIN auth.permission pm ON pm.id = rp.permission_id
     WHERE ur.user_id = $1
       AND pm.action = 'read' AND pm.resource_type = 'middleware_client'
       AND (r.organization_id IS NULL OR r.organization_id = ur.organization_id)
@@ -145,7 +145,7 @@ func (s *Service) CreateAPIKey(ctx context.Context, principal auth.Principal, in
 	if err = s.requireOrganizationPermission(ctx, q, principal, "create", "middleware_client", organizationID); err != nil {
 		return CreatedAPIKeyClient{}, err
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO middleware_client(id, organization_id, name, key_prefix, key_hash, auto_onboard) VALUES($1,$2,$3,$4,$5,$6)`, id, organizationID, input.Name, apiKey[:12], keyHash[:], input.AutoOnboard); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO auth.middleware_client(id, organization_id, name, key_prefix, key_hash, auto_onboard) VALUES($1,$2,$3,$4,$5,$6)`, id, organizationID, input.Name, apiKey[:12], keyHash[:], input.AutoOnboard); err != nil {
 		return CreatedAPIKeyClient{}, mapAPIKeyWriteError(err)
 	}
 	client, err := s.getAPIKeyInTx(ctx, tx, id)
@@ -187,7 +187,7 @@ func (s *Service) SetAPIKeyActive(ctx context.Context, principal auth.Principal,
 	if err = s.requireOrganizationPermission(ctx, q, principal, "update", "middleware_client", organizationID); err != nil {
 		return APIKeyClient{}, err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE middleware_client SET is_active=$2, updated_at=now() WHERE id=$1`, id, active); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE auth.middleware_client SET is_active=$2, updated_at=now() WHERE id=$1`, id, active); err != nil {
 		return APIKeyClient{}, mapAPIKeyWriteError(err)
 	}
 	after, err := s.getAPIKeyInTx(ctx, tx, id)
@@ -238,7 +238,7 @@ func (s *Service) UpdateAPIKey(ctx context.Context, principal auth.Principal, ke
 	if err = s.requireOrganizationPermission(ctx, q, principal, "update", "middleware_client", organizationID); err != nil {
 		return APIKeyClient{}, err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE middleware_client SET name=$2, auto_onboard=$3, is_active=$4, updated_at=now() WHERE id=$1`, id, input.Name, input.AutoOnboard, input.IsActive); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE auth.middleware_client SET name=$2, auto_onboard=$3, is_active=$4, updated_at=now() WHERE id=$1`, id, input.Name, input.AutoOnboard, input.IsActive); err != nil {
 		return APIKeyClient{}, mapAPIKeyWriteError(err)
 	}
 	after, err := s.getAPIKeyInTx(ctx, tx, id)
@@ -264,7 +264,7 @@ func (s *Service) getAPIKeyInTx(ctx context.Context, tx pgx.Tx, id pgtype.UUID) 
 	row := tx.QueryRow(ctx, `
 SELECT mc.id, mc.organization_id, o.name, mc.name, mc.key_prefix, mc.auto_onboard,
        mc.is_active, mc.last_seen_at, mc.created_at, mc.updated_at
-FROM middleware_client mc
+FROM auth.middleware_client mc
 JOIN organization o ON o.id = mc.organization_id
 WHERE mc.id=$1
 FOR UPDATE OF mc`, id)

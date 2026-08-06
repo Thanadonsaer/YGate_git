@@ -2,10 +2,11 @@
 
 import { Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { api, csrfToken } from "../../lib/api";
+import { api, errorMessage, csrfToken } from "../../lib/api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody } from "../../components/ui/dialog";
 import { toast } from "../../components/ui/sonner";
 import { Button } from "../../components/ui/button";
+import { pagePermissionGroups, type PagePermissionGroup } from "../../lib/navigation";
 import type { Permission, Role, RoleDetail } from "../../lib/types";
 
 export function RolesPage({ defaultOrganizationId }: { defaultOrganizationId?: string }) {
@@ -25,7 +26,7 @@ export function RolesPage({ defaultOrganizationId }: { defaultOrganizationId?: s
       setRoles((await roleResponse.json()) as Role[]);
       setPermissions((await permissionResponse.json()) as Permission[]);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+      setError(errorMessage(cause));
     } finally {
       setLoading(false);
     }
@@ -86,13 +87,21 @@ export function RolesPage({ defaultOrganizationId }: { defaultOrganizationId?: s
   );
 }
 
+// Every permission a page's entries reference, whether or not the caller has
+// loaded that page's action list yet — used both to render the sub-checklist
+// and to know what to strip when a menu gets unchecked.
+function permissionsForGroup(group: PagePermissionGroup, permissions: Permission[]): Permission[] {
+  return permissions.filter((permission) =>
+    group.entries.some((entry) => entry.resourceType === permission.resourceType && (!entry.actions || entry.actions.includes(permission.action))));
+}
+
 function RoleEditor({ role, permissions, defaultOrganizationId, onClose, onSaved }: { role?: Role; permissions: Permission[]; defaultOrganizationId?: string; onClose: () => void; onSaved: () => void }) {
-  const [detail, setDetail] = useState<RoleDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(Boolean(role));
   const [global, setGlobal] = useState(false);
   const [name, setName] = useState(role?.name ?? "");
   const [description, setDescription] = useState(role?.description ?? "");
   const [permissionIds, setPermissionIds] = useState<string[]>([]);
+  const [expandedPages, setExpandedPages] = useState<Set<string>>(new Set());
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
 
@@ -102,23 +111,42 @@ function RoleEditor({ role, permissions, defaultOrganizationId, onClose, onSaved
       const response = await api(`/api/v1/admin/roles/${encodeURIComponent(role.id)}`);
       if (response.ok) {
         const loaded = (await response.json()) as RoleDetail;
-        setDetail(loaded);
         setName(loaded.name);
         setDescription(loaded.description);
         setPermissionIds(loaded.permissionIds);
         setGlobal(loaded.organizationId === null);
+        setExpandedPages(new Set(
+          pagePermissionGroups
+            .filter((group) => permissionsForGroup(group, permissions).some((permission) => loaded.permissionIds.includes(permission.id)))
+            .map((group) => group.href),
+        ));
       } else {
         setError("ไม่สามารถโหลดรายละเอียด Role ได้");
       }
       setLoadingDetail(false);
     })();
-  }, [role]);
+  }, [role, permissions]);
 
   function togglePermission(id: string) {
     setPermissionIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
   }
 
-  const groups = groupByResourceType(permissions);
+  function togglePage(group: PagePermissionGroup) {
+    const groupPermissionIds = permissionsForGroup(group, permissions).map((permission) => permission.id);
+    setExpandedPages((current) => {
+      const next = new Set(current);
+      if (next.has(group.href)) {
+        next.delete(group.href);
+        setPermissionIds((ids) => ids.filter((id) => !groupPermissionIds.includes(id)));
+      } else {
+        next.add(group.href);
+      }
+      return next;
+    });
+  }
+
+  const mappedResourceTypes = new Set(pagePermissionGroups.flatMap((group) => group.entries.map((entry) => entry.resourceType)));
+  const otherGroups = groupByResourceType(permissions.filter((permission) => !mappedResourceTypes.has(permission.resourceType)));
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -138,7 +166,7 @@ function RoleEditor({ role, permissions, defaultOrganizationId, onClose, onSaved
       if (!response.ok) throw new Error("ข้อมูลไม่ถูกต้องหรือไม่สามารถบันทึกได้");
       onSaved();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+      setError(errorMessage(cause));
     } finally {
       setPending(false);
     }
@@ -166,17 +194,65 @@ function RoleEditor({ role, permissions, defaultOrganizationId, onClose, onSaved
               )}
               <fieldset className="full-field permission-picker">
                 <legend>สิทธิ์การใช้งาน</legend>
-                {Object.entries(groups).map(([resourceType, items]) => (
-                  <div key={resourceType} className="permission-group">
-                    <strong>{resourceType}</strong>
-                    {items.map((permission) => (
-                      <label key={permission.id} className="toggle-field">
-                        <input type="checkbox" checked={permissionIds.includes(permission.id)} onChange={() => togglePermission(permission.id)} />
-                        <span>{permission.action}{permission.description ? ` — ${permission.description}` : ""}</span>
+                <p className="permission-picker-hint">1) ติ๊กเมนูที่ role นี้เข้าถึงได้ 2) ในแต่ละเมนูที่ติ๊ก เลือกว่าทำ action อะไรได้บ้าง</p>
+                {pagePermissionGroups.map((group) => {
+                  const groupPermissions = permissionsForGroup(group, permissions);
+                  if (groupPermissions.length === 0) return null;
+                  const expanded = expandedPages.has(group.href);
+                  const multiEntry = group.entries.length > 1;
+                  return (
+                    <div key={group.href} className="permission-group">
+                      <label className="toggle-field permission-page-toggle">
+                        <input type="checkbox" checked={expanded} onChange={() => togglePage(group)} />
+                        <strong>{group.label}</strong>
                       </label>
+                      {expanded && (
+                        <div className="permission-actions">
+                          {multiEntry ? (
+                            group.entries.map((entry) => {
+                              const entryPermissions = groupPermissions.filter((permission) => permission.resourceType === entry.resourceType);
+                              if (entryPermissions.length === 0) return null;
+                              return (
+                                <div key={entry.resourceType} className="permission-subgroup">
+                                  <small>{entry.resourceType}</small>
+                                  {entryPermissions.map((permission) => (
+                                    <label key={permission.id} className="toggle-field">
+                                      <input type="checkbox" checked={permissionIds.includes(permission.id)} onChange={() => togglePermission(permission.id)} />
+                                      <span>{permission.action}{permission.description ? ` — ${permission.description}` : ""}</span>
+                                    </label>
+                                  ))}
+                                </div>
+                              );
+                            })
+                          ) : (
+                            groupPermissions.map((permission) => (
+                              <label key={permission.id} className="toggle-field">
+                                <input type="checkbox" checked={permissionIds.includes(permission.id)} onChange={() => togglePermission(permission.id)} />
+                                <span>{permission.action}{permission.description ? ` — ${permission.description}` : ""}</span>
+                              </label>
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {Object.entries(otherGroups).length > 0 && (
+                  <div className="permission-group">
+                    <strong>อื่นๆ (ไม่ผูกกับเมนูใดเมนูหนึ่ง)</strong>
+                    {Object.entries(otherGroups).map(([resourceType, items]) => (
+                      <div key={resourceType} className="permission-subgroup">
+                        <small>{resourceType}</small>
+                        {items.map((permission) => (
+                          <label key={permission.id} className="toggle-field">
+                            <input type="checkbox" checked={permissionIds.includes(permission.id)} onChange={() => togglePermission(permission.id)} />
+                            <span>{permission.action}{permission.description ? ` — ${permission.description}` : ""}</span>
+                          </label>
+                        ))}
+                      </div>
                     ))}
                   </div>
-                ))}
+                )}
               </fieldset>
               {error && <p className="form-message error full-field">{error}</p>}
               <div className="editor-actions full-field"><Button type="button" variant="secondary" onClick={onClose} disabled={pending}>ยกเลิก</Button><Button disabled={pending}>{pending ? "กำลังบันทึก" : "บันทึก"}</Button></div>

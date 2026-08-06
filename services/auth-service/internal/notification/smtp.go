@@ -40,11 +40,19 @@ func (n *SMTPResetNotifier) Notify(ctx context.Context, recipient, token string)
 	query := resetURL.Query()
 	query.Set("token", token)
 	resetURL.RawQuery = query.Encode()
+	html, err := renderEmail(emailContent{
+		Title:       "Reset your password",
+		Body:        "We received a request to reset your Solar SCADA password. This link expires soon and can only be used once.",
+		ButtonURL:   resetURL.String(),
+		ButtonLabel: "Reset password",
+	})
+	if err != nil {
+		return fmt.Errorf("render password reset email: %w", err)
+	}
 	message := []byte("To: " + recipient + "\r\n" +
 		"From: " + n.from + "\r\n" +
 		"Subject: Reset your Solar SCADA password\r\n" +
-		"Content-Type: text/plain; charset=UTF-8\r\n\r\n" +
-		"Use this link to reset your password:\r\n" + resetURL.String() + "\r\n")
+		"Content-Type: text/html; charset=UTF-8\r\n\r\n" + html)
 	if err = n.sendSTARTTLS(ctx, recipient, message); err != nil {
 		return fmt.Errorf("send password reset email: %w", err)
 	}
@@ -99,4 +107,34 @@ func (n *SMTPResetNotifier) sendSTARTTLS(ctx context.Context, recipient string, 
 		return err
 	}
 	return client.Quit()
+}
+
+func (n *SMTPResetNotifier) NotifyEmailVerification(ctx context.Context, recipient, token string) error {
+	if strings.ContainsAny(recipient, "\r\n") {
+		return fmt.Errorf("invalid SMTP recipient")
+	}
+	resetURL, err := url.Parse(n.resetURL)
+	if err != nil {
+		return err
+	}
+	query := resetURL.Query()
+	query.Set("verify", token)
+	resetURL.RawQuery = query.Encode()
+	html, err := renderEmail(emailContent{
+		Title:       "Verify your account email",
+		Body:        "Confirm this email address to finish setting up your Solar SCADA account.",
+		ButtonURL:   resetURL.String(),
+		ButtonLabel: "Verify email",
+	})
+	if err != nil {
+		return fmt.Errorf("render email verification: %w", err)
+	}
+	message := []byte("To: " + recipient + "\r\n" +
+		"From: " + n.from + "\r\n" +
+		"Subject: Verify your Solar SCADA account email\r\n" +
+		"Content-Type: text/html; charset=UTF-8\r\n\r\n" + html)
+	if err = n.sendSTARTTLS(ctx, recipient, message); err != nil {
+		return fmt.Errorf("send email verification: %w", err)
+	}
+	return nil
 }

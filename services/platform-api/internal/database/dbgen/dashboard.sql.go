@@ -11,6 +11,254 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const createUserDashboard = `-- name: CreateUserDashboard :one
+INSERT INTO dashboard.user_dashboard (id, organization_id, owner_user_id, layouts, widget_configs)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, organization_id, owner_user_id, name, layouts, version,
+          widget_configs, published_layouts, published_widget_configs,
+          published_version, published_from_version, published_at, visibility, access_version,
+          created_at, updated_at
+`
+
+type CreateUserDashboardParams struct {
+	ID             pgtype.UUID
+	OrganizationID pgtype.UUID
+	OwnerUserID    pgtype.UUID
+	Layouts        []byte
+	WidgetConfigs  []byte
+}
+
+type CreateUserDashboardRow struct {
+	ID                     pgtype.UUID
+	OrganizationID         pgtype.UUID
+	OwnerUserID            pgtype.UUID
+	Name                   string
+	Layouts                []byte
+	Version                int32
+	WidgetConfigs          []byte
+	PublishedLayouts       []byte
+	PublishedWidgetConfigs []byte
+	PublishedVersion       int32
+	PublishedFromVersion   int32
+	PublishedAt            pgtype.Timestamptz
+	Visibility             string
+	AccessVersion          int32
+	CreatedAt              pgtype.Timestamptz
+	UpdatedAt              pgtype.Timestamptz
+}
+
+func (q *Queries) CreateUserDashboard(ctx context.Context, arg CreateUserDashboardParams) (CreateUserDashboardRow, error) {
+	row := q.db.QueryRow(ctx, createUserDashboard,
+		arg.ID,
+		arg.OrganizationID,
+		arg.OwnerUserID,
+		arg.Layouts,
+		arg.WidgetConfigs,
+	)
+	var i CreateUserDashboardRow
+	err := row.Scan(
+		&i.ID,
+		&i.OrganizationID,
+		&i.OwnerUserID,
+		&i.Name,
+		&i.Layouts,
+		&i.Version,
+		&i.WidgetConfigs,
+		&i.PublishedLayouts,
+		&i.PublishedWidgetConfigs,
+		&i.PublishedVersion,
+		&i.PublishedFromVersion,
+		&i.PublishedAt,
+		&i.Visibility,
+		&i.AccessVersion,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getOrganizationSharedDashboard = `-- name: GetOrganizationSharedDashboard :one
+SELECT id, organization_id, owner_user_id, name, layouts, version,
+       widget_configs, published_layouts, published_widget_configs,
+       published_version, published_from_version, published_at, visibility, access_version,
+       created_at, updated_at
+FROM dashboard.user_dashboard
+WHERE id = $1
+  AND organization_id = $2
+  AND owner_user_id <> $3
+  AND visibility = 'ORGANIZATION'
+  AND published_layouts IS NOT NULL
+LIMIT 1
+`
+
+type GetOrganizationSharedDashboardParams struct {
+	ID             pgtype.UUID
+	OrganizationID pgtype.UUID
+	ViewerUserID   pgtype.UUID
+}
+
+type GetOrganizationSharedDashboardRow struct {
+	ID                     pgtype.UUID
+	OrganizationID         pgtype.UUID
+	OwnerUserID            pgtype.UUID
+	Name                   string
+	Layouts                []byte
+	Version                int32
+	WidgetConfigs          []byte
+	PublishedLayouts       []byte
+	PublishedWidgetConfigs []byte
+	PublishedVersion       int32
+	PublishedFromVersion   int32
+	PublishedAt            pgtype.Timestamptz
+	Visibility             string
+	AccessVersion          int32
+	CreatedAt              pgtype.Timestamptz
+	UpdatedAt              pgtype.Timestamptz
+}
+
+func (q *Queries) GetOrganizationSharedDashboard(ctx context.Context, arg GetOrganizationSharedDashboardParams) (GetOrganizationSharedDashboardRow, error) {
+	row := q.db.QueryRow(ctx, getOrganizationSharedDashboard, arg.ID, arg.OrganizationID, arg.ViewerUserID)
+	var i GetOrganizationSharedDashboardRow
+	err := row.Scan(
+		&i.ID,
+		&i.OrganizationID,
+		&i.OwnerUserID,
+		&i.Name,
+		&i.Layouts,
+		&i.Version,
+		&i.WidgetConfigs,
+		&i.PublishedLayouts,
+		&i.PublishedWidgetConfigs,
+		&i.PublishedVersion,
+		&i.PublishedFromVersion,
+		&i.PublishedAt,
+		&i.Visibility,
+		&i.AccessVersion,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getUserDashboard = `-- name: GetUserDashboard :one
+SELECT id, organization_id, owner_user_id, name, layouts, version,
+       widget_configs, published_layouts, published_widget_configs,
+       published_version, published_from_version, published_at, visibility, access_version,
+       created_at, updated_at
+FROM dashboard.user_dashboard
+WHERE organization_id = $1
+  AND owner_user_id = $2
+LIMIT 1
+`
+
+type GetUserDashboardParams struct {
+	OrganizationID pgtype.UUID
+	OwnerUserID    pgtype.UUID
+}
+
+type GetUserDashboardRow struct {
+	ID                     pgtype.UUID
+	OrganizationID         pgtype.UUID
+	OwnerUserID            pgtype.UUID
+	Name                   string
+	Layouts                []byte
+	Version                int32
+	WidgetConfigs          []byte
+	PublishedLayouts       []byte
+	PublishedWidgetConfigs []byte
+	PublishedVersion       int32
+	PublishedFromVersion   int32
+	PublishedAt            pgtype.Timestamptz
+	Visibility             string
+	AccessVersion          int32
+	CreatedAt              pgtype.Timestamptz
+	UpdatedAt              pgtype.Timestamptz
+}
+
+func (q *Queries) GetUserDashboard(ctx context.Context, arg GetUserDashboardParams) (GetUserDashboardRow, error) {
+	row := q.db.QueryRow(ctx, getUserDashboard, arg.OrganizationID, arg.OwnerUserID)
+	var i GetUserDashboardRow
+	err := row.Scan(
+		&i.ID,
+		&i.OrganizationID,
+		&i.OwnerUserID,
+		&i.Name,
+		&i.Layouts,
+		&i.Version,
+		&i.WidgetConfigs,
+		&i.PublishedLayouts,
+		&i.PublishedWidgetConfigs,
+		&i.PublishedVersion,
+		&i.PublishedFromVersion,
+		&i.PublishedAt,
+		&i.Visibility,
+		&i.AccessVersion,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getUserDashboardForUpdate = `-- name: GetUserDashboardForUpdate :one
+SELECT id, organization_id, owner_user_id, name, layouts, version,
+       widget_configs, published_layouts, published_widget_configs,
+       published_version, published_from_version, published_at, visibility, access_version,
+       created_at, updated_at
+FROM dashboard.user_dashboard
+WHERE organization_id = $1
+  AND owner_user_id = $2
+LIMIT 1
+FOR UPDATE
+`
+
+type GetUserDashboardForUpdateParams struct {
+	OrganizationID pgtype.UUID
+	OwnerUserID    pgtype.UUID
+}
+
+type GetUserDashboardForUpdateRow struct {
+	ID                     pgtype.UUID
+	OrganizationID         pgtype.UUID
+	OwnerUserID            pgtype.UUID
+	Name                   string
+	Layouts                []byte
+	Version                int32
+	WidgetConfigs          []byte
+	PublishedLayouts       []byte
+	PublishedWidgetConfigs []byte
+	PublishedVersion       int32
+	PublishedFromVersion   int32
+	PublishedAt            pgtype.Timestamptz
+	Visibility             string
+	AccessVersion          int32
+	CreatedAt              pgtype.Timestamptz
+	UpdatedAt              pgtype.Timestamptz
+}
+
+func (q *Queries) GetUserDashboardForUpdate(ctx context.Context, arg GetUserDashboardForUpdateParams) (GetUserDashboardForUpdateRow, error) {
+	row := q.db.QueryRow(ctx, getUserDashboardForUpdate, arg.OrganizationID, arg.OwnerUserID)
+	var i GetUserDashboardForUpdateRow
+	err := row.Scan(
+		&i.ID,
+		&i.OrganizationID,
+		&i.OwnerUserID,
+		&i.Name,
+		&i.Layouts,
+		&i.Version,
+		&i.WidgetConfigs,
+		&i.PublishedLayouts,
+		&i.PublishedWidgetConfigs,
+		&i.PublishedVersion,
+		&i.PublishedFromVersion,
+		&i.PublishedAt,
+		&i.Visibility,
+		&i.AccessVersion,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const listDashboardPlantStatus = `-- name: ListDashboardPlantStatus :many
 SELECT p.id AS plant_id, p.code, p.name, p.timezone, p.is_active,
        count(d.id)::bigint AS device_count,
@@ -19,14 +267,14 @@ SELECT p.id AS plant_id, p.code, p.name, p.timezone, p.is_active,
        count(tl.device_id) FILTER (WHERE d.is_active AND tl.observed_at < $1)::bigint AS stale_device_count,
        count(d.id) FILTER (WHERE d.is_active AND tl.device_id IS NULL)::bigint AS offline_device_count,
        max(tl.observed_at) FILTER (WHERE d.is_active) AS last_observed_at
-FROM plant p
-LEFT JOIN device d ON d.organization_id = p.organization_id AND d.plant_id = p.id
-LEFT JOIN telemetry_latest tl ON tl.organization_id = d.organization_id AND tl.device_id = d.id
+FROM plant.plant p
+LEFT JOIN plant.device d ON d.organization_id = p.organization_id AND d.plant_id = p.id
+LEFT JOIN telemetry.telemetry_latest tl ON tl.organization_id = d.organization_id AND tl.device_id = d.id
 WHERE EXISTS (
-    SELECT 1 FROM user_role ur
-    JOIN role r ON r.id = ur.role_id
-    JOIN role_permission rp ON rp.role_id = ur.role_id
-    JOIN permission pm ON pm.id = rp.permission_id
+    SELECT 1 FROM auth.user_role ur
+    JOIN auth.role r ON r.id = ur.role_id
+    JOIN auth.role_permission rp ON rp.role_id = ur.role_id
+    JOIN auth.permission pm ON pm.id = rp.permission_id
     WHERE ur.user_id = $2
       AND pm.action = 'read' AND pm.resource_type = 'device'
       AND (r.organization_id IS NULL OR r.organization_id = ur.organization_id)
@@ -55,7 +303,7 @@ type ListDashboardPlantStatusRow struct {
 	ReportingDeviceCount int64
 	StaleDeviceCount     int64
 	OfflineDeviceCount   int64
-	LastObservedAt       pgtype.Timestamptz
+	LastObservedAt       interface{}
 }
 
 func (q *Queries) ListDashboardPlantStatus(ctx context.Context, arg ListDashboardPlantStatusParams) ([]ListDashboardPlantStatusRow, error) {
@@ -68,9 +316,17 @@ func (q *Queries) ListDashboardPlantStatus(ctx context.Context, arg ListDashboar
 	for rows.Next() {
 		var i ListDashboardPlantStatusRow
 		if err := rows.Scan(
-			&i.PlantID, &i.Code, &i.Name, &i.Timezone, &i.IsActive,
-			&i.DeviceCount, &i.ActiveDeviceCount, &i.ReportingDeviceCount,
-			&i.StaleDeviceCount, &i.OfflineDeviceCount, &i.LastObservedAt,
+			&i.PlantID,
+			&i.Code,
+			&i.Name,
+			&i.Timezone,
+			&i.IsActive,
+			&i.DeviceCount,
+			&i.ActiveDeviceCount,
+			&i.ReportingDeviceCount,
+			&i.StaleDeviceCount,
+			&i.OfflineDeviceCount,
+			&i.LastObservedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -82,23 +338,73 @@ func (q *Queries) ListDashboardPlantStatus(ctx context.Context, arg ListDashboar
 	return items, nil
 }
 
-const getUserDashboard = `-- name: GetUserDashboard :one
-SELECT id, organization_id, owner_user_id, name, layouts, version,
-       widget_configs, published_layouts, published_widget_configs,
-       published_version, published_from_version, published_at,
-       created_at, updated_at
-FROM user_dashboard
-WHERE organization_id = $1
-  AND owner_user_id = $2
-LIMIT 1
+const listOrganizationSharedDashboards = `-- name: ListOrganizationSharedDashboards :many
+SELECT ud.id, ud.name, u.display_name AS owner_display_name,
+       ud.published_version, ud.published_at
+FROM dashboard.user_dashboard ud
+JOIN auth.app_user u ON u.organization_id = ud.organization_id AND u.id = ud.owner_user_id
+WHERE ud.organization_id = $1
+  AND ud.owner_user_id <> $2
+  AND ud.visibility = 'ORGANIZATION'
+  AND ud.published_layouts IS NOT NULL
+ORDER BY ud.updated_at DESC, ud.id
+LIMIT 100
 `
 
-type GetUserDashboardParams struct {
+type ListOrganizationSharedDashboardsParams struct {
 	OrganizationID pgtype.UUID
-	OwnerUserID    pgtype.UUID
+	ViewerUserID   pgtype.UUID
 }
 
-type GetUserDashboardRow struct {
+type ListOrganizationSharedDashboardsRow struct {
+	ID               pgtype.UUID
+	Name             string
+	OwnerDisplayName string
+	PublishedVersion int32
+	PublishedAt      pgtype.Timestamptz
+}
+
+func (q *Queries) ListOrganizationSharedDashboards(ctx context.Context, arg ListOrganizationSharedDashboardsParams) ([]ListOrganizationSharedDashboardsRow, error) {
+	rows, err := q.db.Query(ctx, listOrganizationSharedDashboards, arg.OrganizationID, arg.ViewerUserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListOrganizationSharedDashboardsRow
+	for rows.Next() {
+		var i ListOrganizationSharedDashboardsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.OwnerDisplayName,
+			&i.PublishedVersion,
+			&i.PublishedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const publishUserDashboard = `-- name: PublishUserDashboard :one
+UPDATE dashboard.user_dashboard
+SET published_layouts = layouts,
+    published_widget_configs = widget_configs,
+    published_version = published_version + 1,
+    published_from_version = version,
+    published_at = now()
+WHERE id = $1
+RETURNING id, organization_id, owner_user_id, name, layouts, version,
+          widget_configs, published_layouts, published_widget_configs,
+          published_version, published_from_version, published_at, visibility, access_version,
+          created_at, updated_at
+`
+
+type PublishUserDashboardRow struct {
 	ID                     pgtype.UUID
 	OrganizationID         pgtype.UUID
 	OwnerUserID            pgtype.UUID
@@ -111,73 +417,44 @@ type GetUserDashboardRow struct {
 	PublishedVersion       int32
 	PublishedFromVersion   int32
 	PublishedAt            pgtype.Timestamptz
+	Visibility             string
+	AccessVersion          int32
 	CreatedAt              pgtype.Timestamptz
 	UpdatedAt              pgtype.Timestamptz
 }
 
-func (q *Queries) GetUserDashboard(ctx context.Context, arg GetUserDashboardParams) (GetUserDashboardRow, error) {
-	row := q.db.QueryRow(ctx, getUserDashboard, arg.OrganizationID, arg.OwnerUserID)
-	var i GetUserDashboardRow
-	err := row.Scan(&i.ID, &i.OrganizationID, &i.OwnerUserID, &i.Name, &i.Layouts, &i.Version, &i.WidgetConfigs, &i.PublishedLayouts, &i.PublishedWidgetConfigs, &i.PublishedVersion, &i.PublishedFromVersion, &i.PublishedAt, &i.CreatedAt, &i.UpdatedAt)
-	return i, err
-}
-
-const getUserDashboardForUpdate = `-- name: GetUserDashboardForUpdate :one
-SELECT id, organization_id, owner_user_id, name, layouts, version,
-       widget_configs, published_layouts, published_widget_configs,
-       published_version, published_from_version, published_at,
-       created_at, updated_at
-FROM user_dashboard
-WHERE organization_id = $1
-  AND owner_user_id = $2
-LIMIT 1
-FOR UPDATE
-`
-
-type GetUserDashboardForUpdateParams = GetUserDashboardParams
-type GetUserDashboardForUpdateRow = GetUserDashboardRow
-
-func (q *Queries) GetUserDashboardForUpdate(ctx context.Context, arg GetUserDashboardForUpdateParams) (GetUserDashboardForUpdateRow, error) {
-	row := q.db.QueryRow(ctx, getUserDashboardForUpdate, arg.OrganizationID, arg.OwnerUserID)
-	var i GetUserDashboardForUpdateRow
-	err := row.Scan(&i.ID, &i.OrganizationID, &i.OwnerUserID, &i.Name, &i.Layouts, &i.Version, &i.WidgetConfigs, &i.PublishedLayouts, &i.PublishedWidgetConfigs, &i.PublishedVersion, &i.PublishedFromVersion, &i.PublishedAt, &i.CreatedAt, &i.UpdatedAt)
-	return i, err
-}
-
-const createUserDashboard = `-- name: CreateUserDashboard :one
-INSERT INTO user_dashboard (id, organization_id, owner_user_id, layouts, widget_configs)
-VALUES ($1, $2, $3, $4, $5)
-RETURNING id, organization_id, owner_user_id, name, layouts, version,
-          widget_configs, published_layouts, published_widget_configs,
-          published_version, published_from_version, published_at,
-          created_at, updated_at
-`
-
-type CreateUserDashboardParams struct {
-	ID             pgtype.UUID
-	OrganizationID pgtype.UUID
-	OwnerUserID    pgtype.UUID
-	Layouts        []byte
-	WidgetConfigs  []byte
-}
-
-type CreateUserDashboardRow = GetUserDashboardRow
-
-func (q *Queries) CreateUserDashboard(ctx context.Context, arg CreateUserDashboardParams) (CreateUserDashboardRow, error) {
-	row := q.db.QueryRow(ctx, createUserDashboard, arg.ID, arg.OrganizationID, arg.OwnerUserID, arg.Layouts, arg.WidgetConfigs)
-	var i CreateUserDashboardRow
-	err := row.Scan(&i.ID, &i.OrganizationID, &i.OwnerUserID, &i.Name, &i.Layouts, &i.Version, &i.WidgetConfigs, &i.PublishedLayouts, &i.PublishedWidgetConfigs, &i.PublishedVersion, &i.PublishedFromVersion, &i.PublishedAt, &i.CreatedAt, &i.UpdatedAt)
+func (q *Queries) PublishUserDashboard(ctx context.Context, id pgtype.UUID) (PublishUserDashboardRow, error) {
+	row := q.db.QueryRow(ctx, publishUserDashboard, id)
+	var i PublishUserDashboardRow
+	err := row.Scan(
+		&i.ID,
+		&i.OrganizationID,
+		&i.OwnerUserID,
+		&i.Name,
+		&i.Layouts,
+		&i.Version,
+		&i.WidgetConfigs,
+		&i.PublishedLayouts,
+		&i.PublishedWidgetConfigs,
+		&i.PublishedVersion,
+		&i.PublishedFromVersion,
+		&i.PublishedAt,
+		&i.Visibility,
+		&i.AccessVersion,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
 	return i, err
 }
 
 const updateUserDashboard = `-- name: UpdateUserDashboard :one
-UPDATE user_dashboard
+UPDATE dashboard.user_dashboard
 SET layouts = $1, widget_configs = $2,
     version = version + 1, updated_at = now()
 WHERE id = $3
 RETURNING id, organization_id, owner_user_id, name, layouts, version,
           widget_configs, published_layouts, published_widget_configs,
-          published_version, published_from_version, published_at,
+          published_version, published_from_version, published_at, visibility, access_version,
           created_at, updated_at
 `
 
@@ -187,32 +464,103 @@ type UpdateUserDashboardParams struct {
 	ID            pgtype.UUID
 }
 
-type UpdateUserDashboardRow = GetUserDashboardRow
+type UpdateUserDashboardRow struct {
+	ID                     pgtype.UUID
+	OrganizationID         pgtype.UUID
+	OwnerUserID            pgtype.UUID
+	Name                   string
+	Layouts                []byte
+	Version                int32
+	WidgetConfigs          []byte
+	PublishedLayouts       []byte
+	PublishedWidgetConfigs []byte
+	PublishedVersion       int32
+	PublishedFromVersion   int32
+	PublishedAt            pgtype.Timestamptz
+	Visibility             string
+	AccessVersion          int32
+	CreatedAt              pgtype.Timestamptz
+	UpdatedAt              pgtype.Timestamptz
+}
 
 func (q *Queries) UpdateUserDashboard(ctx context.Context, arg UpdateUserDashboardParams) (UpdateUserDashboardRow, error) {
 	row := q.db.QueryRow(ctx, updateUserDashboard, arg.Layouts, arg.WidgetConfigs, arg.ID)
 	var i UpdateUserDashboardRow
-	err := row.Scan(&i.ID, &i.OrganizationID, &i.OwnerUserID, &i.Name, &i.Layouts, &i.Version, &i.WidgetConfigs, &i.PublishedLayouts, &i.PublishedWidgetConfigs, &i.PublishedVersion, &i.PublishedFromVersion, &i.PublishedAt, &i.CreatedAt, &i.UpdatedAt)
+	err := row.Scan(
+		&i.ID,
+		&i.OrganizationID,
+		&i.OwnerUserID,
+		&i.Name,
+		&i.Layouts,
+		&i.Version,
+		&i.WidgetConfigs,
+		&i.PublishedLayouts,
+		&i.PublishedWidgetConfigs,
+		&i.PublishedVersion,
+		&i.PublishedFromVersion,
+		&i.PublishedAt,
+		&i.Visibility,
+		&i.AccessVersion,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
 	return i, err
 }
 
-const publishUserDashboard = `-- name: PublishUserDashboard :one
-UPDATE user_dashboard
-SET published_layouts = layouts,
-    published_widget_configs = widget_configs,
-    published_version = published_version + 1,
-    published_from_version = version,
-    published_at = now()
-WHERE id = $1
+const updateUserDashboardSharing = `-- name: UpdateUserDashboardSharing :one
+UPDATE dashboard.user_dashboard
+SET visibility = $1, access_version = access_version + 1, updated_at = now()
+WHERE id = $2
 RETURNING id, organization_id, owner_user_id, name, layouts, version,
           widget_configs, published_layouts, published_widget_configs,
-          published_version, published_from_version, published_at,
+          published_version, published_from_version, published_at, visibility, access_version,
           created_at, updated_at
 `
 
-func (q *Queries) PublishUserDashboard(ctx context.Context, id pgtype.UUID) (GetUserDashboardRow, error) {
-	row := q.db.QueryRow(ctx, publishUserDashboard, id)
-	var i GetUserDashboardRow
-	err := row.Scan(&i.ID, &i.OrganizationID, &i.OwnerUserID, &i.Name, &i.Layouts, &i.Version, &i.WidgetConfigs, &i.PublishedLayouts, &i.PublishedWidgetConfigs, &i.PublishedVersion, &i.PublishedFromVersion, &i.PublishedAt, &i.CreatedAt, &i.UpdatedAt)
+type UpdateUserDashboardSharingParams struct {
+	Visibility string
+	ID         pgtype.UUID
+}
+
+type UpdateUserDashboardSharingRow struct {
+	ID                     pgtype.UUID
+	OrganizationID         pgtype.UUID
+	OwnerUserID            pgtype.UUID
+	Name                   string
+	Layouts                []byte
+	Version                int32
+	WidgetConfigs          []byte
+	PublishedLayouts       []byte
+	PublishedWidgetConfigs []byte
+	PublishedVersion       int32
+	PublishedFromVersion   int32
+	PublishedAt            pgtype.Timestamptz
+	Visibility             string
+	AccessVersion          int32
+	CreatedAt              pgtype.Timestamptz
+	UpdatedAt              pgtype.Timestamptz
+}
+
+func (q *Queries) UpdateUserDashboardSharing(ctx context.Context, arg UpdateUserDashboardSharingParams) (UpdateUserDashboardSharingRow, error) {
+	row := q.db.QueryRow(ctx, updateUserDashboardSharing, arg.Visibility, arg.ID)
+	var i UpdateUserDashboardSharingRow
+	err := row.Scan(
+		&i.ID,
+		&i.OrganizationID,
+		&i.OwnerUserID,
+		&i.Name,
+		&i.Layouts,
+		&i.Version,
+		&i.WidgetConfigs,
+		&i.PublishedLayouts,
+		&i.PublishedWidgetConfigs,
+		&i.PublishedVersion,
+		&i.PublishedFromVersion,
+		&i.PublishedAt,
+		&i.Visibility,
+		&i.AccessVersion,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
 	return i, err
 }

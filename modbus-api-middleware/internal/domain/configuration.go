@@ -71,11 +71,13 @@ type DeviceSet struct {
 // JSON names match platform-api's MiddlewareConfigSnapshot exactly, so no
 // translation step is needed on either side.
 type ConfigSnapshot struct {
-	Version     int64              `json:"version"`
-	Brands      []Brand            `json:"brands"`
-	DeviceSets  []DeviceSet        `json:"deviceSets"`
-	Connections []ConnectionConfig `json:"connections"`
-	Plants      []Plant            `json:"plants"`
+	Version             int64              `json:"version"`
+	Brands              []Brand            `json:"brands"`
+	DeviceSets          []DeviceSet        `json:"deviceSets"`
+	Connections         []ConnectionConfig `json:"connections"`
+	Plants              []Plant            `json:"plants"`
+	SendIntervalSeconds int                `json:"sendIntervalSeconds,omitempty"`
+	APIPollingEnabled   bool               `json:"apiPollingEnabled"`
 }
 
 type ConnectionConfig struct {

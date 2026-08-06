@@ -52,10 +52,10 @@ func (q *Queries) CreateAuditEventFull(ctx context.Context, arg CreateAuditEvent
 
 const hasOrganizationPermission = `-- name: HasOrganizationPermission :one
 SELECT EXISTS (
-    SELECT 1 FROM user_role ur
-    JOIN role r ON r.id = ur.role_id
-    JOIN role_permission rp ON rp.role_id = ur.role_id
-    JOIN permission pm ON pm.id = rp.permission_id
+    SELECT 1 FROM auth.user_role ur
+    JOIN auth.role r ON r.id = ur.role_id
+    JOIN auth.role_permission rp ON rp.role_id = ur.role_id
+    JOIN auth.permission pm ON pm.id = rp.permission_id
     WHERE ur.user_id = $1
       AND pm.action = $2
       AND pm.resource_type = $3
@@ -87,10 +87,10 @@ func (q *Queries) HasOrganizationPermission(ctx context.Context, arg HasOrganiza
 
 const hasUserPermission = `-- name: HasUserPermission :one
 SELECT EXISTS (
-    SELECT 1 FROM user_role ur
-    JOIN role r ON r.id = ur.role_id
-    JOIN role_permission rp ON rp.role_id = ur.role_id
-    JOIN permission pm ON pm.id = rp.permission_id
+    SELECT 1 FROM auth.user_role ur
+    JOIN auth.role r ON r.id = ur.role_id
+    JOIN auth.role_permission rp ON rp.role_id = ur.role_id
+    JOIN auth.permission pm ON pm.id = rp.permission_id
     WHERE ur.user_id = $1
       AND pm.action = $2
       AND pm.resource_type = $3
@@ -114,11 +114,11 @@ func (q *Queries) HasUserPermission(ctx context.Context, arg HasUserPermissionPa
 
 const listUserPermissions = `-- name: ListUserPermissions :many
 SELECT DISTINCT pm.resource_type, pm.action
-FROM user_role ur
-JOIN role r ON r.id = ur.role_id
-JOIN role_permission rp ON rp.role_id = ur.role_id
+FROM auth.user_role ur
+JOIN auth.role r ON r.id = ur.role_id
+JOIN auth.role_permission rp ON rp.role_id = ur.role_id
     AND (rp.organization_id IS NULL OR rp.organization_id = ur.organization_id)
-JOIN permission pm ON pm.id = rp.permission_id
+JOIN auth.permission pm ON pm.id = rp.permission_id
 WHERE ur.user_id = $1
   AND (r.organization_id IS NULL OR r.organization_id = ur.organization_id)
 `

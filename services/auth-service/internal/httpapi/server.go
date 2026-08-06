@@ -59,9 +59,9 @@ func New(version string, ready func(context.Context) error, authService *auth.Se
 		mux.HandleFunc("POST /api/v1/auth/change-password", authenticated(authService, true, changePasswordHandler(authService)))
 		mux.HandleFunc("POST /api/v1/auth/forgot-password", forgotPasswordHandler(authService.RequestPasswordReset))
 		mux.HandleFunc("POST /api/v1/auth/reset-password", resetPasswordHandler(authService.ResetPassword, cookieSecure))
-		mux.HandleFunc("GET /api/v1/auth/sessions", authenticated(authService, false, sessionsHandler(authService)))
-		mux.HandleFunc("DELETE /api/v1/auth/sessions", authenticated(authService, true, clearSessionsHandler(authService, cookieSecure)))
-		mux.HandleFunc("DELETE /api/v1/auth/sessions/{sessionId}", authenticated(authService, true, revokeSessionHandler(authService, cookieSecure)))
+		mux.HandleFunc("GET /api/v1/auth/sessions", authorized(authService, false, "session:read", sessionsHandler(authService)))
+		mux.HandleFunc("DELETE /api/v1/auth/sessions", authorized(authService, true, "session:read", clearSessionsHandler(authService, cookieSecure)))
+		mux.HandleFunc("DELETE /api/v1/auth/sessions/{sessionId}", authorized(authService, true, "session:read", revokeSessionHandler(authService, cookieSecure)))
 		if registryService != nil {
 			mux.HandleFunc("GET /api/v1/auth/profile", authenticated(authService, false, ownProfileHandler(registryService)))
 			mux.HandleFunc("PUT /api/v1/auth/profile", authenticated(authService, true, updateOwnProfileHandler(registryService)))
@@ -85,6 +85,9 @@ func New(version string, ready func(context.Context) error, authService *auth.Se
 			mux.HandleFunc("GET /api/v1/admin/permissions", authenticated(authService, false, listPermissionsHandler(registryService)))
 		}
 	}
+	mux.HandleFunc("POST /api/v1/auth/register", registerHandler(authService))
+	mux.HandleFunc("POST /api/v1/auth/resend-verification", resendVerificationHandler(authService))
+	mux.HandleFunc("GET /api/v1/auth/verify-email", verifyEmailHandler(authService))
 	mux.HandleFunc("POST /api/v1/auth/login", loginHandler(login, cookieSecure))
 	return mux
 }
@@ -117,4 +120,22 @@ func authenticated(service *auth.Service, csrfRequired bool, next func(http.Resp
 		}
 		next(w, r, principal)
 	}
+}
+
+func authorized(service *auth.Service, csrfRequired bool, required string, next func(http.ResponseWriter, *http.Request, auth.Principal)) http.HandlerFunc {
+	return authenticated(service, csrfRequired, func(w http.ResponseWriter, r *http.Request, principal auth.Principal) {
+		grants, err := service.Permissions(r.Context(), principal.UserID)
+		if err != nil {
+			log.Printf("load permission %s failed: %v", required, err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		for _, grant := range grants {
+			if grant == required {
+				next(w, r, principal)
+				return
+			}
+		}
+		http.Error(w, "permission denied", http.StatusForbidden)
+	})
 }

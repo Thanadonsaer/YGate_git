@@ -31,6 +31,25 @@ type Server struct {
 	UpdateRoot       string
 	LicensePublicKey string
 	LicenseFile      string
+	AdminUsername    string
+	AdminPassword    string
+	// RealtimeReload, if non-nil, is pinged after a successful Gateway
+	// Endpoint/API Key save so realtimeclient.Client picks it up right away
+	// instead of waiting on its idle poll or backoff timer.
+	RealtimeReload chan struct{}
+	auth           *webAuth
+}
+
+// signalRealtimeReload notifies the realtime client without blocking --
+// the channel is buffered(1); a pending signal already queued is enough.
+func (s *Server) signalRealtimeReload() {
+	if s.RealtimeReload == nil {
+		return
+	}
+	select {
+	case s.RealtimeReload <- struct{}{}:
+	default:
+	}
 }
 
 func (s *Server) Handler() http.Handler {

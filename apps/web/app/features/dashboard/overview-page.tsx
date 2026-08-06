@@ -3,12 +3,16 @@
 import { Building2, ChartLine, Cpu, GripVertical, Pencil, RefreshCw, RotateCcw, Save, Settings2, Trash2, Upload, Wifi, WifiOff } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { Responsive, useContainerWidth, type Layout, type ResponsiveLayouts } from "react-grid-layout";
-import { api, csrfToken, formatDate } from "../../lib/api";
+import { api, errorMessage, csrfToken, formatDate } from "../../lib/api";
 import type { DashboardLayout, DashboardLayoutItem, DashboardLayouts, DashboardOverview, DashboardPlantStatus, DashboardWidget, DashboardWidgetConfigs, Device, LatestTelemetry, Plant, PublishedDashboardLayout, TelemetryHistoryPage, TimeseriesWidgetConfig } from "../../lib/types";
 import { usePlatformSession } from "../../components/platform-shell";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody } from "../../components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../../components/ui/select";
 import { Button } from "../../components/ui/button";
+
+type ChartWidgetSlot = "timeseries-line" | "energy-line";
+const CHART_WIDGET_ADD_LABELS: Record<ChartWidgetSlot, string> = { "timeseries-line": "เพิ่มกราฟ", "energy-line": "เพิ่มกราฟพลังงาน" };
+const CHART_WIDGET_REMOVE_LABELS: Record<ChartWidgetSlot, string> = { "timeseries-line": "ลบกราฟ", "energy-line": "ลบกราฟพลังงาน" };
 
 function dashboardStatusLabel(status: DashboardPlantStatus["communicationStatus"]) {
   return { ONLINE: "Online", DEGRADED: "Degraded", OFFLINE: "Offline", NO_DEVICES: "No devices", DISABLED: "Disabled" }[status];
@@ -26,7 +30,7 @@ export function OverviewPage() {
       setDashboard((await response.json()) as DashboardOverview);
       setDashboardError("");
     } catch (cause) {
-      setDashboardError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+      setDashboardError(errorMessage(cause));
     }
   }, []);
 
@@ -60,7 +64,7 @@ function DashboardCanvas({ dashboard, dashboardError, onRefresh }: { dashboard: 
   const [published, setPublished] = useState<PublishedDashboardLayout | null>(null);
   const [layouts, setLayouts] = useState<DashboardLayouts | null>(null);
   const [widgetConfigs, setWidgetConfigs] = useState<DashboardWidgetConfigs>({});
-  const [configEditorOpen, setConfigEditorOpen] = useState(false);
+  const [configEditorSlot, setConfigEditorSlot] = useState<ChartWidgetSlot | null>(null);
   const [editing, setEditing] = useState(false);
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState("");
@@ -157,7 +161,7 @@ function DashboardCanvas({ dashboard, dashboardError, onRefresh }: { dashboard: 
 
   const attentionDevices = (dashboard?.staleDeviceCount ?? 0) + (dashboard?.offlineDeviceCount ?? 0);
   const hasUnpublishedChanges = Boolean(saved && published && saved.version > published.sourceVersion);
-  const chartEnabled = Boolean(layouts?.lg.some((item) => item.i === "timeseries-line"));
+  const chartWidgetEnabled = (slot: ChartWidgetSlot) => Boolean(layouts?.lg.some((item) => item.i === slot));
   const kpis: Record<string, { label: string; value: string; tone: "good" | "bad" | "warn" | "neutral"; icon: React.ReactNode }> = {
     "plant-count": { label: "โรงไฟฟ้า", value: dashboard ? dashboard.plantCount.toLocaleString() : "-", tone: "neutral", icon: <Building2 size={20} /> },
     "active-device-count": { label: "Active devices", value: dashboard ? dashboard.activeDeviceCount.toLocaleString() : "-", tone: "neutral", icon: <Cpu size={20} /> },
@@ -167,7 +171,8 @@ function DashboardCanvas({ dashboard, dashboardError, onRefresh }: { dashboard: 
 
   function renderWidget(widget: DashboardWidget) {
     if (widget.type === "timeseries.line") {
-      return <TimeseriesWidget config={widgetConfigs["timeseries-line"]} refreshKey={dashboard?.generatedAt} editing={editing} onConfigure={() => setConfigEditorOpen(true)} />;
+      const slot = widget.id as ChartWidgetSlot;
+      return <TimeseriesWidget config={widgetConfigs[slot]} refreshKey={dashboard?.generatedAt} editing={editing} onConfigure={() => setConfigEditorSlot(slot)} />;
     }
     if (widget.type !== "plant-status") {
       const kpi = kpis[widget.type];
@@ -203,14 +208,18 @@ function DashboardCanvas({ dashboard, dashboardError, onRefresh }: { dashboard: 
           {published && <span className={hasUnpublishedChanges ? "dashboard-version draft" : "dashboard-version"}>{hasUnpublishedChanges ? `Draft v${saved?.version}` : `Published v${published.version}`}</span>}
           <Button variant="icon" onClick={() => { void onRefresh(); if (!editing) void loadLayouts(); }} disabled={pending} title="รีเฟรช" aria-label="รีเฟรชภาพรวม"><RefreshCw size={18} /></Button>
           {editing ? <>
-            {chartEnabled ? <Button variant="secondary" compact onClick={() => {
-              setLayouts((current) => current ? {
-                lg: current.lg.filter((item) => item.i !== "timeseries-line"),
-                md: current.md.filter((item) => item.i !== "timeseries-line"),
-                sm: current.sm.filter((item) => item.i !== "timeseries-line"),
-              } : current);
-              setWidgetConfigs({});
-            }} disabled={pending}><Trash2 size={17} /> ลบกราฟ</Button> : <Button variant="secondary" compact onClick={() => setConfigEditorOpen(true)} disabled={pending}><ChartLine size={17} /> เพิ่มกราฟ</Button>}
+            {(["timeseries-line", "energy-line"] as const).map((slot) => chartWidgetEnabled(slot) ? (
+              <Button key={slot} variant="secondary" compact onClick={() => {
+                setLayouts((current) => current ? {
+                  lg: current.lg.filter((item) => item.i !== slot),
+                  md: current.md.filter((item) => item.i !== slot),
+                  sm: current.sm.filter((item) => item.i !== slot),
+                } : current);
+                setWidgetConfigs((current) => { const next = { ...current }; delete next[slot]; return next; });
+              }} disabled={pending}><Trash2 size={17} /> {CHART_WIDGET_REMOVE_LABELS[slot]}</Button>
+            ) : (
+              <Button key={slot} variant="secondary" compact onClick={() => setConfigEditorSlot(slot)} disabled={pending}><ChartLine size={17} /> {CHART_WIDGET_ADD_LABELS[slot]}</Button>
+            ))}
             <Button variant="secondary" compact onClick={cancelEditing} disabled={pending}><RotateCcw size={17} /> ยกเลิก</Button>
             <Button compact onClick={() => void saveLayout()} disabled={pending}><Save size={17} /> {pending ? "กำลังบันทึก" : "บันทึก"}</Button>
           </> : <>
@@ -245,27 +254,29 @@ function DashboardCanvas({ dashboard, dashboardError, onRefresh }: { dashboard: 
           </Responsive>
         ) : !message ? <div className="table-state">กำลังโหลด Dashboard</div> : null}
       </div>
-      {configEditorOpen && <TimeseriesConfigEditor
-        initial={widgetConfigs["timeseries-line"]}
-        onClose={() => setConfigEditorOpen(false)}
+      {configEditorSlot && <TimeseriesConfigEditor
+        initial={widgetConfigs[configEditorSlot]}
+        slot={configEditorSlot}
+        onClose={() => setConfigEditorSlot(null)}
         onSave={(config) => {
-          if (!chartEnabled) {
-            setLayouts((current) => current ? addTimeseriesLayout(current) : current);
+          const slot = configEditorSlot;
+          if (!chartWidgetEnabled(slot)) {
+            setLayouts((current) => current ? addTimeseriesLayout(current, slot) : current);
           }
-          setWidgetConfigs({ "timeseries-line": config });
-          setConfigEditorOpen(false);
+          setWidgetConfigs((current) => ({ ...current, [slot]: config }));
+          setConfigEditorSlot(null);
         }}
       />}
     </section>
   );
 }
 
-function addTimeseriesLayout(layouts: DashboardLayouts): DashboardLayouts {
+function addTimeseriesLayout(layouts: DashboardLayouts, slot: ChartWidgetSlot): DashboardLayouts {
   const sizes = { lg: { w: 12, h: 5 }, md: { w: 8, h: 5 }, sm: { w: 4, h: 6 } } as const;
   const append = (breakpoint: keyof DashboardLayouts) => {
     const items = layouts[breakpoint];
     const y = items.reduce((bottom, item) => Math.max(bottom, item.y + item.h), 0);
-    return [...items, { i: "timeseries-line", x: 0, y, ...sizes[breakpoint] }];
+    return [...items, { i: slot, x: 0, y, ...sizes[breakpoint] }];
   };
   return { lg: append("lg"), md: append("md"), sm: append("sm") };
 }
@@ -323,7 +334,7 @@ function TimeseriesWidget({ config, refreshKey, editing, onConfigure }: { config
   </div>;
 }
 
-function TimeseriesConfigEditor({ initial, onClose, onSave }: { initial?: TimeseriesWidgetConfig; onClose: () => void; onSave: (config: TimeseriesWidgetConfig) => void }) {
+function TimeseriesConfigEditor({ initial, slot, onClose, onSave }: { initial?: TimeseriesWidgetConfig; slot: ChartWidgetSlot; onClose: () => void; onSave: (config: TimeseriesWidgetConfig) => void }) {
   const [plants, setPlants] = useState<Plant[]>([]);
   const [devices, setDevices] = useState<Device[]>([]);
   const [latest, setLatest] = useState<LatestTelemetry[]>([]);
@@ -378,7 +389,7 @@ function TimeseriesConfigEditor({ initial, onClose, onSave }: { initial?: Timese
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent className="max-w-xl">
         <DialogHeader>
-          <div><DialogDescription>Timeseries widget</DialogDescription><DialogTitle>ตั้งค่ากราฟ</DialogTitle></div>
+          <div><DialogDescription>{slot === "energy-line" ? "Energy widget" : "Timeseries widget"}</DialogDescription><DialogTitle>{slot === "energy-line" ? "ตั้งค่ากราฟพลังงาน" : "ตั้งค่ากราฟ"}</DialogTitle></div>
         </DialogHeader>
         <DialogBody>
           <form className="grid grid-cols-2 gap-4" onSubmit={submit}>

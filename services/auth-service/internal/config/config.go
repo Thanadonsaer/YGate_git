@@ -81,8 +81,19 @@ func normalizeDatabaseURL(value string) (string, error) {
 			query.Set("search_path", schema)
 		}
 		query.Del("schema")
-		parsed.RawQuery = query.Encode()
 	}
+	// pgx defaults pool_max_conns to 32 per pool when unset, sized for a
+	// single monolith owning the whole instance. Now that this service runs
+	// alongside platform-api against the same Postgres instance (and more
+	// services are planned per the microservices split), every service
+	// defaulting to 32 risks exceeding Postgres's own max_connections as
+	// more services come online. Default to a smaller, multi-service-safe
+	// value here; an operator can still override via ?pool_max_conns=N in
+	// AUTH_DATABASE_URL, since this only fills the gap when unset.
+	if query.Get("pool_max_conns") == "" {
+		query.Set("pool_max_conns", "10")
+	}
+	parsed.RawQuery = query.Encode()
 	return parsed.String(), nil
 }
 

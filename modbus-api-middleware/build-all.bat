@@ -21,7 +21,7 @@ set "CGO_ENABLED=0"
 set "GOOS="
 set "GOARCH="
 set "GOARM="
-set "VERSION=0.2.8"
+set "VERSION=0.2.f"
 set "KEYS_FILE=%CD%\license-keys.env"
 
 if exist "%KEYS_FILE%" (

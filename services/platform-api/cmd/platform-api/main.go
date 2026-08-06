@@ -9,6 +9,8 @@ import (
 	"syscall"
 	"time"
 
+	_ "time/tzdata"
+
 	"ygate/platform-api/internal/config"
 	"ygate/platform-api/internal/core"
 	"ygate/platform-api/internal/database"
@@ -16,6 +18,7 @@ import (
 	"ygate/platform-api/internal/gatewayhub"
 	"ygate/platform-api/internal/httpapi"
 	"ygate/platform-api/internal/ingestion"
+	"ygate/platform-api/internal/notify"
 )
 
 var version = "dev"
@@ -41,8 +44,9 @@ func main() {
 	defer pool.Close()
 
 	hub := gatewayhub.New()
-	registryService := core.New(pool, hub).WithMiddlewarePatchDir(cfg.MiddlewarePatchDir).WithSiteLogoDir(cfg.SiteLogoDir).WithPublicBaseURL(cfg.PublicBaseURL)
-	ingestionService := ingestion.New(pool)
+	registryService := core.New(pool, hub).WithMiddlewarePatchDir(cfg.MiddlewarePatchDir).WithSiteLogoDir(cfg.SiteLogoDir).WithPlantImageDir(cfg.PlantImageDir).WithPublicBaseURL(cfg.PublicBaseURL)
+	mailer := notify.NewMailer(cfg.SMTPAddr, cfg.SMTPFrom, cfg.SMTPUsername, cfg.SMTPPassword)
+	ingestionService := ingestion.New(pool, mailer)
 
 	server := &http.Server{
 		Addr:              cfg.ListenAddr,

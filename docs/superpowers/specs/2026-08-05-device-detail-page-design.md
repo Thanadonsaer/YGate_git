@@ -17,8 +17,9 @@ a new `DeviceDetailView` component instead of `DeviceLatestDialog`, using the
 same full-page swap pattern already used for `selectedPlant` →
 `DeviceManagement`.
 
-`DeviceLatestDialog` and `TestReadDialog` are unaffected — only the `Eye`
-button's target changes.
+`DeviceLatestDialog` becomes dead code once the `Eye` button's target
+changes and is deleted. `TestReadDialog` is unaffected — it's a separate
+dialog with a separate trigger.
 
 ## Data
 

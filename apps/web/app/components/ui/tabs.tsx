@@ -57,9 +57,12 @@ function Tabs({
         <TabPanel
           key={trigger.props.value}
           header={trigger.props.children}
-          headerClassName="inline-flex h-[30px] items-center gap-1.5 rounded-[calc(var(--radius-sm)-2px)] px-3 text-xs font-bold text-ink-soft"
           pt={{
-            headerAction: { className: "tab-trigger flex h-full items-center gap-1.5 px-1" },
+            headerAction: {
+              className:
+                "tab-trigger flex h-[30px] cursor-pointer select-none items-center gap-1.5 rounded-[calc(var(--radius-sm)-2px)] px-3 text-xs font-bold text-ink-soft outline-none",
+            },
+            headerTitle: { className: "flex items-center gap-1.5" },
           }}
         >
           {contents.find((content) => content.props.value === trigger.props.value)?.props.children}

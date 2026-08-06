@@ -14,7 +14,7 @@ import (
 
 const countRecentFailedAuthAttempts = `-- name: CountRecentFailedAuthAttempts :one
 SELECT count(*)::bigint
-FROM auth_attempt
+FROM auth.auth_attempt
 WHERE success = false
   AND created_at >= now() - interval '15 minutes'
   AND (identifier = lower($1) OR source_ip = $2)
@@ -34,7 +34,7 @@ func (q *Queries) CountRecentFailedAuthAttempts(ctx context.Context, arg CountRe
 
 const countRecentPasswordRecoveryAttempts = `-- name: CountRecentPasswordRecoveryAttempts :one
 SELECT count(*)::bigint
-FROM password_recovery_attempt
+FROM auth.password_recovery_attempt
 WHERE operation = $1
   AND created_at >= now() - interval '15 minutes'
   AND (
@@ -93,7 +93,7 @@ func (q *Queries) CreateAuditEvent(ctx context.Context, arg CreateAuditEventPara
 }
 
 const createPasswordResetToken = `-- name: CreatePasswordResetToken :exec
-INSERT INTO password_reset_token (
+INSERT INTO auth.password_reset_token (
     id, organization_id, user_id, token_hash, expires_at, requested_ip
 ) VALUES (
     $1, $2, $3,
@@ -123,7 +123,7 @@ func (q *Queries) CreatePasswordResetToken(ctx context.Context, arg CreatePasswo
 }
 
 const createUserSession = `-- name: CreateUserSession :exec
-INSERT INTO user_session (
+INSERT INTO auth.user_session (
     id, organization_id, user_id, token_hash, csrf_hash, expires_at, idle_expires_at,
     client_ip, user_agent
 ) VALUES (
@@ -161,8 +161,8 @@ func (q *Queries) CreateUserSession(ctx context.Context, arg CreateUserSessionPa
 
 const getActivePasswordResetToken = `-- name: GetActivePasswordResetToken :one
 SELECT t.id AS token_id, t.organization_id, t.user_id, u.email
-FROM password_reset_token t
-JOIN app_user u ON u.id = t.user_id
+FROM auth.password_reset_token t
+JOIN auth.app_user u ON u.id = t.user_id
 WHERE t.token_hash = $1
   AND t.used_at IS NULL
   AND t.expires_at > now()
@@ -193,8 +193,8 @@ func (q *Queries) GetActivePasswordResetToken(ctx context.Context, tokenHash []b
 const getActiveSession = `-- name: GetActiveSession :one
 SELECT s.id AS session_id, s.organization_id, s.user_id, s.csrf_hash,
        s.expires_at, s.idle_expires_at, u.email, u.display_name, u.password_hash
-FROM user_session s
-JOIN app_user u ON u.id = s.user_id
+FROM auth.user_session s
+JOIN auth.app_user u ON u.id = s.user_id
 WHERE s.token_hash = $1
   AND s.revoked_at IS NULL
   AND s.expires_at > now()
@@ -235,7 +235,7 @@ func (q *Queries) GetActiveSession(ctx context.Context, tokenHash []byte) (GetAc
 const getLoginUser = `-- name: GetLoginUser :one
 SELECT id, organization_id, email, display_name, password_hash, status,
        failed_login_count, locked_until
-FROM app_user
+FROM auth.app_user
 WHERE email = lower($1)
    OR username = lower($1)
 LIMIT 1
@@ -270,7 +270,7 @@ func (q *Queries) GetLoginUser(ctx context.Context, identifier string) (GetLogin
 
 const getPasswordResetUser = `-- name: GetPasswordResetUser :one
 SELECT id, organization_id, email, status
-FROM app_user
+FROM auth.app_user
 WHERE email = lower($1)
 LIMIT 1
 `
@@ -295,7 +295,7 @@ func (q *Queries) GetPasswordResetUser(ctx context.Context, email string) (GetPa
 }
 
 const invalidatePasswordResetTokens = `-- name: InvalidatePasswordResetTokens :exec
-UPDATE password_reset_token
+UPDATE auth.password_reset_token
 SET used_at = COALESCE(used_at, now())
 WHERE user_id = $1
   AND used_at IS NULL
@@ -309,7 +309,7 @@ func (q *Queries) InvalidatePasswordResetTokens(ctx context.Context, userID pgty
 const listUserSessions = `-- name: ListUserSessions :many
 SELECT id, expires_at, idle_expires_at, last_seen_at, revoked_at,
        client_ip, user_agent, created_at
-FROM user_session
+FROM auth.user_session
 WHERE user_id = $1
 ORDER BY created_at DESC
 LIMIT 100
@@ -356,7 +356,7 @@ func (q *Queries) ListUserSessions(ctx context.Context, userID pgtype.UUID) ([]L
 }
 
 const markPasswordResetTokenUsed = `-- name: MarkPasswordResetTokenUsed :exec
-UPDATE password_reset_token
+UPDATE auth.password_reset_token
 SET used_at = now()
 WHERE id = $1
   AND used_at IS NULL
@@ -368,7 +368,7 @@ func (q *Queries) MarkPasswordResetTokenUsed(ctx context.Context, tokenID pgtype
 }
 
 const recordAuthAttempt = `-- name: RecordAuthAttempt :exec
-INSERT INTO auth_attempt (identifier, source_ip, success)
+INSERT INTO auth.auth_attempt (identifier, source_ip, success)
 VALUES (lower($1), $2, $3)
 `
 
@@ -384,7 +384,7 @@ func (q *Queries) RecordAuthAttempt(ctx context.Context, arg RecordAuthAttemptPa
 }
 
 const recordLoginFailure = `-- name: RecordLoginFailure :one
-UPDATE app_user
+UPDATE auth.app_user
 SET failed_login_count = failed_login_count + 1,
     locked_until = CASE
         WHEN failed_login_count + 1 >= 5 THEN now() + interval '15 minutes'
@@ -408,7 +408,7 @@ func (q *Queries) RecordLoginFailure(ctx context.Context, userID pgtype.UUID) (R
 }
 
 const recordLoginSuccess = `-- name: RecordLoginSuccess :exec
-UPDATE app_user
+UPDATE auth.app_user
 SET failed_login_count = 0,
     locked_until = NULL,
     updated_at = now()
@@ -421,7 +421,7 @@ func (q *Queries) RecordLoginSuccess(ctx context.Context, userID pgtype.UUID) er
 }
 
 const recordPasswordRecoveryAttempt = `-- name: RecordPasswordRecoveryAttempt :exec
-INSERT INTO password_recovery_attempt (operation, identifier, source_ip, success)
+INSERT INTO auth.password_recovery_attempt (operation, identifier, source_ip, success)
 VALUES ($1, lower($2), $3, $4)
 `
 
@@ -443,7 +443,7 @@ func (q *Queries) RecordPasswordRecoveryAttempt(ctx context.Context, arg RecordP
 }
 
 const revokeAllUserSessions = `-- name: RevokeAllUserSessions :exec
-UPDATE user_session
+UPDATE auth.user_session
 SET revoked_at = COALESCE(revoked_at, now())
 WHERE user_id = $1
   AND revoked_at IS NULL
@@ -455,7 +455,7 @@ func (q *Queries) RevokeAllUserSessions(ctx context.Context, userID pgtype.UUID)
 }
 
 const revokeOwnedSession = `-- name: RevokeOwnedSession :one
-UPDATE user_session
+UPDATE auth.user_session
 SET revoked_at = COALESCE(revoked_at, now())
 WHERE id = $1
   AND user_id = $2
@@ -475,7 +475,7 @@ func (q *Queries) RevokeOwnedSession(ctx context.Context, arg RevokeOwnedSession
 }
 
 const revokeSession = `-- name: RevokeSession :exec
-UPDATE user_session
+UPDATE auth.user_session
 SET revoked_at = COALESCE(revoked_at, now())
 WHERE id = $1
 `
@@ -486,7 +486,7 @@ func (q *Queries) RevokeSession(ctx context.Context, sessionID pgtype.UUID) erro
 }
 
 const touchSession = `-- name: TouchSession :exec
-UPDATE user_session
+UPDATE auth.user_session
 SET last_seen_at = now(),
     idle_expires_at = LEAST(expires_at, now() + $1::bigint * interval '1 second')
 WHERE id = $2
@@ -505,13 +505,13 @@ func (q *Queries) TouchSession(ctx context.Context, arg TouchSessionParams) erro
 
 const updatePasswordAndRevokeOtherSessions = `-- name: UpdatePasswordAndRevokeOtherSessions :exec
 WITH changed AS (
-    UPDATE app_user AS u
+    UPDATE auth.app_user AS u
     SET password_hash = $3,
         password_changed_at = now(),
         updated_at = now()
     WHERE u.id = $1
 )
-UPDATE user_session AS s
+UPDATE auth.user_session AS s
 SET revoked_at = COALESCE(s.revoked_at, now())
 WHERE s.user_id = $1
   AND s.id <> $2
@@ -530,7 +530,7 @@ func (q *Queries) UpdatePasswordAndRevokeOtherSessions(ctx context.Context, arg 
 }
 
 const updateUserPassword = `-- name: UpdateUserPassword :exec
-UPDATE app_user
+UPDATE auth.app_user
 SET password_hash = $1,
     password_changed_at = now(),
     failed_login_count = 0,

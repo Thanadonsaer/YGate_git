@@ -91,12 +91,12 @@ PLATFORM_DATABASE_URL=postgresql://ygate_app:<URL-encoded-password>@127.0.0.1:54
 .\bootstrap-admin.ps1 `
   -EnvFile "D:\YGATE\ygate.env" `
   -Email "admin@example.com" `
-  -DisplayName "Platform Admin" `
+  -DisplayName "System Admin" `
   -OrganizationCode "YGATE" `
   -OrganizationName "YGATE"
 ```
 
-สคริปต์จะถาม password แบบซ่อน แล้วสร้าง organization, user และ role `Platform Admin`
+สคริปต์จะถาม password แบบซ่อน แล้วสร้าง organization, user และ role `System Admin`
 
 ## Cloudflare Tunnel
 

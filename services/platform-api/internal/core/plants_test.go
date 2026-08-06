@@ -4,6 +4,9 @@ import (
 	"errors"
 	"math"
 	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 func TestValidatePlant(t *testing.T) {
@@ -25,6 +28,20 @@ func TestValidatePlantAcceptsLegacyEqualsCode(t *testing.T) {
 	}
 }
 
+func TestValidatePlantAcceptsCodeWithSpacesAndParens(t *testing.T) {
+	code, _, _, err := validatePlant("  vistec i  ", "VISTEC I", "Asia/Bangkok", nil, nil, nil, nil)
+	if err != nil || code != "VISTEC I" {
+		t.Fatalf("validatePlant() = %q, %v; want normalized real-world code with a space", code, err)
+	}
+}
+
+func TestValidatePlantDefaultsEmptyTimezoneToBangkok(t *testing.T) {
+	_, _, timezone, err := validatePlant("BKK-01", "Bangkok Solar", "  ", nil, nil, nil, nil)
+	if err != nil || timezone != "Asia/Bangkok" {
+		t.Fatalf("timezone=%q err=%v", timezone, err)
+	}
+}
+
 func TestValidatePlantRejectsInvalidValues(t *testing.T) {
 	nan := math.NaN()
 	latitude := 91.0
@@ -36,7 +53,7 @@ func TestValidatePlantRejectsInvalidValues(t *testing.T) {
 		latitude *float64
 		dc       *float64
 	}{
-		{name: "invalid code", code: "plant code", timezone: "UTC"},
+		{name: "invalid code", code: "plant#code", timezone: "UTC"},
 		{name: "invalid timezone", code: "PLANT-1", timezone: "Mars/Olympus"},
 		{name: "latitude out of range", code: "PLANT-1", timezone: "UTC", latitude: &latitude},
 		{name: "negative capacity", code: "PLANT-1", timezone: "UTC", dc: &negativeCapacity},
@@ -49,5 +66,17 @@ func TestValidatePlantRejectsInvalidValues(t *testing.T) {
 				t.Fatalf("error = %v", err)
 			}
 		})
+	}
+}
+
+func TestPlantFromFieldsIncludesImageURL(t *testing.T) {
+	imageURL := "/api/v1/plants/plant/image/photo.webp"
+	plant := plantFromFields(
+		pgtype.UUID{Valid: true}, pgtype.UUID{Valid: true}, "Org", "P-1", "Plant", "UTC",
+		pgtype.Float8{}, pgtype.Float8{}, pgtype.Numeric{}, pgtype.Numeric{}, &imageURL,
+		true, pgtype.Timestamptz{Time: time.Unix(0, 0), Valid: true}, pgtype.Timestamptz{Time: time.Unix(0, 0), Valid: true},
+	)
+	if plant.ImageURL == nil || *plant.ImageURL != imageURL {
+		t.Fatalf("ImageURL = %#v, want %q", plant.ImageURL, imageURL)
 	}
 }

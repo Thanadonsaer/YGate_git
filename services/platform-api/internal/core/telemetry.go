@@ -49,6 +49,105 @@ type telemetryHistoryCursor struct {
 
 const maxTelemetryHistoryRange = 31 * 24 * time.Hour
 
+// telemetryRowFields carries the columns telemetryFromRow needs. Before the
+// schema-qualification migration, ListLatestPlantTelemetry's and
+// ListDeviceTelemetryHistory's Row types were byte-identical, so sqlc
+// emitted a single shared Go type via a `type X = Y` alias and one function
+// worked across both. Once the underlying tables carry an explicit schema
+// qualifier, sqlc's struct-reuse heuristic no longer fires, so each query
+// now has its own distinct (but still structurally identical) Row struct --
+// callers adapt their specific dbgen row into this shared shape instead.
+type telemetryRowFields struct {
+	ID               pgtype.UUID
+	OrganizationID   pgtype.UUID
+	PlantID          pgtype.UUID
+	DeviceID         pgtype.UUID
+	DeviceExternalID string
+	DeviceName       string
+	GatewayID        string
+	ObservedAt       pgtype.Timestamptz
+	ReceivedAt       pgtype.Timestamptz
+	DataItemMap      []byte
+	ParameterCount   int32
+}
+
+// listDeviceTelemetryHistoryParams mirrors dbgen.ListDeviceTelemetryHistoryParams
+// field-for-field, except CursorID: sqlc's analyzer mis-infers CursorID's Go
+// type as pgtype.Timestamptz (matching its row-comparison neighbors) instead
+// of pgtype.UUID for this query's `(observed_at, received_at, id) < (...)`
+// tuple comparison, once the JOIN crosses the telemetry/plant schema
+// boundary -- confirmed against a live Postgres PREPARE of the exact query
+// text, which reports $9 (cursor_id) as genuinely `uuid`, not `timestamptz`.
+// This isn't just a compile-time nuisance: encoding a real cursor UUID
+// through a Timestamptz-shaped Go field would send the wrong wire format for
+// the uuid OID Postgres reports at Describe time and fail at runtime (or
+// worse, silently paginate wrong). dbgen is sqlc-generated and out of scope
+// for a hand fix, so this one query is called directly with the correct Go
+// types instead of through the generated (mistyped) wrapper -- the SQL text
+// is copied verbatim from dbgen's already schema-qualified
+// listDeviceTelemetryHistory query, nothing about the query itself changed.
+type listDeviceTelemetryHistoryParams struct {
+	OrganizationID   pgtype.UUID
+	PlantID          pgtype.UUID
+	DeviceID         pgtype.UUID
+	FromTime         pgtype.Timestamptz
+	ToTime           pgtype.Timestamptz
+	CursorSet        bool
+	CursorObservedAt pgtype.Timestamptz
+	CursorReceivedAt pgtype.Timestamptz
+	CursorID         pgtype.UUID
+	PageLimit        int32
+}
+
+const listDeviceTelemetryHistorySQL = `
+SELECT tr.id, tr.organization_id, tr.plant_id, tr.device_id,
+       d.external_id AS device_external_id, d.name AS device_name,
+       tr.gateway_id, tr.observed_at, tr.received_at,
+       tr.data_item_map, tr.parameter_count
+FROM telemetry.telemetry_reading tr
+JOIN plant.device d ON d.organization_id = tr.organization_id
+             AND d.plant_id = tr.plant_id
+             AND d.id = tr.device_id
+WHERE tr.organization_id = $1
+  AND tr.plant_id = $2
+  AND tr.device_id = $3
+  AND tr.observed_at >= $4
+  AND tr.observed_at < $5
+  AND (
+      NOT $6::boolean
+      OR (tr.observed_at, tr.received_at, tr.id) <
+         ($7, $8, $9)
+  )
+ORDER BY tr.observed_at DESC, tr.received_at DESC, tr.id DESC
+LIMIT $10`
+
+func listDeviceTelemetryHistory(ctx context.Context, q pgxQuerier, arg listDeviceTelemetryHistoryParams) ([]telemetryRowFields, error) {
+	rows, err := q.Query(ctx, listDeviceTelemetryHistorySQL,
+		arg.OrganizationID, arg.PlantID, arg.DeviceID, arg.FromTime, arg.ToTime,
+		arg.CursorSet, arg.CursorObservedAt, arg.CursorReceivedAt, arg.CursorID, arg.PageLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []telemetryRowFields
+	for rows.Next() {
+		var row telemetryRowFields
+		if err := rows.Scan(
+			&row.ID, &row.OrganizationID, &row.PlantID, &row.DeviceID,
+			&row.DeviceExternalID, &row.DeviceName, &row.GatewayID,
+			&row.ObservedAt, &row.ReceivedAt, &row.DataItemMap, &row.ParameterCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 func (s *Service) LatestTelemetry(ctx context.Context, principal auth.Principal, plantID string) ([]LatestTelemetry, error) {
 	id, err := parseUUID(plantID)
 	if err != nil {
@@ -71,7 +170,11 @@ func (s *Service) LatestTelemetry(ctx context.Context, principal auth.Principal,
 	}
 	readings := make([]LatestTelemetry, 0, len(rows))
 	for _, row := range rows {
-		reading, decodeErr := telemetryFromRow(row)
+		reading, decodeErr := telemetryFromRow(telemetryRowFields{
+			ID: row.ID, OrganizationID: row.OrganizationID, PlantID: row.PlantID, DeviceID: row.DeviceID,
+			DeviceExternalID: row.DeviceExternalID, DeviceName: row.DeviceName, GatewayID: row.GatewayID,
+			ObservedAt: row.ObservedAt, ReceivedAt: row.ReceivedAt, DataItemMap: row.DataItemMap, ParameterCount: row.ParameterCount,
+		})
 		if decodeErr != nil {
 			return nil, decodeErr
 		}
@@ -105,7 +208,7 @@ func (s *Service) latestMappedRawTelemetry(ctx context.Context, organizationID, 
 	rows, err := s.pool.Query(ctx, `
 WITH latest_raw AS (
     SELECT DISTINCT ON (device_id) *
-    FROM raw_register_reading
+    FROM telemetry.raw_register_reading
     WHERE organization_id=$1 AND plant_id=$2
     ORDER BY device_id, observed_at DESC, received_at DESC, id DESC
 )
@@ -115,19 +218,19 @@ SELECT raw.id, raw.organization_id, raw.plant_id, raw.device_id,
            FILTER (WHERE metadata.is_enabled),
        count(*) FILTER (WHERE metadata.is_enabled)::integer
 FROM latest_raw raw
-JOIN device ON device.organization_id=raw.organization_id AND device.plant_id=raw.plant_id AND device.id=raw.device_id
-LEFT JOIN telemetry_latest latest ON latest.organization_id=raw.organization_id AND latest.device_id=raw.device_id
+JOIN plant.device ON device.organization_id=raw.organization_id AND device.plant_id=raw.plant_id AND device.id=raw.device_id
+LEFT JOIN telemetry.telemetry_latest latest ON latest.organization_id=raw.organization_id AND latest.device_id=raw.device_id
 CROSS JOIN LATERAL jsonb_each_text(raw.register_address_map) item
 LEFT JOIN LATERAL (
     SELECT scale, value_offset, is_enabled
     FROM (
         SELECT scale, value_offset, is_enabled, 2 AS priority
-        FROM device_register_metadata
+        FROM plant.device_register_metadata
         WHERE organization_id=raw.organization_id AND plant_id=raw.plant_id
           AND device_id=raw.device_id AND address_key=item.key
         UNION ALL
         SELECT scale, value_offset, is_enabled, 1 AS priority
-        FROM device_model_register_metadata
+        FROM plant.device_model_register_metadata
         WHERE organization_id=raw.organization_id AND device_model_id=device.device_model_id
           AND address_key=item.key
     ) configured
@@ -147,7 +250,7 @@ LIMIT 500`, organizationID, plantID)
 	defer rows.Close()
 	readings := []LatestTelemetry{}
 	for rows.Next() {
-		var row dbgen.ListLatestPlantTelemetryRow
+		var row telemetryRowFields
 		if err = rows.Scan(
 			&row.ID, &row.OrganizationID, &row.PlantID, &row.DeviceID,
 			&row.DeviceExternalID, &row.DeviceName, &row.GatewayID,
@@ -206,7 +309,7 @@ func (s *Service) TelemetryHistory(ctx context.Context, principal auth.Principal
 	} else if err != nil {
 		return TelemetryHistoryPage{}, ErrInvalid
 	}
-	rows, err := s.queries.ListDeviceTelemetryHistory(ctx, dbgen.ListDeviceTelemetryHistoryParams{
+	rows, err := listDeviceTelemetryHistory(ctx, s.pool, listDeviceTelemetryHistoryParams{
 		OrganizationID: plant.OrganizationID, PlantID: plant.ID, DeviceID: deviceUUID,
 		FromTime: pgtype.Timestamptz{Time: input.From.UTC(), Valid: true},
 		ToTime:   pgtype.Timestamptz{Time: input.To.UTC(), Valid: true}, CursorSet: input.Cursor != "",
@@ -236,7 +339,7 @@ func (s *Service) TelemetryHistory(ctx context.Context, principal auth.Principal
 	return page, nil
 }
 
-func telemetryFromRow(row dbgen.ListLatestPlantTelemetryRow) (LatestTelemetry, error) {
+func telemetryFromRow(row telemetryRowFields) (LatestTelemetry, error) {
 	values := make(map[string]float64)
 	if err := json.Unmarshal(row.DataItemMap, &values); err != nil {
 		return LatestTelemetry{}, fmt.Errorf("decode telemetry: %w", err)

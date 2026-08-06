@@ -3,7 +3,7 @@
 import { FilePlus2, Radio } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { api, formatDate } from "../../lib/api";
+import { api, errorMessage, formatDate } from "../../lib/api";
 import { useRealtimeSocket } from "../../lib/realtime";
 import { LivePulse } from "../../components/live-pulse";
 import { ScadaCanvas } from "./scada-page";
@@ -36,7 +36,7 @@ export function ScadaViewerPage() {
       } else setLatestByDevice({});
     } catch (cause) {
       setActive(null);
-      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+      setError(errorMessage(cause));
     }
   }, []);
 
@@ -56,7 +56,7 @@ export function ScadaViewerPage() {
       if (next) await openScreen(next);
       else setActive(null);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+      setError(errorMessage(cause));
     } finally {
       setLoading(false);
     }

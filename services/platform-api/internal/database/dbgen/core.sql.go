@@ -51,7 +51,7 @@ func (q *Queries) CreateAuditEventFull(ctx context.Context, arg CreateAuditEvent
 }
 
 const createPlant = `-- name: CreatePlant :one
-INSERT INTO plant (
+INSERT INTO plant.plant (
     id, organization_id, code, name, timezone, latitude, longitude,
     installed_dc_kw, installed_ac_kw
 ) VALUES (
@@ -62,6 +62,7 @@ INSERT INTO plant (
 RETURNING id, organization_id, code, name, timezone, latitude, longitude,
           installed_dc_kw,
           installed_ac_kw,
+          image_url,
           is_active, created_at, updated_at
 `
 
@@ -77,7 +78,23 @@ type CreatePlantParams struct {
 	InstalledAcKw  pgtype.Float8
 }
 
-func (q *Queries) CreatePlant(ctx context.Context, arg CreatePlantParams) (Plant, error) {
+type CreatePlantRow struct {
+	ID             pgtype.UUID
+	OrganizationID pgtype.UUID
+	Code           string
+	Name           string
+	Timezone       string
+	Latitude       pgtype.Float8
+	Longitude      pgtype.Float8
+	InstalledDcKw  pgtype.Numeric
+	InstalledAcKw  pgtype.Numeric
+	ImageUrl       pgtype.Text
+	IsActive       bool
+	CreatedAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
+}
+
+func (q *Queries) CreatePlant(ctx context.Context, arg CreatePlantParams) (CreatePlantRow, error) {
 	row := q.db.QueryRow(ctx, createPlant,
 		arg.ID,
 		arg.OrganizationID,
@@ -89,7 +106,7 @@ func (q *Queries) CreatePlant(ctx context.Context, arg CreatePlantParams) (Plant
 		arg.InstalledDcKw,
 		arg.InstalledAcKw,
 	)
-	var i Plant
+	var i CreatePlantRow
 	err := row.Scan(
 		&i.ID,
 		&i.OrganizationID,
@@ -100,6 +117,7 @@ func (q *Queries) CreatePlant(ctx context.Context, arg CreatePlantParams) (Plant
 		&i.Longitude,
 		&i.InstalledDcKw,
 		&i.InstalledAcKw,
+		&i.ImageUrl,
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -112,15 +130,16 @@ SELECT p.id, p.organization_id, o.name AS organization_name,
        p.code, p.name, p.timezone, p.latitude, p.longitude,
        p.installed_dc_kw,
        p.installed_ac_kw,
+       p.image_url,
        p.is_active, p.created_at, p.updated_at
-FROM plant p
+FROM plant.plant p
 JOIN organization o ON o.id = p.organization_id
 WHERE p.id = $1
   AND EXISTS (
-      SELECT 1 FROM user_role ur
-      JOIN role r ON r.id = ur.role_id
-      JOIN role_permission rp ON rp.role_id = ur.role_id
-      JOIN permission pm ON pm.id = rp.permission_id
+      SELECT 1 FROM auth.user_role ur
+      JOIN auth.role r ON r.id = ur.role_id
+      JOIN auth.role_permission rp ON rp.role_id = ur.role_id
+      JOIN auth.permission pm ON pm.id = rp.permission_id
       WHERE ur.user_id = $2
         AND pm.action = $3 AND pm.resource_type = 'plant'
         AND (r.organization_id IS NULL OR r.organization_id = ur.organization_id)
@@ -148,6 +167,7 @@ type GetAuthorizedPlantRow struct {
 	Longitude        pgtype.Float8
 	InstalledDcKw    pgtype.Numeric
 	InstalledAcKw    pgtype.Numeric
+	ImageUrl         pgtype.Text
 	IsActive         bool
 	CreatedAt        pgtype.Timestamptz
 	UpdatedAt        pgtype.Timestamptz
@@ -167,6 +187,7 @@ func (q *Queries) GetAuthorizedPlant(ctx context.Context, arg GetAuthorizedPlant
 		&i.Longitude,
 		&i.InstalledDcKw,
 		&i.InstalledAcKw,
+		&i.ImageUrl,
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -179,15 +200,16 @@ SELECT p.id, p.organization_id, o.name AS organization_name,
        p.code, p.name, p.timezone, p.latitude, p.longitude,
        p.installed_dc_kw,
        p.installed_ac_kw,
+       p.image_url,
        p.is_active, p.created_at, p.updated_at
-FROM plant p
+FROM plant.plant p
 JOIN organization o ON o.id = p.organization_id
 WHERE p.id = $1
   AND EXISTS (
-      SELECT 1 FROM user_role ur
-      JOIN role r ON r.id = ur.role_id
-      JOIN role_permission rp ON rp.role_id = ur.role_id
-      JOIN permission pm ON pm.id = rp.permission_id
+      SELECT 1 FROM auth.user_role ur
+      JOIN auth.role r ON r.id = ur.role_id
+      JOIN auth.role_permission rp ON rp.role_id = ur.role_id
+      JOIN auth.permission pm ON pm.id = rp.permission_id
       WHERE ur.user_id = $2
         AND pm.action = 'update' AND pm.resource_type = 'plant'
         AND (r.organization_id IS NULL OR r.organization_id = ur.organization_id)
@@ -215,6 +237,7 @@ type GetAuthorizedPlantForUpdateRow struct {
 	Longitude        pgtype.Float8
 	InstalledDcKw    pgtype.Numeric
 	InstalledAcKw    pgtype.Numeric
+	ImageUrl         pgtype.Text
 	IsActive         bool
 	CreatedAt        pgtype.Timestamptz
 	UpdatedAt        pgtype.Timestamptz
@@ -234,6 +257,7 @@ func (q *Queries) GetAuthorizedPlantForUpdate(ctx context.Context, arg GetAuthor
 		&i.Longitude,
 		&i.InstalledDcKw,
 		&i.InstalledAcKw,
+		&i.ImageUrl,
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -254,10 +278,10 @@ func (q *Queries) GetOrganizationName(ctx context.Context, organizationID pgtype
 
 const hasOrganizationPermission = `-- name: HasOrganizationPermission :one
 SELECT EXISTS (
-    SELECT 1 FROM user_role ur
-    JOIN role r ON r.id = ur.role_id
-    JOIN role_permission rp ON rp.role_id = ur.role_id
-    JOIN permission pm ON pm.id = rp.permission_id
+    SELECT 1 FROM auth.user_role ur
+    JOIN auth.role r ON r.id = ur.role_id
+    JOIN auth.role_permission rp ON rp.role_id = ur.role_id
+    JOIN auth.permission pm ON pm.id = rp.permission_id
     WHERE ur.user_id = $1
       AND pm.action = $2
       AND pm.resource_type = $3
@@ -289,10 +313,10 @@ func (q *Queries) HasOrganizationPermission(ctx context.Context, arg HasOrganiza
 
 const hasUserPermission = `-- name: HasUserPermission :one
 SELECT EXISTS (
-    SELECT 1 FROM user_role ur
-    JOIN role r ON r.id = ur.role_id
-    JOIN role_permission rp ON rp.role_id = ur.role_id
-    JOIN permission pm ON pm.id = rp.permission_id
+    SELECT 1 FROM auth.user_role ur
+    JOIN auth.role r ON r.id = ur.role_id
+    JOIN auth.role_permission rp ON rp.role_id = ur.role_id
+    JOIN auth.permission pm ON pm.id = rp.permission_id
     WHERE ur.user_id = $1
       AND pm.action = $2
       AND pm.resource_type = $3
@@ -319,14 +343,15 @@ SELECT p.id, p.organization_id, o.name AS organization_name,
        p.code, p.name, p.timezone, p.latitude, p.longitude,
        p.installed_dc_kw,
        p.installed_ac_kw,
+       p.image_url,
        p.is_active, p.created_at, p.updated_at
-FROM plant p
+FROM plant.plant p
 JOIN organization o ON o.id = p.organization_id
 WHERE EXISTS (
-    SELECT 1 FROM user_role ur
-    JOIN role r ON r.id = ur.role_id
-    JOIN role_permission rp ON rp.role_id = ur.role_id
-    JOIN permission pm ON pm.id = rp.permission_id
+    SELECT 1 FROM auth.user_role ur
+    JOIN auth.role r ON r.id = ur.role_id
+    JOIN auth.role_permission rp ON rp.role_id = ur.role_id
+    JOIN auth.permission pm ON pm.id = rp.permission_id
     WHERE ur.user_id = $1
       AND pm.action = 'read' AND pm.resource_type = 'plant'
       AND (r.organization_id IS NULL OR r.organization_id = ur.organization_id)
@@ -349,6 +374,7 @@ type ListAuthorizedPlantsRow struct {
 	Longitude        pgtype.Float8
 	InstalledDcKw    pgtype.Numeric
 	InstalledAcKw    pgtype.Numeric
+	ImageUrl         pgtype.Text
 	IsActive         bool
 	CreatedAt        pgtype.Timestamptz
 	UpdatedAt        pgtype.Timestamptz
@@ -374,6 +400,7 @@ func (q *Queries) ListAuthorizedPlants(ctx context.Context, userID pgtype.UUID) 
 			&i.Longitude,
 			&i.InstalledDcKw,
 			&i.InstalledAcKw,
+			&i.ImageUrl,
 			&i.IsActive,
 			&i.CreatedAt,
 			&i.UpdatedAt,
@@ -389,7 +416,7 @@ func (q *Queries) ListAuthorizedPlants(ctx context.Context, userID pgtype.UUID) 
 }
 
 const updatePlant = `-- name: UpdatePlant :one
-UPDATE plant
+UPDATE plant.plant
 SET code = $1, name = $2, timezone = $3,
     latitude = $4::double precision,
     longitude = $5::double precision,
@@ -400,6 +427,7 @@ WHERE id = $9
 RETURNING id, organization_id, code, name, timezone, latitude, longitude,
           installed_dc_kw,
           installed_ac_kw,
+          image_url,
           is_active, created_at, updated_at
 `
 
@@ -415,7 +443,23 @@ type UpdatePlantParams struct {
 	ID            pgtype.UUID
 }
 
-func (q *Queries) UpdatePlant(ctx context.Context, arg UpdatePlantParams) (Plant, error) {
+type UpdatePlantRow struct {
+	ID             pgtype.UUID
+	OrganizationID pgtype.UUID
+	Code           string
+	Name           string
+	Timezone       string
+	Latitude       pgtype.Float8
+	Longitude      pgtype.Float8
+	InstalledDcKw  pgtype.Numeric
+	InstalledAcKw  pgtype.Numeric
+	ImageUrl       pgtype.Text
+	IsActive       bool
+	CreatedAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
+}
+
+func (q *Queries) UpdatePlant(ctx context.Context, arg UpdatePlantParams) (UpdatePlantRow, error) {
 	row := q.db.QueryRow(ctx, updatePlant,
 		arg.Code,
 		arg.Name,
@@ -427,7 +471,7 @@ func (q *Queries) UpdatePlant(ctx context.Context, arg UpdatePlantParams) (Plant
 		arg.IsActive,
 		arg.ID,
 	)
-	var i Plant
+	var i UpdatePlantRow
 	err := row.Scan(
 		&i.ID,
 		&i.OrganizationID,
@@ -438,6 +482,7 @@ func (q *Queries) UpdatePlant(ctx context.Context, arg UpdatePlantParams) (Plant
 		&i.Longitude,
 		&i.InstalledDcKw,
 		&i.InstalledAcKw,
+		&i.ImageUrl,
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,

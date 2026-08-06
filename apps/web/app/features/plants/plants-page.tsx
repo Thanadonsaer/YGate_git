@@ -1,12 +1,13 @@
 "use client";
 
-import { ArchiveX, ArrowLeft, Cpu, Eye, MapPin, Pencil, PlugZap, Plus, RefreshCw, Trash2, Wifi } from "lucide-react";
-import { FormEvent, useCallback, useEffect, useState } from "react";
-import { api, csrfToken, formatDate } from "../../lib/api";
+import { ArchiveX, ArrowLeft, Cpu, Download, Eye, MapPin, Pencil, PlugZap, Plus, RefreshCw, Trash2, Upload, Wifi } from "lucide-react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { api, errorMessage, assetURL, csrfToken, downloadBlob, formatDate } from "../../lib/api";
 import { useRealtimeSocket } from "../../lib/realtime";
-import type { Device, DeviceModelOption, LatestTelemetry, Plant } from "../../lib/types";
+import type { Device, DeviceModelOption, LatestTelemetry, Plant, RegisterMetadata, TelemetryHistoryPage } from "../../lib/types";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody } from "../../components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../../components/ui/select";
+import { MultiSelect } from "../../components/ui/multi-select";
 import { toast } from "../../components/ui/sonner";
 import { Button } from "../../components/ui/button";
 
@@ -27,13 +28,24 @@ export function PlantsPage({ defaultOrganizationId }: { defaultOrganizationId?: 
       if (!response.ok) throw new Error("ไม่สามารถโหลดข้อมูลโรงไฟฟ้าได้");
       setPlants((await response.json()) as Plant[]);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+      setError(errorMessage(cause));
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => { void loadPlants(); }, [loadPlants]);
+
+  // Deep-link from Site Map ("ดูรายละเอียดโรงไฟฟ้า" -> /plants?open=<id>) straight
+  // into that plant's device management view once the list has loaded.
+  useEffect(() => {
+    if (plants.length === 0) return;
+    const openId = new URLSearchParams(window.location.search).get("open");
+    if (!openId) return;
+    const match = plants.find((plant) => plant.id === openId);
+    if (match) setSelectedPlant(match);
+    window.history.replaceState(null, "", window.location.pathname);
+  }, [plants]);
 
   async function decommissionPlant(plant: Plant) {
     if (!window.confirm(`ปิดใช้งานโรงไฟฟ้า “${plant.name}”? ข้อมูลเดิมจะยังอยู่ แต่ Middleware จะส่งข้อมูลเข้า Plant นี้ไม่ได้`)) return;
@@ -57,6 +69,43 @@ export function PlantsPage({ defaultOrganizationId }: { defaultOrganizationId?: 
     else setError(response.status === 403 ? "เฉพาะ Platform Admin เท่านั้นที่ลบ Plant ถาวรได้" : "ไม่สามารถลบ Plant ถาวรได้");
   }
 
+  const importInputRef = useRef<HTMLInputElement>(null);
+
+  async function exportAllCSV() {
+    const response = await api("/api/v1/plants/export-all");
+    if (!response.ok) { toast.error("ดาวน์โหลด CSV ไม่สำเร็จ"); return; }
+    downloadBlob(await response.blob(), "plants-devices.csv");
+  }
+
+  async function exportOneCSV(plant: Plant) {
+    const response = await api(`/api/v1/plants/${encodeURIComponent(plant.id)}/export`);
+    if (!response.ok) { toast.error("ดาวน์โหลด CSV ไม่สำเร็จ"); return; }
+    downloadBlob(await response.blob(), `${plant.code}-devices.csv`);
+  }
+
+  async function downloadPlantTemplate() {
+    const response = await api("/api/v1/plants/import-template");
+    if (!response.ok) { toast.error("ดาวน์โหลด Template ไม่สำเร็จ"); return; }
+    downloadBlob(await response.blob(), "plant-device-template.csv");
+  }
+
+  async function importPlantCSVFile(file: File) {
+    const formData = new FormData();
+    formData.append("file", file);
+    try {
+      const response = await api("/api/v1/plants/import", { method: "POST", headers: { "X-CSRF-Token": csrfToken() }, body: formData });
+      if (!response.ok) throw new Error("Import CSV ไม่สำเร็จ — ตรวจรูปแบบไฟล์");
+      const result = (await response.json()) as { plantsCreated: number; plantsUpdated: number; devicesCreated: number; devicesUpdated: number; rowsSkipped: number; errors?: string[] };
+      toast.success(
+        `Import สำเร็จ: Plant ใหม่ ${result.plantsCreated}, Plant อัปเดต ${result.plantsUpdated}, Device ใหม่ ${result.devicesCreated}, Device อัปเดต ${result.devicesUpdated}`
+        + (result.rowsSkipped > 0 ? `, ข้าม ${result.rowsSkipped} แถว (${(result.errors ?? []).slice(0, 2).join("; ")})` : ""),
+      );
+      await loadPlants();
+    } catch (cause) {
+      toast.error(errorMessage(cause));
+    }
+  }
+
   if (selectedPlant) {
     return <DeviceManagement plant={selectedPlant} onBack={() => setSelectedPlant(null)} />;
   }
@@ -67,6 +116,20 @@ export function PlantsPage({ defaultOrganizationId }: { defaultOrganizationId?: 
         <div><p>Plant registry</p><h2>โรงไฟฟ้าทั้งหมด</h2></div>
         <div className="heading-actions">
           <Button variant="icon" onClick={() => void loadPlants()} title="รีเฟรช" aria-label="รีเฟรชรายการโรงไฟฟ้า"><RefreshCw size={18} /></Button>
+          <Button variant="secondary" compact onClick={() => void exportAllCSV()} title="Export CSV (ทุกโรงไฟฟ้า)"><Download size={16} /> Export CSV</Button>
+          <Button variant="secondary" compact onClick={() => void downloadPlantTemplate()} title="ดาวน์โหลด Template เปล่า">Template</Button>
+          <Button variant="secondary" compact onClick={() => importInputRef.current?.click()} title="Import CSV (อัปเดตทับของเดิม)"><Upload size={16} /> Import CSV</Button>
+          <input
+            ref={importInputRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="hidden"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) void importPlantCSVFile(file);
+              event.target.value = "";
+            }}
+          />
           <Button compact onClick={() => setEditor("create")}><Plus size={18} /> เพิ่มโรงไฟฟ้า</Button>
         </div>
       </div>
@@ -83,6 +146,7 @@ export function PlantsPage({ defaultOrganizationId }: { defaultOrganizationId?: 
             <span className={plant.isActive ? "status active" : "status revoked"}>{plant.isActive ? "ใช้งาน" : "ปิดใช้งาน"}</span>
             <div className="row-actions">
               <Button variant="icon" onClick={() => setSelectedPlant(plant)} title="จัดการ Device" aria-label={`จัดการ Device ใน ${plant.name}`}><Cpu size={17} /></Button>
+              <Button variant="icon" onClick={() => void exportOneCSV(plant)} title="Export CSV" aria-label={`Export CSV ของ ${plant.name}`}><Download size={17} /></Button>
               <Button variant="icon" onClick={() => setEditor(plant)} title="แก้ไขโรงไฟฟ้า" aria-label={`แก้ไข ${plant.name}`}><Pencil size={17} /></Button>
               {plant.isActive && <Button variant="icon" onClick={() => void decommissionPlant(plant)} title="ปิดใช้งาน" aria-label={`ปิดใช้งาน ${plant.name}`}><ArchiveX size={17} /></Button>}
               <Button variant="icon" danger onClick={() => void hardDeletePlant(plant)} title="ลบถาวร (Platform Admin)" aria-label={`ลบ ${plant.name} ถาวร`}><Trash2 size={17} /></Button>
@@ -105,6 +169,7 @@ function DeviceManagement({ plant, onBack }: { plant: Plant; onBack: () => void 
   const [editor, setEditor] = useState<Device | "create" | null>(null);
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
   const [testOutcomes, setTestOutcomes] = useState<Record<string, { pending: boolean }>>({});
+  const [testReadResult, setTestReadResult] = useState<{ device: Device; dataItemMap: Record<string, number>; collectTime?: number } | null>(null);
 
   const loadDevices = useCallback(async () => {
     setLoading(true);
@@ -120,7 +185,7 @@ function DeviceManagement({ plant, onBack }: { plant: Plant; onBack: () => void 
       const readings = (await telemetryResponse.json()) as LatestTelemetry[];
       setLatestByDevice(Object.fromEntries(readings.map((reading) => [reading.deviceId, reading])));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+      setError(errorMessage(cause));
     } finally {
       setLoading(false);
     }
@@ -141,7 +206,7 @@ function DeviceManagement({ plant, onBack }: { plant: Plant; onBack: () => void 
       headers: { "X-CSRF-Token": csrfToken() },
       body: JSON.stringify({
         name: device.name, deviceModelId: device.deviceModelId, modbusHost: device.modbusHost ?? "",
-        modbusPort: device.modbusPort ?? null, modbusUnitId: device.modbusUnitId, pollIntervalSeconds: device.pollIntervalSeconds,
+        modbusPort: device.modbusPort ?? null, modbusUnitId: device.modbusUnitId,
         isActive: false,
       }),
     });
@@ -170,12 +235,28 @@ function DeviceManagement({ plant, onBack }: { plant: Plant; onBack: () => void 
       if (response.status === 503) throw new Error("ไม่มี Middleware ดูแล Plant นี้อยู่ หรือออฟไลน์อยู่");
       if (response.status === 504) throw new Error("Middleware ไม่ตอบสนองภายในเวลาที่กำหนด");
       if (!response.ok) throw new Error("ทดสอบไม่สำเร็จ");
-      const data = (await response.json()) as { ok?: boolean; error?: string };
-      const message = data.error || (kind === "test-connection" ? "เชื่อมต่อสำเร็จ" : "อ่านค่าสำเร็จ");
+      const data = (await response.json()) as {
+        ok?: boolean;
+        error?: string;
+        data?: { reading?: { registerAddressMap?: Record<string, number>; collectTime?: number } };
+      };
       setTestOutcomes((prev) => ({ ...prev, [device.id]: { pending: false } }));
-      if (data.ok === false) toast.error(message); else toast.success(message);
+      if (data.ok === false) {
+        toast.error(data.error || "ทดสอบไม่สำเร็จ");
+        return;
+      }
+      if (kind === "test-connection") {
+        toast.success("เชื่อมต่อสำเร็จ");
+        return;
+      }
+      // Show the actual register values read, not just a success toast --
+      // "success" alone doesn't tell the user whether the values look right.
+      const dataItemMap = data.data?.reading?.registerAddressMap ?? {};
+      const count = Object.keys(dataItemMap).length;
+      setTestReadResult({ device, dataItemMap, collectTime: data.data?.reading?.collectTime });
+      toast.success(count > 0 ? `อ่านค่าสำเร็จ (${count} ค่า)` : "อ่านค่าสำเร็จ แต่ไม่มีค่า Register กลับมา — เช็ก Register Metadata ของ Device Model นี้");
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด";
+      const message = errorMessage(cause);
       setTestOutcomes((prev) => ({ ...prev, [device.id]: { pending: false } }));
       toast.error(message);
     }
@@ -183,6 +264,17 @@ function DeviceManagement({ plant, onBack }: { plant: Plant; onBack: () => void 
 
   const latestReadings = Object.values(latestByDevice);
   const lastObservedAt = latestReadings.reduce<string | undefined>((latest, reading) => !latest || reading.observedAt > latest ? reading.observedAt : latest, undefined);
+
+  if (selectedDevice) {
+    return (
+      <DeviceDetailView
+        plant={plant}
+        device={selectedDevice}
+        reading={latestByDevice[selectedDevice.id]}
+        onBack={() => setSelectedDevice(null)}
+      />
+    );
+  }
 
   return (
     <div className="content devices-content">
@@ -215,7 +307,7 @@ function DeviceManagement({ plant, onBack }: { plant: Plant; onBack: () => void 
             <div className="device-row" role="row" key={device.id}>
               <div><strong>{device.name}</strong><small>{device.externalId}</small></div>
               <div><span>{device.model}</span><small>{device.manufacturer}</small></div>
-              <div><span>{device.modbusHost ? `${device.modbusHost}:${device.modbusPort}` : "ไม่ใช่ Modbus device"}</span><small>{device.modbusHost ? `unit ${device.modbusUnitId} · poll ${device.pollIntervalSeconds}s` : device.deviceType}</small></div>
+              <div><span>{device.modbusHost ? `${device.modbusHost}:${device.modbusPort}` : "ไม่ใช่ Modbus device"}</span><small>{device.modbusHost ? `unit ${device.modbusUnitId}` : device.deviceType}</small></div>
               <LatestValues reading={latestByDevice[device.id]} />
               <span className={device.isActive ? "status active" : "status revoked"}>{device.isActive ? "ใช้งาน" : "ปิดใช้งาน"}</span>
               <div className="row-actions">
@@ -232,26 +324,206 @@ function DeviceManagement({ plant, onBack }: { plant: Plant; onBack: () => void 
         {loading && <div className="table-state">กำลังโหลดข้อมูล</div>}
         {!loading && !error && devices.length === 0 && <div className="table-state">ยังไม่มี Device กดเพิ่ม Device หรือให้ Middleware auto onboard เมื่อส่งข้อมูลเข้ามา</div>}
       </div>
-      {selectedDevice && <DeviceLatestDialog device={selectedDevice} reading={latestByDevice[selectedDevice.id]} onClose={() => setSelectedDevice(null)} />}
+      {testReadResult && <TestReadDialog result={testReadResult} onClose={() => setTestReadResult(null)} />}
       {editor && <DeviceEditor plant={plant} device={editor === "create" ? undefined : editor} onClose={() => setEditor(null)} onSaved={() => { setEditor(null); void loadDevices(); }} />}
     </div>
   );
 }
 
-function DeviceLatestDialog({ device, reading, onClose }: { device: Device; reading?: LatestTelemetry; onClose: () => void }) {
+function DeviceDetailView({ plant, device, reading, onBack }: { plant: Plant; device: Device; reading?: LatestTelemetry; onBack: () => void }) {
+  const [metadata, setMetadata] = useState<RegisterMetadata[]>([]);
+  const [metadataError, setMetadataError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await api(`/api/v1/plants/${plant.id}/device-register-metadata/${device.id}`);
+        if (cancelled) return;
+        if (!response.ok) {
+          setMetadataError("ไม่สามารถโหลด Unit ของ Parameter ได้");
+          return;
+        }
+        setMetadata((await response.json()) as RegisterMetadata[]);
+      } catch {
+        if (!cancelled) setMetadataError("ไม่สามารถโหลด Unit ของ Parameter ได้");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [plant.id, device.id]);
+
+  const metadataByKey = Object.fromEntries(metadata.map((item) => [item.addressKey, item]));
+  const values = Object.entries(reading?.dataItemMap ?? {})
+    .filter(([key]) => metadataByKey[key]?.isEnabled !== false)
+    .sort(([a], [b]) => a.localeCompare(b));
+  const availableKeys = values.map(([key]) => key);
+
+  return (
+    <div className="content device-detail-content">
+      <div className="section-heading">
+        <div className="registry-title">
+          <Button variant="icon" onClick={onBack} title="กลับไป Device" aria-label="กลับไป Device"><ArrowLeft size={18} /></Button>
+          <div><p>{plant.code} · {device.externalId}{reading ? ` · ${formatDate(reading.observedAt)}` : ""}</p><h2>{device.name}</h2></div>
+        </div>
+      </div>
+      {metadataError && <p className="form-message error">{metadataError}</p>}
+      <section className="grid gap-px overflow-hidden rounded-md border border-slate-200 bg-slate-200 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6" aria-label="ค่าปัจจุบัน (เฉพาะ parameter ที่เปิดใช้งาน)">
+        {values.length === 0 && <div className="table-state col-span-full">ยังไม่มี telemetry (เฉพาะ parameter ที่เปิดใช้งาน) สำหรับ Device นี้</div>}
+        {values.map(([key, value]) => {
+          const meta = metadataByKey[key];
+          return (
+            <div className="bg-white p-2.5" key={key}>
+              <small className="block truncate text-[11px] font-bold text-slate-500" title={meta?.displayName || key}>{meta?.displayName || key}</small>
+              <strong className="mt-0.5 block truncate text-base text-slate-900" title={String(value)}>
+                {Number.isFinite(value) ? value.toLocaleString(undefined, meta ? { minimumFractionDigits: meta.decimals, maximumFractionDigits: meta.decimals } : undefined) : "-"}
+                {meta?.unit ? <span className="ml-1 text-xs font-normal text-slate-500">{meta.unit}</span> : null}
+              </strong>
+            </div>
+          );
+        })}
+      </section>
+      <DeviceHistoryChart plant={plant} device={device} metadataByKey={metadataByKey} availableKeys={availableKeys} />
+    </div>
+  );
+}
+
+const CHART_COLORS = ["#2563eb", "#16a34a", "#d97706", "#dc2626", "#7c3aed", "#0891b2"];
+
+function defaultHistoryRange() {
+  const to = new Date();
+  const from = new Date(to.getTime() - 24 * 60 * 60 * 1000);
+  return { from: toDatetimeLocal(from), to: toDatetimeLocal(to) };
+}
+
+function toDatetimeLocal(date: Date) {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function DeviceHistoryChart({ plant, device, metadataByKey, availableKeys }: { plant: Plant; device: Device; metadataByKey: Record<string, RegisterMetadata>; availableKeys: string[] }) {
+  const [selectedKeys, setSelectedKeys] = useState<string[]>(() => availableKeys.slice(0, 1));
+  const [range, setRange] = useState(defaultHistoryRange);
+  const [historyData, setHistoryData] = useState<LatestTelemetry[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    setSelectedKeys((current) => current.filter((key) => availableKeys.includes(key)));
+  }, [availableKeys]);
+
+  useEffect(() => {
+    const from = new Date(range.from);
+    const to = new Date(range.to);
+    if (Number.isNaN(+from) || Number.isNaN(+to) || from >= to) {
+      setError("ช่วงเวลาไม่ถูกต้อง (start ต้องอยู่ก่อน end)");
+      return;
+    }
+    const controller = new AbortController();
+    setLoading(true);
+    setError("");
+    void (async () => {
+      const query = new URLSearchParams({ from: from.toISOString(), to: to.toISOString(), limit: "500" });
+      try {
+        const response = await api(`/api/v1/plants/${plant.id}/devices/${device.id}/telemetry/history?${query}`, { signal: controller.signal });
+        if (!response.ok) throw new Error("ไม่สามารถโหลดข้อมูลกราฟได้");
+        const page = (await response.json()) as TelemetryHistoryPage;
+        setHistoryData(page.data);
+      } catch (cause) {
+        if (!controller.signal.aborted) setError(errorMessage(cause));
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    })();
+    return () => controller.abort();
+  }, [plant.id, device.id, range]);
+
+  const series: Record<string, Array<{ at: string; value: number }>> = {};
+  for (const key of selectedKeys) {
+    series[key] = historyData.flatMap((entry) => {
+      const value = entry.dataItemMap[key];
+      return Number.isFinite(value) ? [{ at: entry.observedAt, value }] : [];
+    }).reverse();
+  }
+
+  const allValues = Object.values(series).flat().map((point) => point.value);
+  const minimum = allValues.length ? Math.min(...allValues) : 0;
+  const maximum = allValues.length ? Math.max(...allValues) : 0;
+  const valueRange = maximum - minimum || 1;
+  const allPoints = selectedKeys.flatMap((key) => series[key] ?? []);
+  const t0 = allPoints.length ? Math.min(...allPoints.map((point) => +new Date(point.at))) : 0;
+  const t1 = allPoints.length ? Math.max(...allPoints.map((point) => +new Date(point.at))) : 0;
+  const keyOptions = availableKeys.map((key) => ({ label: `${metadataByKey[key]?.displayName || key}${metadataByKey[key]?.unit ? ` (${metadataByKey[key]!.unit})` : ""}`, value: key }));
+
+  return (
+    <section className="device-chart-panel">
+      <div className="section-heading">
+        <div><p>Telemetry history</p><h3>กราฟค่าย้อนหลัง</h3></div>
+        <div className="flex flex-wrap items-center gap-2">
+          <input type="datetime-local" className="h-10 rounded-[var(--radius-sm)] border border-line px-2 text-sm" value={range.from} onChange={(event) => setRange((current) => ({ ...current, from: event.target.value }))} />
+          <span className="text-xs text-slate-500">ถึง</span>
+          <input type="datetime-local" className="h-10 rounded-[var(--radius-sm)] border border-line px-2 text-sm" value={range.to} onChange={(event) => setRange((current) => ({ ...current, to: event.target.value }))} />
+        </div>
+      </div>
+      <div className="px-1 pb-3">
+        <MultiSelect
+          value={selectedKeys}
+          onValueChange={setSelectedKeys}
+          options={keyOptions}
+          placeholder="เลือก Parameter เพื่อ plot กราฟ"
+          ariaLabel="เลือก Parameter เพื่อ plot กราฟ"
+          disabled={availableKeys.length === 0}
+        />
+      </div>
+      {error && <p className="form-message error">{error}</p>}
+      {!error && selectedKeys.length === 0 && <div className="table-state">เลือก Parameter อย่างน้อยหนึ่งตัวเพื่อดูกราฟ</div>}
+      {!error && selectedKeys.length > 0 && !loading && allValues.length === 0 && <div className="table-state">ไม่มีข้อมูลในช่วงเวลานี้</div>}
+      {!error && allValues.length > 0 && <>
+        <svg className="h-64 w-full" viewBox="0 0 100 40" preserveAspectRatio="none" role="img" aria-label="กราฟ telemetry ย้อนหลัง">
+          <line x1="0" y1="36" x2="100" y2="36" stroke="#e2e8f0" strokeWidth="0.3" />
+          {selectedKeys.map((key, index) => {
+            const points = series[key] ?? [];
+            if (points.length === 0) return null;
+            const polyline = points.map((point) => `${t1 === t0 ? 50 : (+new Date(point.at) - t0) * 100 / (t1 - t0)},${36 - (point.value - minimum) * 32 / valueRange}`).join(" ");
+            return <polyline key={key} points={polyline} fill="none" stroke={CHART_COLORS[index % CHART_COLORS.length]} strokeWidth="0.6" />;
+          })}
+        </svg>
+        <div className="flex flex-wrap gap-4 px-1 pt-2 text-xs text-slate-500">
+          {selectedKeys.map((key, index) => {
+            const meta = metadataByKey[key];
+            const points = series[key] ?? [];
+            const latestValue = points.length ? points[points.length - 1].value : undefined;
+            return (
+              <span key={key} className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full" style={{ background: CHART_COLORS[index % CHART_COLORS.length] }} />
+                {meta?.displayName || key}: <strong className="text-slate-900">{latestValue == null ? "-" : latestValue.toLocaleString(undefined, meta ? { minimumFractionDigits: meta.decimals, maximumFractionDigits: meta.decimals } : undefined)}{meta?.unit ? ` ${meta.unit}` : ""}</strong>
+              </span>
+            );
+          })}
+        </div>
+      </>}
+    </section>
+  );
+}
+
+function TestReadDialog({ result, onClose }: { result: { device: Device; dataItemMap: Record<string, number>; collectTime?: number }; onClose: () => void }) {
+  const entries = Object.entries(result.dataItemMap).sort(([a], [b]) => a.localeCompare(b));
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <div><DialogDescription>{device.externalId}</DialogDescription><DialogTitle>ค่าล่าสุดของ {device.name}</DialogTitle></div>
+          <div><DialogDescription>{result.device.externalId}</DialogDescription><DialogTitle>ผลทดสอบอ่านค่า {result.device.name}</DialogTitle></div>
         </DialogHeader>
         <DialogBody>
-          {!reading ? <div className="table-state">ยังไม่มี telemetry สำหรับ Device นี้</div> : <>
-            <div className="grid grid-cols-2 gap-3 px-5 py-4 text-sm"><div><small className="block text-slate-500">Observed</small><strong>{formatDate(reading.observedAt)}</strong></div><div><small className="block text-slate-500">Received</small><strong>{formatDate(reading.receivedAt)}</strong></div></div>
-            <div className="max-h-[55vh] overflow-auto border-t border-slate-200 px-5 py-3">
-              {Object.entries(reading.dataItemMap).sort(([a], [b]) => a.localeCompare(b)).map(([key, value]) => <div key={key} className="flex items-center justify-between gap-4 border-b border-slate-100 py-2 text-sm last:border-0"><code className="text-slate-600">{key}</code><strong className="text-slate-900">{Number.isFinite(value) ? value.toLocaleString() : "-"}</strong></div>)}
-            </div>
-          </>}
+          {result.collectTime && <div className="px-5 pt-4 text-sm"><small className="block text-slate-500">อ่านเมื่อ</small><strong>{formatDate(new Date(result.collectTime).toISOString())}</strong></div>}
+          <div className="max-h-[55vh] overflow-auto border-t border-slate-200 px-5 py-3">
+            {entries.length === 0
+              ? <div className="table-state">ไม่มีค่า Register กลับมา</div>
+              : entries.map(([key, value]) => (
+                <div key={key} className="flex items-center justify-between gap-4 border-b border-slate-100 py-2 text-sm last:border-0">
+                  <code className="text-slate-600">{key}</code><strong className="text-slate-900">{Number.isFinite(value) ? value.toLocaleString() : "-"}</strong>
+                </div>
+              ))}
+          </div>
         </DialogBody>
       </DialogContent>
     </Dialog>
@@ -277,7 +549,6 @@ function DeviceEditor({ plant, device, onClose, onSaved }: { plant: Plant; devic
   const [modbusHost, setModbusHost] = useState(device?.modbusHost ?? "");
   const [modbusPort, setModbusPort] = useState(device?.modbusPort?.toString() ?? "502");
   const [modbusUnitId, setModbusUnitId] = useState(device?.modbusUnitId?.toString() ?? "1");
-  const [pollIntervalSeconds, setPollIntervalSeconds] = useState(device?.pollIntervalSeconds?.toString() ?? "10");
   const [isActive, setIsActive] = useState(device?.isActive ?? true);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
@@ -305,7 +576,6 @@ function DeviceEditor({ plant, device, onClose, onSaved }: { plant: Plant; devic
       modbusHost: host,
       modbusPort: host === "" ? null : Number(modbusPort),
       modbusUnitId: Number(modbusUnitId),
-      pollIntervalSeconds: Number(pollIntervalSeconds),
       isActive,
     };
     try {
@@ -322,7 +592,7 @@ function DeviceEditor({ plant, device, onClose, onSaved }: { plant: Plant; devic
       }
       onSaved();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+      setError(errorMessage(cause));
     } finally {
       setPending(false);
     }
@@ -347,7 +617,6 @@ function DeviceEditor({ plant, device, onClose, onSaved }: { plant: Plant; devic
             <label>IP<input value={modbusHost} onChange={(event) => setModbusHost(event.target.value)} placeholder="192.168.1.100 (เว้นว่างถ้าไม่ใช่ Modbus device)" /></label>
             <label>Port<input type="number" min="1" max="65535" value={modbusPort} onChange={(event) => setModbusPort(event.target.value)} /></label>
             <label>Unit ID<input type="number" min="0" max="255" value={modbusUnitId} onChange={(event) => setModbusUnitId(event.target.value)} /></label>
-            <label>Poll interval (s)<input type="number" min="1" max="3600" value={pollIntervalSeconds} onChange={(event) => setPollIntervalSeconds(event.target.value)} /></label>
             <label className="toggle-field full-field"><input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} /><span>เปิดใช้งาน Device</span></label>
             {error && <p className="form-message error full-field">{error}</p>}
             <div className="editor-actions full-field"><Button type="button" variant="secondary" onClick={onClose} disabled={pending}>ยกเลิก</Button><Button disabled={pending}>{pending ? "กำลังบันทึก" : device ? "บันทึก" : "สร้าง Device"}</Button></div>
@@ -370,13 +639,86 @@ function PlantEditor({ plant, defaultOrganizationId, onClose, onSaved }: { plant
   const [isActive, setIsActive] = useState(plant?.isActive ?? true);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+  const [imagePreview, setImagePreview] = useState(plant?.imageUrl ? assetURL(plant.imageUrl) : null);
+  const [imagePending, setImagePending] = useState(false);
 
   function optionalNumber(value: string) {
     return value.trim() === "" ? null : Number(value);
   }
 
+  // Real-world plant sheets mix decimal-comma ("12,7895"), degree-symbol
+  // ("101.8537°"), and compass-suffix ("12.7895 N" / "101.8537 E") formats.
+  // Normalize all of them to a plain signed decimal string before Number().
+  function optionalCoordinate(value: string) {
+    let text = value.trim();
+    if (text === "") return null;
+    const compass = text.match(/([NSEW])\s*$/i)?.[1]?.toUpperCase();
+    text = text.replace(/[°'"NSEWnsew]/g, "").trim();
+    if (/^-?\d+,\d+$/.test(text)) text = text.replace(",", ".");
+    const magnitude = Number(text);
+    if (Number.isNaN(magnitude)) return NaN;
+    return compass === "S" || compass === "W" ? -Math.abs(magnitude) : magnitude;
+  }
+
+  async function uploadImage(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!plant || !file) return;
+    const extension = file.name.toLowerCase().split(".").pop() ?? "";
+    const supportedType = ["image/png", "image/jpeg", "image/jpg", "image/webp"].includes(file.type);
+    const supportedExtension = ["png", "jpg", "jpeg", "webp"].includes(extension);
+    if ((!supportedType && !supportedExtension) || file.size > 2 * 1024 * 1024) {
+      setError("รูปต้องเป็น PNG, JPEG หรือ WebP และมีขนาดไม่เกิน 2 MiB");
+      return;
+    }
+    setImagePending(true);
+    setError("");
+    try {
+      const form = new FormData();
+      form.append("image", file);
+      const response = await api("/api/v1/plants/" + plant.id + "/image", {
+        method: "POST",
+        headers: { "X-CSRF-Token": csrfToken() },
+        body: form,
+      });
+      if (!response.ok) {
+        const detail = (await response.text()).trim();
+        throw new Error(detail === "invalid image" ? "ไฟล์รูปไม่ใช่ PNG, JPEG หรือ WebP หรือมีขนาดเกิน 2 MiB" : "ไม่สามารถอัปโหลดรูปโรงไฟฟ้าได้");
+      }
+      const updated = (await response.json()) as Plant;
+      setImagePreview(updated.imageUrl ? assetURL(updated.imageUrl) : null);
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setImagePending(false);
+    }
+  }
+
+  async function removeImage() {
+    if (!plant || !window.confirm("ลบรูปของโรงไฟฟ้านี้หรือไม่")) return;
+    setImagePending(true);
+    setError("");
+    try {
+      const response = await api("/api/v1/plants/" + plant.id + "/image", {
+        method: "DELETE",
+        headers: { "X-CSRF-Token": csrfToken() },
+      });
+      if (!response.ok) throw new Error("ไม่สามารถลบรูปโรงไฟฟ้าได้");
+      setImagePreview(null);
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setImagePending(false);
+    }
+  }
   async function submit(event: FormEvent) {
     event.preventDefault();
+    const parsedLatitude = optionalCoordinate(latitude);
+    const parsedLongitude = optionalCoordinate(longitude);
+    if (Number.isNaN(parsedLatitude) || Number.isNaN(parsedLongitude)) {
+      setError("รูปแบบ Latitude/Longitude ไม่ถูกต้อง");
+      return;
+    }
     setPending(true);
     setError("");
     const body = {
@@ -384,8 +726,8 @@ function PlantEditor({ plant, defaultOrganizationId, onClose, onSaved }: { plant
       code,
       name,
       timezone,
-      latitude: optionalNumber(latitude),
-      longitude: optionalNumber(longitude),
+      latitude: parsedLatitude,
+      longitude: parsedLongitude,
       installedDcKw: optionalNumber(installedDcKw),
       installedAcKw: optionalNumber(installedAcKw),
       ...(plant ? { isActive } : {}),
@@ -401,14 +743,14 @@ function PlantEditor({ plant, defaultOrganizationId, onClose, onSaved }: { plant
       if (!response.ok) throw new Error("ข้อมูลไม่ถูกต้องหรือไม่สามารถบันทึกได้");
       onSaved();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+      setError(errorMessage(cause));
     } finally {
       setPending(false);
     }
   }
 
   return (
-    <Dialog open onOpenChange={(open) => { if (!open && !pending) onClose(); }}>
+    <Dialog open onOpenChange={(open) => { if (!open && !pending && !imagePending) onClose(); }}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <div><DialogDescription>Plant registry</DialogDescription><DialogTitle>{plant ? "แก้ไขโรงไฟฟ้า" : "เพิ่มโรงไฟฟ้า"}</DialogTitle></div>
@@ -418,11 +760,20 @@ function PlantEditor({ plant, defaultOrganizationId, onClose, onSaved }: { plant
             {!plant && <label className="full-field">Organization ID<input autoFocus value={organizationId} onChange={(event) => setOrganizationId(event.target.value)} required /></label>}
             <label>รหัสโรงไฟฟ้า<input autoFocus={Boolean(plant)} value={code} onChange={(event) => setCode(event.target.value)} maxLength={100} required /></label>
             <label>ชื่อโรงไฟฟ้า<input value={name} onChange={(event) => setName(event.target.value)} maxLength={200} required /></label>
-            <label className="full-field">Timezone<input value={timezone} onChange={(event) => setTimezone(event.target.value)} maxLength={100} required /></label>
-            <label>Latitude<input type="number" min="-90" max="90" step="any" value={latitude} onChange={(event) => setLatitude(event.target.value)} /></label>
-            <label>Longitude<input type="number" min="-180" max="180" step="any" value={longitude} onChange={(event) => setLongitude(event.target.value)} /></label>
+            <label className="full-field">Timezone<input value={timezone} onChange={(event) => setTimezone(event.target.value)} maxLength={100} placeholder="ไม่กรอก = Asia/Bangkok" /></label>
+            <label>Latitude<input type="text" inputMode="decimal" placeholder="12.789507 หรือ 12.789507 N" value={latitude} onChange={(event) => setLatitude(event.target.value)} /></label>
+            <label>Longitude<input type="text" inputMode="decimal" placeholder="101.853718 หรือ 101.853718 E" value={longitude} onChange={(event) => setLongitude(event.target.value)} /></label>
             <label>Installed DC (kW)<input type="number" min="0" step="any" value={installedDcKw} onChange={(event) => setInstalledDcKw(event.target.value)} /></label>
             <label>Installed AC (kW)<input type="number" min="0" step="any" value={installedAcKw} onChange={(event) => setInstalledAcKw(event.target.value)} /></label>
+            {plant && <div className="plant-image-field full-field">
+              <span className="field-label">รูปโรงไฟฟ้า</span>
+              {imagePreview ? <img className="plant-image-preview" src={imagePreview} alt={"รูป " + plant.name} /> : <div className="plant-image-fallback">ยังไม่มีรูป</div>}
+              <div className="plant-image-actions">
+                <label className="button secondary-button">เลือก/เปลี่ยนรูป<input type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={uploadImage} disabled={imagePending} /></label>
+                {imagePreview && <Button type="button" variant="secondary" onClick={() => void removeImage()} disabled={imagePending}>ลบรูป</Button>}
+              </div>
+              <small>PNG, JPEG หรือ WebP ไม่เกิน 2 MiB</small>
+            </div>}
             {plant && <label className="toggle-field full-field"><input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} /><span>เปิดใช้งานโรงไฟฟ้า</span></label>}
             {error && <p className="form-message error full-field">{error}</p>}
             <div className="editor-actions full-field"><Button type="button" variant="secondary" onClick={onClose} disabled={pending}>ยกเลิก</Button><Button disabled={pending}>{pending ? "กำลังบันทึก" : "บันทึก"}</Button></div>

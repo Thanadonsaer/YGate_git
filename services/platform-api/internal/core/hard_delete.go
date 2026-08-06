@@ -29,7 +29,7 @@ func (s *Service) HardDeletePlant(ctx context.Context, principal auth.Principal,
 	}
 	var organizationID pgtype.UUID
 	var code, name string
-	if err = tx.QueryRow(ctx, `SELECT organization_id, code, name FROM plant WHERE id=$1 FOR UPDATE`, id).Scan(&organizationID, &code, &name); errors.Is(err, pgx.ErrNoRows) {
+	if err = tx.QueryRow(ctx, `SELECT organization_id, code, name FROM plant.plant WHERE id=$1 FOR UPDATE`, id).Scan(&organizationID, &code, &name); errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	} else if err != nil {
 		return fmt.Errorf("lock plant for hard delete: %w", err)
@@ -41,11 +41,11 @@ func (s *Service) HardDeletePlant(ctx context.Context, principal auth.Principal,
 		return err
 	}
 	for _, statement := range []string{
-		`DELETE FROM telemetry_latest WHERE organization_id=$1 AND plant_id=$2`,
-		`DELETE FROM raw_register_reading WHERE organization_id=$1 AND plant_id=$2`,
-		`DELETE FROM telemetry_reading WHERE organization_id=$1 AND plant_id=$2`,
-		`DELETE FROM device WHERE organization_id=$1 AND plant_id=$2`,
-		`DELETE FROM plant WHERE organization_id=$1 AND id=$2`,
+		`DELETE FROM telemetry.telemetry_latest WHERE organization_id=$1 AND plant_id=$2`,
+		`DELETE FROM telemetry.raw_register_reading WHERE organization_id=$1 AND plant_id=$2`,
+		`DELETE FROM telemetry.telemetry_reading WHERE organization_id=$1 AND plant_id=$2`,
+		`DELETE FROM plant.device WHERE organization_id=$1 AND plant_id=$2`,
+		`DELETE FROM plant.plant WHERE organization_id=$1 AND id=$2`,
 	} {
 		if _, err = tx.Exec(ctx, statement, organizationID, id); err != nil {
 			return fmt.Errorf("hard delete plant records: %w", err)
@@ -73,7 +73,7 @@ func (s *Service) HardDeleteDevice(ctx context.Context, principal auth.Principal
 	}
 	var organizationID pgtype.UUID
 	var externalID, name string
-	if err = tx.QueryRow(ctx, `SELECT organization_id, external_id, name FROM device WHERE id=$1 AND plant_id=$2 FOR UPDATE`, deviceUUID, plantUUID).Scan(&organizationID, &externalID, &name); errors.Is(err, pgx.ErrNoRows) {
+	if err = tx.QueryRow(ctx, `SELECT organization_id, external_id, name FROM plant.device WHERE id=$1 AND plant_id=$2 FOR UPDATE`, deviceUUID, plantUUID).Scan(&organizationID, &externalID, &name); errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	} else if err != nil {
 		return fmt.Errorf("lock device for hard delete: %w", err)
@@ -85,10 +85,10 @@ func (s *Service) HardDeleteDevice(ctx context.Context, principal auth.Principal
 		return err
 	}
 	for _, statement := range []string{
-		`DELETE FROM telemetry_latest WHERE organization_id=$1 AND plant_id=$2 AND device_id=$3`,
-		`DELETE FROM raw_register_reading WHERE organization_id=$1 AND plant_id=$2 AND device_id=$3`,
-		`DELETE FROM telemetry_reading WHERE organization_id=$1 AND plant_id=$2 AND device_id=$3`,
-		`DELETE FROM device WHERE organization_id=$1 AND plant_id=$2 AND id=$3`,
+		`DELETE FROM telemetry.telemetry_latest WHERE organization_id=$1 AND plant_id=$2 AND device_id=$3`,
+		`DELETE FROM telemetry.raw_register_reading WHERE organization_id=$1 AND plant_id=$2 AND device_id=$3`,
+		`DELETE FROM telemetry.telemetry_reading WHERE organization_id=$1 AND plant_id=$2 AND device_id=$3`,
+		`DELETE FROM plant.device WHERE organization_id=$1 AND plant_id=$2 AND id=$3`,
 	} {
 		if _, err = tx.Exec(ctx, statement, organizationID, plantUUID, deviceUUID); err != nil {
 			return fmt.Errorf("hard delete device records: %w", err)
@@ -115,7 +115,7 @@ func (s *Service) HardDeleteDeviceModel(ctx context.Context, principal auth.Prin
 	}
 	var organizationID pgtype.UUID
 	var manufacturer, model, deviceType string
-	if err = tx.QueryRow(ctx, `SELECT organization_id, manufacturer, model, device_type FROM device_model WHERE id=$1 FOR UPDATE`, id).Scan(&organizationID, &manufacturer, &model, &deviceType); errors.Is(err, pgx.ErrNoRows) {
+	if err = tx.QueryRow(ctx, `SELECT organization_id, manufacturer, model, device_type FROM plant.device_model WHERE id=$1 FOR UPDATE`, id).Scan(&organizationID, &manufacturer, &model, &deviceType); errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	} else if err != nil {
 		return fmt.Errorf("lock device model for hard delete: %w", err)
@@ -127,11 +127,11 @@ func (s *Service) HardDeleteDeviceModel(ctx context.Context, principal auth.Prin
 		return err
 	}
 	for _, statement := range []string{
-		`DELETE FROM telemetry_latest WHERE organization_id=$1 AND device_id IN (SELECT id FROM device WHERE organization_id=$1 AND device_model_id=$2)`,
-		`DELETE FROM raw_register_reading WHERE organization_id=$1 AND device_id IN (SELECT id FROM device WHERE organization_id=$1 AND device_model_id=$2)`,
-		`DELETE FROM telemetry_reading WHERE organization_id=$1 AND device_id IN (SELECT id FROM device WHERE organization_id=$1 AND device_model_id=$2)`,
-		`DELETE FROM device WHERE organization_id=$1 AND device_model_id=$2`,
-		`DELETE FROM device_model WHERE organization_id=$1 AND id=$2`,
+		`DELETE FROM telemetry.telemetry_latest WHERE organization_id=$1 AND device_id IN (SELECT id FROM plant.device WHERE organization_id=$1 AND device_model_id=$2)`,
+		`DELETE FROM telemetry.raw_register_reading WHERE organization_id=$1 AND device_id IN (SELECT id FROM plant.device WHERE organization_id=$1 AND device_model_id=$2)`,
+		`DELETE FROM telemetry.telemetry_reading WHERE organization_id=$1 AND device_id IN (SELECT id FROM plant.device WHERE organization_id=$1 AND device_model_id=$2)`,
+		`DELETE FROM plant.device WHERE organization_id=$1 AND device_model_id=$2`,
+		`DELETE FROM plant.device_model WHERE organization_id=$1 AND id=$2`,
 	} {
 		if _, err = tx.Exec(ctx, statement, organizationID, id); err != nil {
 			return fmt.Errorf("hard delete device model records: %w", err)
@@ -161,7 +161,7 @@ func (s *Service) HardDeleteAPIKey(ctx context.Context, principal auth.Principal
 	var name, keyPrefix string
 	var autoOnboard, isActive bool
 	var createdAt pgtype.Timestamptz
-	if err = tx.QueryRow(ctx, `SELECT organization_id, name, key_prefix, auto_onboard, is_active, created_at FROM middleware_client WHERE id=$1 FOR UPDATE`, id).
+	if err = tx.QueryRow(ctx, `SELECT organization_id, name, key_prefix, auto_onboard, is_active, created_at FROM auth.middleware_client WHERE id=$1 FOR UPDATE`, id).
 		Scan(&organizationID, &name, &keyPrefix, &autoOnboard, &isActive, &createdAt); errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	} else if err != nil {
@@ -180,25 +180,25 @@ func (s *Service) HardDeleteAPIKey(ctx context.Context, principal auth.Principal
 	}, sourceIP); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, `DELETE FROM telemetry_latest WHERE organization_id=$1 AND telemetry_reading_id IN (SELECT id FROM telemetry_reading WHERE middleware_client_id=$2)`, organizationID, id); err != nil {
+	if _, err = tx.Exec(ctx, `DELETE FROM telemetry.telemetry_latest WHERE organization_id=$1 AND telemetry_reading_id IN (SELECT id FROM telemetry.telemetry_reading WHERE middleware_client_id=$2)`, organizationID, id); err != nil {
 		return fmt.Errorf("delete api key latest telemetry: %w", err)
 	}
 	for _, statement := range []string{
-		`DELETE FROM raw_register_reading WHERE organization_id=$1 AND middleware_client_id=$2`,
-		`DELETE FROM telemetry_reading WHERE organization_id=$1 AND middleware_client_id=$2`,
-		`DELETE FROM telemetry_ingest_batch WHERE organization_id=$1 AND middleware_client_id=$2`,
-		`DELETE FROM middleware_client WHERE organization_id=$1 AND id=$2`,
+		`DELETE FROM telemetry.raw_register_reading WHERE organization_id=$1 AND middleware_client_id=$2`,
+		`DELETE FROM telemetry.telemetry_reading WHERE organization_id=$1 AND middleware_client_id=$2`,
+		`DELETE FROM telemetry.telemetry_ingest_batch WHERE organization_id=$1 AND middleware_client_id=$2`,
+		`DELETE FROM auth.middleware_client WHERE organization_id=$1 AND id=$2`,
 	} {
 		if _, err = tx.Exec(ctx, statement, organizationID, id); err != nil {
 			return fmt.Errorf("hard delete api key records: %w", err)
 		}
 	}
 	if _, err = tx.Exec(ctx, `
-INSERT INTO telemetry_latest (organization_id, plant_id, device_id, telemetry_reading_id, gateway_id, observed_at, received_at, data_item_map, parameter_count)
+INSERT INTO telemetry.telemetry_latest (organization_id, plant_id, device_id, telemetry_reading_id, gateway_id, observed_at, received_at, data_item_map, parameter_count)
 SELECT DISTINCT ON (tr.organization_id, tr.device_id)
        tr.organization_id, tr.plant_id, tr.device_id, tr.id, tr.gateway_id, tr.observed_at, tr.received_at, tr.data_item_map, tr.parameter_count
-FROM telemetry_reading tr
-LEFT JOIN telemetry_latest latest ON latest.organization_id=tr.organization_id AND latest.device_id=tr.device_id
+FROM telemetry.telemetry_reading tr
+LEFT JOIN telemetry.telemetry_latest latest ON latest.organization_id=tr.organization_id AND latest.device_id=tr.device_id
 WHERE tr.organization_id=$1 AND latest.device_id IS NULL
 ORDER BY tr.organization_id, tr.device_id, tr.observed_at DESC, tr.received_at DESC, tr.id DESC
 ON CONFLICT (organization_id, device_id) DO NOTHING`, organizationID); err != nil {

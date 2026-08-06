@@ -1,24 +1,24 @@
 -- name: GetLoginUser :one
 SELECT id, organization_id, email, display_name, password_hash, status,
        failed_login_count, locked_until
-FROM app_user
+FROM auth.app_user
 WHERE email = lower(sqlc.arg(identifier))
    OR username = lower(sqlc.arg(identifier))
 LIMIT 1;
 
 -- name: CountRecentFailedAuthAttempts :one
 SELECT count(*)::bigint
-FROM auth_attempt
+FROM auth.auth_attempt
 WHERE success = false
   AND created_at >= now() - interval '15 minutes'
   AND (identifier = lower(sqlc.arg(identifier)) OR source_ip = sqlc.arg(source_ip));
 
 -- name: RecordAuthAttempt :exec
-INSERT INTO auth_attempt (identifier, source_ip, success)
+INSERT INTO auth.auth_attempt (identifier, source_ip, success)
 VALUES (lower(sqlc.arg(identifier)), sqlc.arg(source_ip), sqlc.arg(success));
 
 -- name: RecordLoginFailure :one
-UPDATE app_user
+UPDATE auth.app_user
 SET failed_login_count = failed_login_count + 1,
     locked_until = CASE
         WHEN failed_login_count + 1 >= 5 THEN now() + interval '15 minutes'
@@ -29,14 +29,14 @@ WHERE id = sqlc.arg(user_id)
 RETURNING failed_login_count, locked_until;
 
 -- name: RecordLoginSuccess :exec
-UPDATE app_user
+UPDATE auth.app_user
 SET failed_login_count = 0,
     locked_until = NULL,
     updated_at = now()
 WHERE id = sqlc.arg(user_id);
 
 -- name: CreateUserSession :exec
-INSERT INTO user_session (
+INSERT INTO auth.user_session (
     id, organization_id, user_id, token_hash, csrf_hash, expires_at, idle_expires_at,
     client_ip, user_agent
 ) VALUES (
@@ -56,8 +56,8 @@ INSERT INTO audit_log (
 -- name: GetActiveSession :one
 SELECT s.id AS session_id, s.organization_id, s.user_id, s.csrf_hash,
        s.expires_at, s.idle_expires_at, u.email, u.display_name, u.password_hash
-FROM user_session s
-JOIN app_user u ON u.id = s.user_id
+FROM auth.user_session s
+JOIN auth.app_user u ON u.id = s.user_id
 WHERE s.token_hash = sqlc.arg(token_hash)
   AND s.revoked_at IS NULL
   AND s.expires_at > now()
@@ -66,45 +66,45 @@ WHERE s.token_hash = sqlc.arg(token_hash)
 LIMIT 1;
 
 -- name: TouchSession :exec
-UPDATE user_session
+UPDATE auth.user_session
 SET last_seen_at = now(),
     idle_expires_at = LEAST(expires_at, now() + sqlc.arg(idle_seconds)::bigint * interval '1 second')
 WHERE id = sqlc.arg(session_id)
   AND last_seen_at < now() - interval '1 minute';
 
 -- name: RevokeSession :exec
-UPDATE user_session
+UPDATE auth.user_session
 SET revoked_at = COALESCE(revoked_at, now())
 WHERE id = sqlc.arg(session_id);
 
 -- name: RevokeAllUserSessions :exec
-UPDATE user_session
+UPDATE auth.user_session
 SET revoked_at = COALESCE(revoked_at, now())
 WHERE user_id = sqlc.arg(user_id)
   AND revoked_at IS NULL;
 
 -- name: UpdatePasswordAndRevokeOtherSessions :exec
 WITH changed AS (
-    UPDATE app_user AS u
+    UPDATE auth.app_user AS u
     SET password_hash = sqlc.arg(password_hash),
         password_changed_at = now(),
         updated_at = now()
     WHERE u.id = sqlc.arg(user_id)
 )
-UPDATE user_session AS s
+UPDATE auth.user_session AS s
 SET revoked_at = COALESCE(s.revoked_at, now())
 WHERE s.user_id = sqlc.arg(user_id)
   AND s.id <> sqlc.arg(current_session_id)
   AND s.revoked_at IS NULL;
 -- name: GetPasswordResetUser :one
 SELECT id, organization_id, email, status
-FROM app_user
+FROM auth.app_user
 WHERE email = lower(sqlc.arg(email))
 LIMIT 1;
 
 -- name: CountRecentPasswordRecoveryAttempts :one
 SELECT count(*)::bigint
-FROM password_recovery_attempt
+FROM auth.password_recovery_attempt
 WHERE operation = sqlc.arg(operation)
   AND created_at >= now() - interval '15 minutes'
   AND (
@@ -113,17 +113,17 @@ WHERE operation = sqlc.arg(operation)
   );
 
 -- name: RecordPasswordRecoveryAttempt :exec
-INSERT INTO password_recovery_attempt (operation, identifier, source_ip, success)
+INSERT INTO auth.password_recovery_attempt (operation, identifier, source_ip, success)
 VALUES (sqlc.arg(operation), lower(sqlc.arg(identifier)), sqlc.arg(source_ip), sqlc.arg(success));
 
 -- name: InvalidatePasswordResetTokens :exec
-UPDATE password_reset_token
+UPDATE auth.password_reset_token
 SET used_at = COALESCE(used_at, now())
 WHERE user_id = sqlc.arg(user_id)
   AND used_at IS NULL;
 
 -- name: CreatePasswordResetToken :exec
-INSERT INTO password_reset_token (
+INSERT INTO auth.password_reset_token (
     id, organization_id, user_id, token_hash, expires_at, requested_ip
 ) VALUES (
     sqlc.arg(id), sqlc.arg(organization_id), sqlc.arg(user_id),
@@ -132,8 +132,8 @@ INSERT INTO password_reset_token (
 
 -- name: GetActivePasswordResetToken :one
 SELECT t.id AS token_id, t.organization_id, t.user_id, u.email
-FROM password_reset_token t
-JOIN app_user u ON u.id = t.user_id
+FROM auth.password_reset_token t
+JOIN auth.app_user u ON u.id = t.user_id
 WHERE t.token_hash = sqlc.arg(token_hash)
   AND t.used_at IS NULL
   AND t.expires_at > now()
@@ -142,13 +142,13 @@ LIMIT 1
 FOR UPDATE OF t;
 
 -- name: MarkPasswordResetTokenUsed :exec
-UPDATE password_reset_token
+UPDATE auth.password_reset_token
 SET used_at = now()
 WHERE id = sqlc.arg(token_id)
   AND used_at IS NULL;
 
 -- name: UpdateUserPassword :exec
-UPDATE app_user
+UPDATE auth.app_user
 SET password_hash = sqlc.arg(password_hash),
     password_changed_at = now(),
     failed_login_count = 0,
@@ -159,13 +159,13 @@ WHERE id = sqlc.arg(user_id);
 -- name: ListUserSessions :many
 SELECT id, expires_at, idle_expires_at, last_seen_at, revoked_at,
        client_ip, user_agent, created_at
-FROM user_session
+FROM auth.user_session
 WHERE user_id = sqlc.arg(user_id)
 ORDER BY created_at DESC
 LIMIT 100;
 
 -- name: RevokeOwnedSession :one
-UPDATE user_session
+UPDATE auth.user_session
 SET revoked_at = COALESCE(revoked_at, now())
 WHERE id = sqlc.arg(session_id)
   AND user_id = sqlc.arg(user_id)

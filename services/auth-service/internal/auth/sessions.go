@@ -100,7 +100,7 @@ func (s *Service) ClearOwnSessions(ctx context.Context, principal Principal, con
 	}
 	defer tx.Rollback(ctx)
 	var count int64
-	if err = tx.QueryRow(ctx, `SELECT count(*) FROM user_session WHERE user_id=$1`, principal.UserID).Scan(&count); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT count(*) FROM auth.user_session WHERE user_id=$1`, principal.UserID).Scan(&count); err != nil {
 		return fmt.Errorf("count sessions to clear: %w", err)
 	}
 	correlationID, err := newUUID()
@@ -116,7 +116,7 @@ func (s *Service) ClearOwnSessions(ctx context.Context, principal Principal, con
 	}); err != nil {
 		return fmt.Errorf("audit session clear: %w", err)
 	}
-	if _, err = tx.Exec(ctx, `DELETE FROM user_session WHERE user_id=$1`, principal.UserID); err != nil {
+	if _, err = tx.Exec(ctx, `DELETE FROM auth.user_session WHERE user_id=$1`, principal.UserID); err != nil {
 		return fmt.Errorf("clear sessions: %w", err)
 	}
 	if err = tx.Commit(ctx); err != nil {

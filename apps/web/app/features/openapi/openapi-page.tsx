@@ -4,7 +4,7 @@ import { Braces, Check, Copy, Download, FileCode2, RefreshCw, Search, ShieldChec
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { parse } from "yaml";
 import { iconButtonClass, inputClass, primaryButtonClass } from "../../components/ui";
-import { api, csrfToken } from "../../lib/api";
+import { api, errorMessage, csrfToken } from "../../lib/api";
 
 type HttpMethod = "get" | "post" | "put" | "patch" | "delete";
 type Operation = {
@@ -65,7 +65,7 @@ export function OpenAPIPage() {
       if (!response.ok) throw new Error("ไม่สามารถโหลด OpenAPI contract ได้");
       setSource(await response.text());
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+      setError(errorMessage(cause));
     } finally {
       setLoading(false);
     }

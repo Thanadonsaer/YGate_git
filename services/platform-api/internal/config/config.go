@@ -24,6 +24,7 @@ type Config struct {
 	AllowedOrigins         []string
 	MiddlewarePatchDir     string
 	SiteLogoDir            string
+	PlantImageDir          string
 	PublicBaseURL          string
 }
 
@@ -80,6 +81,10 @@ func Load() (Config, error) {
 		cfg.MiddlewarePatchDir = "./data/middleware-patches"
 	}
 	cfg.SiteLogoDir = strings.TrimSpace(os.Getenv("PLATFORM_SITE_LOGO_DIR"))
+	cfg.PlantImageDir = strings.TrimSpace(os.Getenv("PLATFORM_PLANT_IMAGE_DIR"))
+	if cfg.PlantImageDir == "" {
+		cfg.PlantImageDir = "./data/plant-images"
+	}
 	if cfg.SiteLogoDir == "" {
 		cfg.SiteLogoDir = "./data/site-logos"
 	}
@@ -98,8 +103,19 @@ func normalizeDatabaseURL(value string) (string, error) {
 			query.Set("search_path", schema)
 		}
 		query.Del("schema")
-		parsed.RawQuery = query.Encode()
 	}
+	// pgx defaults pool_max_conns to 32 per pool when unset, sized for a
+	// single monolith owning the whole instance. Now that auth-service runs
+	// as a separate process against the same Postgres instance (and more
+	// services are planned per the microservices split), every service
+	// defaulting to 32 risks exceeding Postgres's own max_connections as
+	// more services come online. Default to a smaller, multi-service-safe
+	// value here; an operator can still override via ?pool_max_conns=N in
+	// PLATFORM_DATABASE_URL, since this only fills the gap when unset.
+	if query.Get("pool_max_conns") == "" {
+		query.Set("pool_max_conns", "10")
+	}
+	parsed.RawQuery = query.Encode()
 	return parsed.String(), nil
 }
 

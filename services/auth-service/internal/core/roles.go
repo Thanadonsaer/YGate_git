@@ -23,6 +23,13 @@ var (
 	ErrRoleInUse    = errors.New("role is assigned to users")
 )
 
+// systemAdminRoleName is the one built-in, unmodifiable role (is_system=true,
+// organization_id NULL, every permission) — see
+// platform-api/internal/database/migrations/000027_single_system_role.sql.
+// Every other former "system" role became an ordinary editable/deletable
+// custom role in that migration.
+const systemAdminRoleName = "System Admin"
+
 // Permission is a catalog entry from the permission table; the catalog itself
 // is fixed by migrations, only role_permission links are editable.
 type Permission struct {
@@ -65,7 +72,7 @@ func (s *Service) Permissions(ctx context.Context, principal auth.Principal) ([]
 	if !allowed {
 		return nil, ErrForbidden
 	}
-	rows, err := s.pool.Query(ctx, `SELECT id, action, resource_type, description FROM permission ORDER BY resource_type, action`)
+	rows, err := s.pool.Query(ctx, `SELECT id, action, resource_type, description FROM auth.permission ORDER BY resource_type, action`)
 	if err != nil {
 		return nil, fmt.Errorf("list permissions: %w", err)
 	}
@@ -97,7 +104,7 @@ func (s *Service) RoleDetail(ctx context.Context, principal auth.Principal, role
 	}
 	var organizationID pgtype.UUID
 	var detail RoleDetail
-	err = s.pool.QueryRow(ctx, `SELECT organization_id, name, description, is_system FROM role WHERE id=$1`, id).
+	err = s.pool.QueryRow(ctx, `SELECT organization_id, name, description, is_system FROM auth.role WHERE id=$1`, id).
 		Scan(&organizationID, &detail.Name, &detail.Description, &detail.IsSystem)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return RoleDetail{}, ErrRoleNotFound
@@ -115,7 +122,7 @@ func (s *Service) RoleDetail(ctx context.Context, principal auth.Principal, role
 		if !orgAllowed {
 			return RoleDetail{}, ErrForbidden
 		}
-	} else if detail.Name == "Platform Admin" {
+	} else if detail.Name == systemAdminRoleName {
 		global, err := s.hasGlobalPermission(ctx, principal, "read", "role")
 		if err != nil {
 			return RoleDetail{}, err
@@ -167,7 +174,7 @@ func (s *Service) CreateRole(ctx context.Context, principal auth.Principal, inpu
 	if err = requireRoleWritePermission(ctx, tx, q, principal, "create", organizationID); err != nil {
 		return RoleDetail{}, err
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO role(id, organization_id, name, description, is_system) VALUES($1,$2,$3,$4,false)`, id, orgOrNil(organizationID), name, description); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO auth.role(id, organization_id, name, description, is_system) VALUES($1,$2,$3,$4,false)`, id, orgOrNil(organizationID), name, description); err != nil {
 		return RoleDetail{}, mapRoleWriteError(err)
 	}
 	if err = replaceRolePermissions(ctx, tx, organizationID, id, permissionIDs); err != nil {
@@ -212,7 +219,7 @@ func (s *Service) UpdateRole(ctx context.Context, principal auth.Principal, role
 	var organizationID pgtype.UUID
 	var currentName, currentDescription string
 	var isSystem bool
-	err = tx.QueryRow(ctx, `SELECT organization_id, name, description, is_system FROM role WHERE id=$1 FOR UPDATE`, id).
+	err = tx.QueryRow(ctx, `SELECT organization_id, name, description, is_system FROM auth.role WHERE id=$1 FOR UPDATE`, id).
 		Scan(&organizationID, &currentName, &currentDescription, &isSystem)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return RoleDetail{}, ErrRoleNotFound
@@ -234,7 +241,7 @@ func (s *Service) UpdateRole(ctx context.Context, principal auth.Principal, role
 		Role:          Role{ID: roleID, OrganizationID: orgPointer(organizationID), Name: currentName, Description: currentDescription, IsSystem: false},
 		PermissionIDs: beforePermissionIDs,
 	}
-	if _, err = tx.Exec(ctx, `UPDATE role SET name=$2, description=$3, updated_at=now() WHERE id=$1`, id, name, description); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE auth.role SET name=$2, description=$3, updated_at=now() WHERE id=$1`, id, name, description); err != nil {
 		return RoleDetail{}, mapRoleWriteError(err)
 	}
 	if err = replaceRolePermissions(ctx, tx, organizationID, id, permissionIDs); err != nil {
@@ -277,7 +284,7 @@ func (s *Service) DeleteRole(ctx context.Context, principal auth.Principal, role
 	var organizationID pgtype.UUID
 	var name, description string
 	var isSystem bool
-	err = tx.QueryRow(ctx, `SELECT organization_id, name, description, is_system FROM role WHERE id=$1 FOR UPDATE`, id).
+	err = tx.QueryRow(ctx, `SELECT organization_id, name, description, is_system FROM auth.role WHERE id=$1 FOR UPDATE`, id).
 		Scan(&organizationID, &name, &description, &isSystem)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrRoleNotFound
@@ -292,7 +299,7 @@ func (s *Service) DeleteRole(ctx context.Context, principal auth.Principal, role
 		return err
 	}
 	var inUse bool
-	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM user_role WHERE role_id=$1)`, id).Scan(&inUse); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM auth.user_role WHERE role_id=$1)`, id).Scan(&inUse); err != nil {
 		return fmt.Errorf("check role usage: %w", err)
 	}
 	if inUse {
@@ -307,7 +314,7 @@ func (s *Service) DeleteRole(ctx context.Context, principal auth.Principal, role
 		PermissionIDs: permissionIDs,
 	}
 	beforeJSON, _ := json.Marshal(before)
-	if _, err = tx.Exec(ctx, `DELETE FROM role WHERE id=$1`, id); err != nil {
+	if _, err = tx.Exec(ctx, `DELETE FROM auth.role WHERE id=$1`, id); err != nil {
 		return mapRoleWriteError(err)
 	}
 	if err = q.CreateAuditEventFull(ctx, dbgen.CreateAuditEventFullParams{
@@ -345,7 +352,7 @@ func requireRoleWritePermission(ctx context.Context, tx pgx.Tx, q *dbgen.Queries
 }
 
 func rolePermissionIDs(ctx context.Context, querier rowsQuerier, roleID pgtype.UUID) ([]string, error) {
-	rows, err := querier.Query(ctx, `SELECT permission_id FROM role_permission WHERE role_id=$1 ORDER BY permission_id`, roleID)
+	rows, err := querier.Query(ctx, `SELECT permission_id FROM auth.role_permission WHERE role_id=$1 ORDER BY permission_id`, roleID)
 	if err != nil {
 		return nil, fmt.Errorf("list role permissions: %w", err)
 	}
@@ -364,12 +371,12 @@ func rolePermissionIDs(ctx context.Context, querier rowsQuerier, roleID pgtype.U
 // replaceRolePermissions mirrors UpdateUser's delete-then-insert idiom for
 // user_role: the permission set of a role is always replaced wholesale.
 func replaceRolePermissions(ctx context.Context, tx pgx.Tx, organizationID, roleID pgtype.UUID, permissionIDs []pgtype.UUID) error {
-	if _, err := tx.Exec(ctx, `DELETE FROM role_permission WHERE role_id=$1`, roleID); err != nil {
+	if _, err := tx.Exec(ctx, `DELETE FROM auth.role_permission WHERE role_id=$1`, roleID); err != nil {
 		return fmt.Errorf("clear role permissions: %w", err)
 	}
 	orgParam := orgOrNil(organizationID)
 	for _, permissionID := range permissionIDs {
-		if _, err := tx.Exec(ctx, `INSERT INTO role_permission(organization_id, role_id, permission_id) VALUES($1,$2,$3)`, orgParam, roleID, permissionID); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO auth.role_permission(organization_id, role_id, permission_id) VALUES($1,$2,$3)`, orgParam, roleID, permissionID); err != nil {
 			return mapRoleWriteError(err)
 		}
 	}

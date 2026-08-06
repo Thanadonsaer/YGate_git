@@ -18,23 +18,22 @@ import (
 )
 
 type Device struct {
-	ID                  string    `json:"id"`
-	OrganizationID      string    `json:"organizationId"`
-	PlantID             string    `json:"plantId"`
-	ExternalID          string    `json:"externalId"`
-	Name                string    `json:"name"`
-	DeviceModelID       string    `json:"deviceModelId"`
-	Manufacturer        string    `json:"manufacturer"`
-	Model               string    `json:"model"`
-	DeviceType          string    `json:"deviceType"`
-	SourceTypeID        *int32    `json:"sourceTypeId"`
-	ModbusHost          *string   `json:"modbusHost"`
-	ModbusPort          *int32    `json:"modbusPort"`
-	ModbusUnitID        int32     `json:"modbusUnitId"`
-	PollIntervalSeconds int32     `json:"pollIntervalSeconds"`
-	IsActive            bool      `json:"isActive"`
-	CreatedAt           time.Time `json:"createdAt"`
-	UpdatedAt           time.Time `json:"updatedAt"`
+	ID             string    `json:"id"`
+	OrganizationID string    `json:"organizationId"`
+	PlantID        string    `json:"plantId"`
+	ExternalID     string    `json:"externalId"`
+	Name           string    `json:"name"`
+	DeviceModelID  string    `json:"deviceModelId"`
+	Manufacturer   string    `json:"manufacturer"`
+	Model          string    `json:"model"`
+	DeviceType     string    `json:"deviceType"`
+	SourceTypeID   *int32    `json:"sourceTypeId"`
+	ModbusHost     *string   `json:"modbusHost"`
+	ModbusPort     *int32    `json:"modbusPort"`
+	ModbusUnitID   int32     `json:"modbusUnitId"`
+	IsActive       bool      `json:"isActive"`
+	CreatedAt      time.Time `json:"createdAt"`
+	UpdatedAt      time.Time `json:"updatedAt"`
 }
 
 // UpdateDeviceInput and CreateDeviceInput are admin-facing (httpapi) inputs
@@ -43,23 +42,22 @@ type Device struct {
 // these, so dropping Manufacturer/DeviceType/SourceTypeID/SerialNumber here
 // does not touch ingestion at all.
 type UpdateDeviceInput struct {
-	Name                string
-	DeviceModelID       string
-	ModbusHost          string
-	ModbusPort          *int32
-	ModbusUnitID        int32
-	PollIntervalSeconds int32
-	IsActive            bool
+	Name          string
+	DeviceModelID string
+	ModbusHost    string
+	ModbusPort    *int32
+	ModbusUnitID  int32
+	IsActive      bool
 }
 
 type CreateDeviceInput struct {
-	ExternalID          string
-	Name                string
-	DeviceModelID       string
-	ModbusHost          string
-	ModbusPort          *int32
-	ModbusUnitID        int32
-	PollIntervalSeconds int32
+	ExternalID    string
+	Name          string
+	DeviceModelID string
+	ModbusHost    string
+	ModbusPort    *int32
+	ModbusUnitID  int32
+	IsActive      bool
 }
 
 type DeviceRegisterMetadata struct {
@@ -102,18 +100,18 @@ type DeviceModelInput struct {
 }
 
 type DeviceModelRegisterMetadata struct {
-	ID             string    `json:"id"`
-	OrganizationID string    `json:"organizationId"`
-	DeviceModelID  string    `json:"deviceModelId"`
-	AddressKey     string    `json:"addressKey"`
-	DisplayName    string    `json:"displayName"`
-	Unit           string    `json:"unit"`
-	DataType       string    `json:"dataType"`
-	Scale          float64   `json:"scale"`
-	Offset         float64   `json:"offset"`
-	Decimals       int32     `json:"decimals"`
-	IsEnabled      bool      `json:"isEnabled"`
-	Notes          string    `json:"notes"`
+	ID             string  `json:"id"`
+	OrganizationID string  `json:"organizationId"`
+	DeviceModelID  string  `json:"deviceModelId"`
+	AddressKey     string  `json:"addressKey"`
+	DisplayName    string  `json:"displayName"`
+	Unit           string  `json:"unit"`
+	DataType       string  `json:"dataType"`
+	Scale          float64 `json:"scale"`
+	Offset         float64 `json:"offset"`
+	Decimals       int32   `json:"decimals"`
+	IsEnabled      bool    `json:"isEnabled"`
+	Notes          string  `json:"notes"`
 	// Modbus register-decode config, used by a middleware's computed
 	// config snapshot -- see core/middleware_config.go's buildConfigSnapshot.
 	// Nil/empty means this row is display-metadata only, not pollable.
@@ -166,10 +164,10 @@ func (s *Service) Devices(ctx context.Context, principal auth.Principal, plantID
 	rows, err := s.pool.Query(ctx, `
 SELECT d.id, d.organization_id, d.plant_id, d.external_id, d.name, d.device_model_id,
        dm.manufacturer, dm.model, dm.device_type, dm.source_type_id,
-       d.modbus_host, d.modbus_port, d.modbus_unit_id, d.poll_interval_seconds,
+       d.modbus_host, d.modbus_port, d.modbus_unit_id,
        d.is_active, d.created_at, d.updated_at
-FROM device d
-JOIN device_model dm ON dm.id = d.device_model_id
+FROM plant.device d
+JOIN plant.device_model dm ON dm.id = d.device_model_id
 WHERE d.organization_id=$1 AND d.plant_id=$2
 ORDER BY d.name, d.external_id, d.id
 LIMIT 500`, plant.OrganizationID, plant.ID)
@@ -199,12 +197,12 @@ func (s *Service) DeviceModels(ctx context.Context, principal auth.Principal) ([
 	rows, err := s.pool.Query(ctx, `
 SELECT dm.id, dm.organization_id, dm.manufacturer, dm.model, dm.device_type, dm.source_type_id,
        dm.is_active, dm.created_at, dm.updated_at
-FROM device_model dm
+FROM plant.device_model dm
 WHERE EXISTS (
-    SELECT 1 FROM user_role ur
-    JOIN role r ON r.id = ur.role_id
-    JOIN role_permission rp ON rp.role_id = ur.role_id
-    JOIN permission pm ON pm.id = rp.permission_id
+    SELECT 1 FROM auth.user_role ur
+    JOIN auth.role r ON r.id = ur.role_id
+    JOIN auth.role_permission rp ON rp.role_id = ur.role_id
+    JOIN auth.permission pm ON pm.id = rp.permission_id
     WHERE ur.user_id=$1
       AND pm.action='read' AND pm.resource_type='device_model'
       AND (r.organization_id IS NULL OR r.organization_id = ur.organization_id)
@@ -336,7 +334,7 @@ func (s *Service) DeviceModelRegisterMetadata(ctx context.Context, principal aut
 SELECT id, organization_id, device_model_id, address_key, display_name, unit, data_type,
        scale, value_offset, decimals, is_enabled, notes,
        modbus_function_code, modbus_register, modbus_word_order, modbus_data_type, created_at, updated_at
-FROM device_model_register_metadata
+FROM plant.device_model_register_metadata
 WHERE organization_id=$1 AND device_model_id=$2
 ORDER BY address_key
 LIMIT 1000`, organizationID, modelUUID)
@@ -391,7 +389,7 @@ func (s *Service) SetDeviceModelRegisterMetadata(ctx context.Context, principal 
 		id, _ = parseUUID(before.ID)
 	}
 	row := tx.QueryRow(ctx, `
-INSERT INTO device_model_register_metadata (
+INSERT INTO plant.device_model_register_metadata (
     id, organization_id, device_model_id, address_key, display_name, unit, data_type,
     scale, value_offset, decimals, is_enabled, notes,
     modbus_function_code, modbus_register, modbus_word_order, modbus_data_type
@@ -457,7 +455,7 @@ func (s *Service) DeleteDeviceModelRegisterMetadata(ctx context.Context, princip
 	if err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, `DELETE FROM device_model_register_metadata WHERE organization_id=$1 AND device_model_id=$2 AND address_key=$3`, organizationID, modelUUID, addressKey); err != nil {
+	if _, err = tx.Exec(ctx, `DELETE FROM plant.device_model_register_metadata WHERE organization_id=$1 AND device_model_id=$2 AND address_key=$3`, organizationID, modelUUID, addressKey); err != nil {
 		return fmt.Errorf("delete model register metadata: %w", err)
 	}
 	correlationID, err := newUUID()
@@ -475,6 +473,65 @@ func (s *Service) DeleteDeviceModelRegisterMetadata(ctx context.Context, princip
 	return nil
 }
 
+// pruneModbusRegisterMetadata deletes device_model_register_metadata rows
+// for modelID that have a Modbus function code set but whose address_key is
+// not in keepKeys -- called after a middleware config import so a model's
+// Modbus register map is fully replaced by what the middleware reports now
+// instead of silently accumulating stale rows across repeated imports (see
+// importFromSnapshot in middleware_config.go). Manually-added, non-Modbus
+// register metadata for the model is untouched.
+func (s *Service) pruneModbusRegisterMetadata(ctx context.Context, principal auth.Principal, modelID string, keepKeys []string, sourceIP *netip.Addr) (int, error) {
+	modelUUID, err := parseUUID(modelID)
+	if err != nil {
+		return 0, ErrNotFound
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("begin prune model register metadata: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	organizationID, err := authorizedDeviceModelScopeQuery(ctx, tx, principal, modelUUID, "update")
+	if err != nil {
+		return 0, err
+	}
+	rows, err := tx.Query(ctx, `
+DELETE FROM plant.device_model_register_metadata
+WHERE organization_id=$1 AND device_model_id=$2 AND modbus_function_code IS NOT NULL AND NOT (address_key = ANY($3))
+RETURNING address_key`, organizationID, modelUUID, keepKeys)
+	if err != nil {
+		return 0, fmt.Errorf("prune model register metadata: %w", err)
+	}
+	var deletedKeys []string
+	for rows.Next() {
+		var key string
+		if err = rows.Scan(&key); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		deletedKeys = append(deletedKeys, key)
+	}
+	rows.Close()
+	if err = rows.Err(); err != nil {
+		return 0, err
+	}
+	if len(deletedKeys) == 0 {
+		return 0, tx.Commit(ctx)
+	}
+	correlationID, err := newUUID()
+	if err != nil {
+		return 0, err
+	}
+	beforeJSON, _ := json.Marshal(deletedKeys)
+	q := s.queries.WithTx(tx)
+	if err = q.CreateAuditEventFull(ctx, dbgen.CreateAuditEventFullParams{OrganizationID: organizationID, ActorUserID: principal.UserID, Action: "device_model_register_metadata.pruned", TargetType: "device_model", TargetID: modelUUID, BeforeData: beforeJSON, SourceIp: sourceIP, CorrelationID: correlationID}); err != nil {
+		return 0, fmt.Errorf("audit model register metadata prune: %w", err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("commit prune model register metadata: %w", err)
+	}
+	return len(deletedKeys), nil
+}
+
 func (s *Service) CreateDevice(ctx context.Context, principal auth.Principal, plantID string, input CreateDeviceInput, sourceIP *netip.Addr) (Device, error) {
 	plantUUID, err := parseUUID(plantID)
 	if err != nil {
@@ -490,7 +547,7 @@ func (s *Service) CreateDevice(ctx context.Context, principal auth.Principal, pl
 	if input.ExternalID == "" || input.Name == "" || len(input.ExternalID) > 200 || len(input.Name) > 200 {
 		return Device{}, ErrInvalid
 	}
-	if err = validateDeviceModbusFields(input.ModbusHost, input.ModbusPort, input.ModbusUnitID, input.PollIntervalSeconds); err != nil {
+	if err = validateDeviceModbusFields(input.ModbusHost, input.ModbusPort, input.ModbusUnitID); err != nil {
 		return Device{}, err
 	}
 	tx, err := s.pool.Begin(ctx)
@@ -520,17 +577,17 @@ func (s *Service) CreateDevice(ctx context.Context, principal auth.Principal, pl
 	metadata, _ := json.Marshal(map[string]any{"source": "MANUAL"})
 	row := tx.QueryRow(ctx, `
 WITH inserted AS (
-    INSERT INTO device (id, organization_id, plant_id, device_model_id, external_id, name, modbus_host, modbus_port, modbus_unit_id, poll_interval_seconds, source_metadata)
+    INSERT INTO plant.device (id, organization_id, plant_id, device_model_id, external_id, name, modbus_host, modbus_port, modbus_unit_id, source_metadata, is_active)
     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
     RETURNING *
 )
 SELECT inserted.id, inserted.organization_id, inserted.plant_id, inserted.external_id, inserted.name, inserted.device_model_id,
        dm.manufacturer, dm.model, dm.device_type, dm.source_type_id,
-       inserted.modbus_host, inserted.modbus_port, inserted.modbus_unit_id, inserted.poll_interval_seconds,
+       inserted.modbus_host, inserted.modbus_port, inserted.modbus_unit_id,
        inserted.is_active, inserted.created_at, inserted.updated_at
-FROM inserted JOIN device_model dm ON dm.id = inserted.device_model_id`,
+FROM inserted JOIN plant.device_model dm ON dm.id = inserted.device_model_id`,
 		deviceID, plant.OrganizationID, plant.ID, deviceModelUUID, input.ExternalID, input.Name,
-		nullableText(input.ModbusHost), nullableInt32(input.ModbusPort), input.ModbusUnitID, input.PollIntervalSeconds, metadata)
+		nullableText(input.ModbusHost), nullableInt32(input.ModbusPort), input.ModbusUnitID, metadata, input.IsActive)
 	device, err := scanDeviceRow(row)
 	if err != nil {
 		return Device{}, mapWriteError(err)
@@ -567,7 +624,7 @@ func (s *Service) UpdateDevice(ctx context.Context, principal auth.Principal, pl
 	if input.Name == "" || len(input.Name) > 200 {
 		return Device{}, ErrInvalid
 	}
-	if err = validateDeviceModbusFields(input.ModbusHost, input.ModbusPort, input.ModbusUnitID, input.PollIntervalSeconds); err != nil {
+	if err = validateDeviceModbusFields(input.ModbusHost, input.ModbusPort, input.ModbusUnitID); err != nil {
 		return Device{}, err
 	}
 	correlationID, err := newUUID()
@@ -596,18 +653,18 @@ func (s *Service) UpdateDevice(ctx context.Context, principal auth.Principal, pl
 	}
 	row := tx.QueryRow(ctx, `
 WITH updated AS (
-    UPDATE device
-    SET name=$2, device_model_id=$3, modbus_host=$4, modbus_port=$5, modbus_unit_id=$6, poll_interval_seconds=$7, is_active=$8, updated_at=now()
+    UPDATE plant.device
+    SET name=$2, device_model_id=$3, modbus_host=$4, modbus_port=$5, modbus_unit_id=$6, is_active=$7, updated_at=now()
     WHERE id=$1
     RETURNING *
 )
 SELECT updated.id, updated.organization_id, updated.plant_id, updated.external_id, updated.name, updated.device_model_id,
        dm.manufacturer, dm.model, dm.device_type, dm.source_type_id,
-       updated.modbus_host, updated.modbus_port, updated.modbus_unit_id, updated.poll_interval_seconds,
+       updated.modbus_host, updated.modbus_port, updated.modbus_unit_id,
        updated.is_active, updated.created_at, updated.updated_at
-FROM updated JOIN device_model dm ON dm.id = updated.device_model_id`,
+FROM updated JOIN plant.device_model dm ON dm.id = updated.device_model_id`,
 		deviceUUID, input.Name, deviceModelUUID, nullableText(input.ModbusHost), nullableInt32(input.ModbusPort),
-		input.ModbusUnitID, input.PollIntervalSeconds, input.IsActive)
+		input.ModbusUnitID, input.IsActive)
 	device, err := scanDeviceRow(row)
 	if err != nil {
 		return Device{}, mapWriteError(err)
@@ -641,12 +698,24 @@ func (s *Service) DeviceRegisterMetadata(ctx context.Context, principal auth.Pri
 	if err != nil {
 		return nil, err
 	}
+	// Nobody curates device_register_metadata directly in practice -- the
+	// real catalog operators maintain is device_model_register_metadata
+	// (Register Metadata admin page, one entry per device model shared by
+	// every device of that model). Left-join a per-device override on top of
+	// that model catalog so this endpoint returns something even when no
+	// device-level row has ever been written, and still lets a device-level
+	// row (when one exists) win field-by-field over the model default.
 	rows, err := s.pool.Query(ctx, `
-SELECT id, organization_id, plant_id, device_id, address_key, display_name, unit, data_type,
-       scale, value_offset, decimals, is_enabled, notes, created_at, updated_at
-FROM device_register_metadata
-WHERE organization_id=$1 AND plant_id=$2 AND device_id=$3
-ORDER BY address_key
+SELECT COALESCE(dr.id, mm.id), mm.organization_id, d.plant_id, d.id, mm.address_key,
+       COALESCE(dr.display_name, mm.display_name), COALESCE(dr.unit, mm.unit), COALESCE(dr.data_type, mm.data_type),
+       COALESCE(dr.scale, mm.scale), COALESCE(dr.value_offset, mm.value_offset), COALESCE(dr.decimals, mm.decimals),
+       COALESCE(dr.is_enabled, mm.is_enabled), COALESCE(dr.notes, mm.notes),
+       COALESCE(dr.created_at, mm.created_at), COALESCE(dr.updated_at, mm.updated_at)
+FROM plant.device d
+JOIN plant.device_model_register_metadata mm ON mm.organization_id = d.organization_id AND mm.device_model_id = d.device_model_id
+LEFT JOIN plant.device_register_metadata dr ON dr.organization_id = d.organization_id AND dr.plant_id = d.plant_id AND dr.device_id = d.id AND dr.address_key = mm.address_key
+WHERE d.organization_id=$1 AND d.plant_id=$2 AND d.id=$3
+ORDER BY mm.address_key
 LIMIT 1000`, organizationID, plantUUID, deviceUUID)
 	if err != nil {
 		return nil, fmt.Errorf("list register metadata: %w", err)
@@ -699,7 +768,7 @@ func (s *Service) SetDeviceRegisterMetadata(ctx context.Context, principal auth.
 		id, _ = parseUUID(before.ID)
 	}
 	row := tx.QueryRow(ctx, `
-INSERT INTO device_register_metadata (
+INSERT INTO plant.device_register_metadata (
     id, organization_id, plant_id, device_id, address_key, display_name, unit, data_type,
     scale, value_offset, decimals, is_enabled, notes
 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
@@ -749,13 +818,13 @@ type rowQuerier interface {
 func authorizedDeviceScopeQuery(ctx context.Context, querier rowQuerier, principal auth.Principal, plantID, deviceID pgtype.UUID, action string, lock bool) (pgtype.UUID, pgtype.UUID, error) {
 	query := `
 SELECT d.organization_id, d.plant_id
-FROM device d
+FROM plant.device d
 WHERE d.id=$1 AND d.plant_id=$2
   AND EXISTS (
-      SELECT 1 FROM user_role ur
-      JOIN role r ON r.id = ur.role_id
-      JOIN role_permission rp ON rp.role_id = ur.role_id
-      JOIN permission pm ON pm.id = rp.permission_id
+      SELECT 1 FROM auth.user_role ur
+      JOIN auth.role r ON r.id = ur.role_id
+      JOIN auth.role_permission rp ON rp.role_id = ur.role_id
+      JOIN auth.permission pm ON pm.id = rp.permission_id
       WHERE ur.user_id = $3
         AND pm.action = $4 AND pm.resource_type = 'device'
         AND (r.organization_id IS NULL OR r.organization_id = ur.organization_id)
@@ -786,13 +855,13 @@ func authorizedDeviceModelScopeQuery(ctx context.Context, querier rowQuerier, pr
 	var organizationID pgtype.UUID
 	err := querier.QueryRow(ctx, `
 SELECT dm.organization_id
-FROM device_model dm
+FROM plant.device_model dm
 WHERE dm.id=$1
   AND EXISTS (
-      SELECT 1 FROM user_role ur
-      JOIN role r ON r.id = ur.role_id
-      JOIN role_permission rp ON rp.role_id = ur.role_id
-      JOIN permission pm ON pm.id = rp.permission_id
+      SELECT 1 FROM auth.user_role ur
+      JOIN auth.role r ON r.id = ur.role_id
+      JOIN auth.role_permission rp ON rp.role_id = ur.role_id
+      JOIN auth.permission pm ON pm.id = rp.permission_id
       WHERE ur.user_id=$2
         AND pm.action=$3 AND pm.resource_type='device_model'
         AND (r.organization_id IS NULL OR r.organization_id = ur.organization_id)
@@ -895,7 +964,7 @@ func upsertDeviceModelRow(ctx context.Context, tx pgx.Tx, id, organizationID pgt
 		sourceType = pgtype.Int4{Int32: *input.SourceTypeID, Valid: true}
 	}
 	row := tx.QueryRow(ctx, `
-INSERT INTO device_model (id, organization_id, manufacturer, model, device_type, source_type_id, is_active)
+INSERT INTO plant.device_model (id, organization_id, manufacturer, model, device_type, source_type_id, is_active)
 VALUES ($1,$2,$3,$4,$5,$6,$7)
 RETURNING id, organization_id, manufacturer, model, device_type, source_type_id, is_active, created_at, updated_at`, id, organizationID, input.Manufacturer, input.Model, input.DeviceType, sourceType, input.IsActive)
 	model, err := scanDeviceModelRow(row)
@@ -911,7 +980,7 @@ func updateDeviceModelRow(ctx context.Context, tx pgx.Tx, id pgtype.UUID, input 
 		sourceType = pgtype.Int4{Int32: *input.SourceTypeID, Valid: true}
 	}
 	row := tx.QueryRow(ctx, `
-UPDATE device_model
+UPDATE plant.device_model
 SET manufacturer=$2, model=$3, device_type=$4, source_type_id=$5, is_active=$6, updated_at=now()
 WHERE id=$1
 RETURNING id, organization_id, manufacturer, model, device_type, source_type_id, is_active, created_at, updated_at`, id, input.Manufacturer, input.Model, input.DeviceType, sourceType, input.IsActive)
@@ -925,7 +994,7 @@ RETURNING id, organization_id, manufacturer, model, device_type, source_type_id,
 func getDeviceModelRow(ctx context.Context, tx pgx.Tx, id pgtype.UUID) (DeviceModelOption, error) {
 	return scanDeviceModelRow(tx.QueryRow(ctx, `
 SELECT id, organization_id, manufacturer, model, device_type, source_type_id, is_active, created_at, updated_at
-FROM device_model WHERE id=$1 FOR UPDATE`, id))
+FROM plant.device_model WHERE id=$1 FOR UPDATE`, id))
 }
 
 func scanDeviceModelRow(row registerMetadataScanner) (DeviceModelOption, error) {
@@ -948,7 +1017,7 @@ func (s *Service) getRegisterMetadataInTx(ctx context.Context, tx pgx.Tx, organi
 	row := tx.QueryRow(ctx, `
 SELECT id, organization_id, plant_id, device_id, address_key, display_name, unit, data_type,
        scale, value_offset, decimals, is_enabled, notes, created_at, updated_at
-FROM device_register_metadata
+FROM plant.device_register_metadata
 WHERE organization_id=$1 AND plant_id=$2 AND device_id=$3 AND address_key=$4`, organizationID, plantID, deviceID, addressKey)
 	return scanDeviceRegisterMetadata(row)
 }
@@ -976,7 +1045,7 @@ func getDeviceModelRegisterMetadataInTx(ctx context.Context, tx pgx.Tx, organiza
 SELECT id, organization_id, device_model_id, address_key, display_name, unit, data_type,
        scale, value_offset, decimals, is_enabled, notes,
        modbus_function_code, modbus_register, modbus_word_order, modbus_data_type, created_at, updated_at
-FROM device_model_register_metadata
+FROM plant.device_model_register_metadata
 WHERE organization_id=$1 AND device_model_id=$2 AND address_key=$3`, organizationID, modelID, addressKey)
 	return scanDeviceModelRegisterMetadata(row)
 }
@@ -1014,7 +1083,7 @@ func scanDeviceRow(row registerMetadataScanner) (Device, error) {
 	var createdAt, updatedAt pgtype.Timestamptz
 	if err := row.Scan(&id, &organizationID, &plantID, &d.ExternalID, &d.Name, &deviceModelID,
 		&d.Manufacturer, &d.Model, &d.DeviceType, &sourceTypeID,
-		&modbusHost, &modbusPort, &d.ModbusUnitID, &d.PollIntervalSeconds,
+		&modbusHost, &modbusPort, &d.ModbusUnitID,
 		&d.IsActive, &createdAt, &updatedAt); err != nil {
 		return Device{}, fmt.Errorf("scan device: %w", err)
 	}
@@ -1037,16 +1106,16 @@ func getDeviceForUpdate(ctx context.Context, tx pgx.Tx, userID, plantID, deviceI
 	row := tx.QueryRow(ctx, `
 SELECT d.id, d.organization_id, d.plant_id, d.external_id, d.name, d.device_model_id,
        dm.manufacturer, dm.model, dm.device_type, dm.source_type_id,
-       d.modbus_host, d.modbus_port, d.modbus_unit_id, d.poll_interval_seconds,
+       d.modbus_host, d.modbus_port, d.modbus_unit_id,
        d.is_active, d.created_at, d.updated_at
-FROM device d
-JOIN device_model dm ON dm.id = d.device_model_id
+FROM plant.device d
+JOIN plant.device_model dm ON dm.id = d.device_model_id
 WHERE d.id=$1 AND d.plant_id=$2
   AND EXISTS (
-      SELECT 1 FROM user_role ur
-      JOIN role r ON r.id = ur.role_id
-      JOIN role_permission rp ON rp.role_id = ur.role_id
-      JOIN permission pm ON pm.id = rp.permission_id
+      SELECT 1 FROM auth.user_role ur
+      JOIN auth.role r ON r.id = ur.role_id
+      JOIN auth.role_permission rp ON rp.role_id = ur.role_id
+      JOIN auth.permission pm ON pm.id = rp.permission_id
       WHERE ur.user_id = $3
         AND pm.action = 'update' AND pm.resource_type = 'device'
         AND (r.organization_id IS NULL OR r.organization_id = ur.organization_id)
@@ -1059,7 +1128,7 @@ FOR UPDATE OF d`, deviceID, plantID, userID)
 	return scanDeviceRow(row)
 }
 
-func validateDeviceModbusFields(host string, port *int32, unitID, pollIntervalSeconds int32) error {
+func validateDeviceModbusFields(host string, port *int32, unitID int32) error {
 	if len(host) > 255 {
 		return ErrInvalid
 	}
@@ -1070,9 +1139,6 @@ func validateDeviceModbusFields(host string, port *int32, unitID, pollIntervalSe
 		return ErrInvalid
 	}
 	if unitID < 0 || unitID > 255 {
-		return ErrInvalid
-	}
-	if pollIntervalSeconds < 1 || pollIntervalSeconds > 3600 {
 		return ErrInvalid
 	}
 	return nil

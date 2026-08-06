@@ -2,6 +2,14 @@
 
 แพลตฟอร์ม Solar SCADA ส่วนกลางและ Site/Edge Middleware เดิมมีวงจรการพัฒนาและ deploy แยกกัน โดย Central Platform ไม่เปลี่ยน contract ของ `dataItemMap` ที่ Middleware เดิมใช้งาน
 
+## Feature ที่มีให้ใช้งาน
+
+- **Monitoring** — System Overview (dashboard widget แบบจัดวางเอง), Site Map (ปักหมุดโรงไฟฟ้าตามพิกัดพร้อมสถานะ), SCADA Viewer (จอ real-time ที่ publish แล้ว), Alarms (rule ตั้ง threshold ต่อ point + event log พร้อม acknowledge)
+- **Assets & Config** — Plants/Devices (ทะเบียนโรงไฟฟ้าและ Modbus/IEC104 device), Register Metadata (Device Model และ register address ต่อยี่ห้อ/รุ่น), SCADA Builder (ออกแบบจอ SCADA แบบ drag-and-drop)
+- **Administration** — Users, Roles & Permissions (RBAC แบบ dynamic: กำหนดได้ว่า role เห็นหน้าไหนและทำ action อะไรได้บ้างต่อหน้านั้น), Middleware Gateways (จัดการ site gateway, push/pull config, software update), Audit Log, Sessions, Site Branding, OpenAPI contract viewer
+
+ทุกหน้าอยู่ภายใต้สิทธิ์ที่กำหนดผ่าน Role — เมนูและ action จะซ่อนอัตโนมัติถ้าบัญชีไม่มี permission ที่ตรงกัน
+
 ## Component ที่รันได้
 
 | Component | Path | Address เริ่มต้น |
@@ -9,6 +17,7 @@
 | Web | `apps/web` | `http://localhost:8080` |
 | Go API Gateway | `services/api-gateway` | `http://localhost:44440` |
 | Go Platform API | `services/platform-api` | `http://localhost:44441` |
+| Go Auth Service | `services/auth-service` | `http://localhost:44442` |
 | Site/Edge Middleware | `modbus-api-middleware` | ตั้งค่าแยกต่างหาก |
 
 HTTP และ authenticated WebSocket จาก browser ต้องเข้าผ่าน Gateway ส่วน Platform API ดูแล authentication, session, PostgreSQL migration, audit และ realtime origin validation
@@ -18,8 +27,11 @@ HTTP และ authenticated WebSocket จาก browser ต้องเข้�
 ดูรายชื่อตัวแปร environment จาก [`deploy/local/.env.example`](deploy/local/.env.example) เก็บ password และ bootstrap credentials จริงไว้ใน shell ปัจจุบันหรือระบบจัดการ secret ขององค์กร ห้าม commit ลง Git
 
 1. รัน Platform API จาก `services/platform-api`: `go run ./cmd/platform-api`
-2. รัน Gateway จาก `services/api-gateway`: `go run ./cmd/api-gateway`
-3. รัน Web จาก `apps/web`: `npm install` แล้ว `npm run dev`
+2. รัน Auth Service จาก `services/auth-service`: `go run ./cmd/auth-service`
+3. รัน Gateway จาก `services/api-gateway`: `go run ./cmd/api-gateway`
+4. รัน Web จาก `apps/web`: `npm install` แล้ว `npm run dev`
+
+หรือรัน `run-all.bat` จาก root repo เพื่อเปิดทั้ง 4 process พร้อมกันคนละหน้าต่าง
 
 Health check:
 

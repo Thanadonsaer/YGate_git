@@ -42,6 +42,7 @@ func main() {
 
 	authService := auth.New(pool, cfg.SessionIdleTimeout, cfg.SessionAbsoluteTimeout)
 	var resetNotifier auth.ResetNotifier
+	var verificationNotifier auth.VerificationNotifier
 	if cfg.SMTPAddr != "" {
 		notifier, notifierErr := notification.NewSMTPResetNotifier(
 			cfg.SMTPAddr, cfg.SMTPFrom, cfg.SMTPUsername, cfg.SMTPPassword, cfg.PasswordResetURL,
@@ -50,8 +51,10 @@ func main() {
 			log.Fatal(notifierErr)
 		}
 		resetNotifier = notifier.Notify
+		verificationNotifier = notifier.NotifyEmailVerification
 	}
 	authService.ConfigurePasswordRecovery(cfg.PasswordResetTTL, resetNotifier)
+	authService.ConfigureEmailVerification(verificationNotifier)
 	registryService := core.New(pool)
 
 	server := &http.Server{

@@ -254,3 +254,62 @@ func clearAuthCookies(w http.ResponseWriter, secure bool) {
 		http.SetCookie(w, cookie)
 	}
 }
+
+func registerHandler(service *auth.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			OrganizationCode string `json:"organizationCode"`
+			Email            string `json:"email"`
+			Username         string `json:"username"`
+			DisplayName      string `json:"displayName"`
+			Password         string `json:"password"`
+		}
+		if !decodeJSON(w, r, &request, 16<<10) {
+			return
+		}
+		err := service.Register(r.Context(), auth.RegisterInput{OrganizationCode: request.OrganizationCode, Email: request.Email, Username: request.Username, DisplayName: request.DisplayName, Password: request.Password}, remoteIP(r.RemoteAddr))
+		switch {
+		case err == nil:
+			writeJSON(w, http.StatusAccepted, map[string]string{"message": "check your email to verify your account"})
+		case errors.Is(err, auth.ErrRegistrationConflict):
+			http.Error(w, "email or username already exists", http.StatusConflict)
+		case errors.Is(err, auth.ErrRegistrationUnavailable):
+			http.Error(w, "registration email is unavailable", http.StatusServiceUnavailable)
+		case errors.Is(err, auth.ErrRegistrationInvalid):
+			http.Error(w, "invalid registration data", http.StatusBadRequest)
+		default:
+			log.Printf("registration failed: %v", err)
+			http.Error(w, "registration unavailable", http.StatusServiceUnavailable)
+		}
+	}
+}
+
+func verifyEmailHandler(service *auth.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := service.VerifyEmail(r.Context(), r.URL.Query().Get("token")); err != nil {
+			if errors.Is(err, auth.ErrEmailVerificationToken) {
+				http.Error(w, "invalid or expired verification link", http.StatusBadRequest)
+				return
+			}
+			log.Printf("email verification failed: %v", err)
+			http.Error(w, "email verification unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"message": "email verified"})
+	}
+}
+
+func resendVerificationHandler(service *auth.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Email string `json:"email"`
+		}
+		if !decodeJSON(w, r, &request, 8<<10) {
+			return
+		}
+		if err := service.ResendVerification(r.Context(), request.Email); err != nil {
+			log.Printf("resend verification failed: %v", err)
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}
+}

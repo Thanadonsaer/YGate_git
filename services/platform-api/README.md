@@ -12,7 +12,10 @@ Central Solar SCADA API. This deployable is separate from `modbus-api-middleware
 - `PLATFORM_PASSWORD_RESET_TTL` (optional): one-time reset token lifetime, default `30m`
 - `PLATFORM_SMTP_ADDR`, `PLATFORM_SMTP_FROM`, `PLATFORM_PASSWORD_RESET_URL` (optional as a group): existing organizational SMTP endpoint, sender, and web reset page URL
 - `PLATFORM_SMTP_USERNAME`, `PLATFORM_SMTP_PASSWORD` (optional): SMTP credentials
+- AUTH_SMTP_ADDR, AUTH_SMTP_FROM, AUTH_SMTP_USERNAME, AUTH_SMTP_PASSWORD and AUTH_PASSWORD_RESET_URL: SMTP and frontend URL used for registration email verification and password reset links
 - `PLATFORM_WEBSOCKET_ORIGINS` (optional): comma-separated origin host patterns, default `localhost:8080,127.0.0.1:8080`
+- PLATFORM_PLANT_IMAGE_DIR (optional): Plant image storage directory, default ./data/plant-images; PNG/JPEG/WebP uploads are limited to 2 MiB
+- `PLATFORM_PUBLIC_BASE_URL` (required for Middleware Gateways -> Software Update -> Stage): the externally-reachable Gateway URL (e.g. `https://ygate-api.example.com` or `http://127.0.0.1:44440` locally) that a Middleware client downloads staged patch binaries from. Left unset, Stage fails immediately with an "invalid middleware gateway data" error even while the gateway shows Online, since Online only reflects the realtime websocket, not this separate download step.
 
 ## Run
 
@@ -42,9 +45,11 @@ The service applies embedded forward-only migrations before listening.
 - Create a plant: `POST http://127.0.0.1:44441/api/v1/plants`
 - Read a plant: `GET http://127.0.0.1:44441/api/v1/plants/{plantId}`
 - Update or disable a plant: `PUT http://127.0.0.1:44441/api/v1/plants/{plantId}`
+- Upload/replace Plant image: POST /api/v1/plants/{plantId}/image
+- Remove Plant image: DELETE /api/v1/plants/{plantId}/image
 - List devices in a plant: `GET http://127.0.0.1:44441/api/v1/plants/{plantId}/devices`
 - Update or disable a device: `PUT http://127.0.0.1:44441/api/v1/plants/{plantId}/devices/{deviceId}`
-- Platform Admin hard delete: `DELETE` on a Plant, Device, Device Model, API Key or managed User path with the operation-specific `X-Hard-Delete-Confirm` value from OpenAPI
+- System Admin hard delete: `DELETE` on a Plant, Device, Device Model, API Key or managed User path with the operation-specific `X-Hard-Delete-Confirm` value from OpenAPI
 - Clear Audit view: `DELETE http://127.0.0.1:44441/api/v1/admin/audit`; immutable source rows remain and the global `audit.cleared` marker hides prior rows from subsequent list calls
 - Ingest Middleware telemetry: `POST http://127.0.0.1:44441/api/v1/ingestion/telemetry`
 - Middleware compatibility alias: `POST http://127.0.0.1:44441/api/middleware/readings`
@@ -105,15 +110,15 @@ No default account or password is created. Set secrets only in the current proce
 $env:DATABASE_URL = "postgresql://postgres:<password>@localhost:5432/ygate_db?schema=public"
 $env:PLATFORM_BOOTSTRAP_EMAIL = "admin@example.com"
 $env:PLATFORM_BOOTSTRAP_USERNAME = "admin"
-$env:PLATFORM_BOOTSTRAP_DISPLAY_NAME = "Platform Admin"
+$env:PLATFORM_BOOTSTRAP_DISPLAY_NAME = "System Admin"
 $env:PLATFORM_BOOTSTRAP_PASSWORD = "<12-to-72-byte-password>"
 $env:PLATFORM_BOOTSTRAP_ORGANIZATION_CODE = "ORG-001"
 $env:PLATFORM_BOOTSTRAP_ORGANIZATION_NAME = "Organization Name"
-$env:PLATFORM_BOOTSTRAP_ROLE = "Platform Admin"
+$env:PLATFORM_BOOTSTRAP_ROLE = "System Admin"
 go run ./cmd/platform-admin bootstrap-user
 ```
 
-The command hashes the password with bcrypt, creates the organization only when needed, assigns one seeded baseline role, rejects duplicate users, and writes an append-only audit event. `PLATFORM_BOOTSTRAP_ROLE` defaults to `Platform Admin`; supported values are `Platform Admin`, `Organization Admin`, `Plant Manager`, `Engineer`, `Operator`, `Viewer`, and `Auditor`.
+The command hashes the password with bcrypt, creates the organization only when needed, assigns one seeded baseline role, rejects duplicate users, and writes an append-only audit event. `PLATFORM_BOOTSTRAP_ROLE` defaults to `System Admin`; supported values are `System Admin`, `Organization Admin`, `Plant Manager`, `Engineer`, `Operator`, `Viewer`, and `Auditor`.
 
 ## Bootstrap a Middleware client
 

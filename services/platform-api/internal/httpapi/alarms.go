@@ -16,14 +16,28 @@ type alarmEventReader interface {
 	LatestAlarmEventID(context.Context, auth.Principal, string) (int64, error)
 }
 
-type saveAlarmRuleRequest struct {
-	DeviceID string   `json:"deviceId"`
+type alarmConditionRequest struct {
 	PointKey string   `json:"pointKey"`
-	Label    string   `json:"label"`
 	MinValue *float64 `json:"minValue"`
 	MaxValue *float64 `json:"maxValue"`
-	Severity string   `json:"severity"`
-	IsActive *bool    `json:"isActive"`
+}
+
+type saveAlarmRuleRequest struct {
+	DeviceID       string                  `json:"deviceId"`
+	Label          string                  `json:"label"`
+	ConditionLogic string                  `json:"conditionLogic"`
+	Conditions     []alarmConditionRequest `json:"conditions"`
+	Severity       string                  `json:"severity"`
+	IsActive       *bool                   `json:"isActive"`
+	NotifyRoleID   *string                 `json:"notifyRoleId"`
+}
+
+func (r saveAlarmRuleRequest) conditions() []core.ConditionInput {
+	conditions := make([]core.ConditionInput, len(r.Conditions))
+	for i, condition := range r.Conditions {
+		conditions[i] = core.ConditionInput{PointKey: condition.PointKey, MinValue: condition.MinValue, MaxValue: condition.MaxValue}
+	}
+	return conditions
 }
 
 type acknowledgeAlarmEventRequest struct {
@@ -47,8 +61,8 @@ func createAlarmRuleHandler(service *core.Service) func(http.ResponseWriter, *ht
 			return
 		}
 		rule, err := service.CreateAlarmRule(r.Context(), principal, r.PathValue("plantId"), core.CreateAlarmRuleInput{
-			DeviceID: request.DeviceID, PointKey: request.PointKey, Label: request.Label,
-			MinValue: request.MinValue, MaxValue: request.MaxValue, Severity: request.Severity,
+			DeviceID: request.DeviceID, Label: request.Label, ConditionLogic: request.ConditionLogic,
+			Conditions: request.conditions(), Severity: request.Severity, NotifyRoleID: request.NotifyRoleID,
 		}, remoteIP(r.RemoteAddr))
 		if writeAlarmError(w, err) {
 			return
@@ -68,8 +82,8 @@ func updateAlarmRuleHandler(service *core.Service) func(http.ResponseWriter, *ht
 			return
 		}
 		rule, err := service.UpdateAlarmRule(r.Context(), principal, r.PathValue("plantId"), r.PathValue("ruleId"), core.UpdateAlarmRuleInput{
-			Label: request.Label, MinValue: request.MinValue, MaxValue: request.MaxValue,
-			Severity: request.Severity, IsActive: *request.IsActive,
+			Label: request.Label, ConditionLogic: request.ConditionLogic, Conditions: request.conditions(),
+			Severity: request.Severity, IsActive: *request.IsActive, NotifyRoleID: request.NotifyRoleID,
 		}, remoteIP(r.RemoteAddr))
 		if writeAlarmError(w, err) {
 			return
@@ -84,6 +98,16 @@ func deleteAlarmRuleHandler(service *core.Service) func(http.ResponseWriter, *ht
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func listAlarmNotifyRolesHandler(service *core.Service) func(http.ResponseWriter, *http.Request, auth.Principal) {
+	return func(w http.ResponseWriter, r *http.Request, principal auth.Principal) {
+		roles, err := service.ListAlarmNotifyRoles(r.Context(), principal, r.PathValue("plantId"))
+		if writeAlarmError(w, err) {
+			return
+		}
+		writeJSON(w, http.StatusOK, roles)
 	}
 }
 

@@ -10,10 +10,12 @@ import (
 )
 
 type createMiddlewareRequest struct {
-	OrganizationID string `json:"organizationId"`
-	Name           string `json:"name"`
-	SiteName       string `json:"siteName"`
-	AutoOnboard    bool   `json:"autoOnboard"`
+	OrganizationID      string `json:"organizationId"`
+	Name                string `json:"name"`
+	SiteName            string `json:"siteName"`
+	AutoOnboard         bool   `json:"autoOnboard"`
+	PollIntervalSeconds int32  `json:"pollIntervalSeconds"`
+	APIPollingEnabled   bool   `json:"apiPollingEnabled"`
 }
 
 type assignMiddlewarePlantRequest struct {
@@ -21,10 +23,12 @@ type assignMiddlewarePlantRequest struct {
 }
 
 type updateMiddlewareRequest struct {
-	Name        string `json:"name"`
-	SiteName    string `json:"siteName"`
-	IsActive    *bool  `json:"isActive"`
-	AutoOnboard bool   `json:"autoOnboard"`
+	Name                string `json:"name"`
+	SiteName            string `json:"siteName"`
+	IsActive            *bool  `json:"isActive"`
+	AutoOnboard         bool   `json:"autoOnboard"`
+	PollIntervalSeconds int32  `json:"pollIntervalSeconds"`
+	APIPollingEnabled   bool   `json:"apiPollingEnabled"`
 }
 
 func listMiddlewaresHandler(service *core.Service) func(http.ResponseWriter, *http.Request, auth.Principal) {
@@ -45,6 +49,7 @@ func createMiddlewareHandler(service *core.Service) func(http.ResponseWriter, *h
 		}
 		gateway, err := service.CreateMiddleware(r.Context(), principal, core.CreateMiddlewareInput{
 			OrganizationID: request.OrganizationID, Name: request.Name, SiteName: request.SiteName, AutoOnboard: request.AutoOnboard,
+			PollIntervalSeconds: request.PollIntervalSeconds, APIPollingEnabled: request.APIPollingEnabled,
 		}, remoteIP(r.RemoteAddr))
 		if writeMiddlewareError(w, err) {
 			return
@@ -65,6 +70,7 @@ func updateMiddlewareHandler(service *core.Service) func(http.ResponseWriter, *h
 		}
 		gateway, err := service.UpdateMiddleware(r.Context(), principal, r.PathValue("middlewareId"), core.UpdateMiddlewareInput{
 			Name: request.Name, SiteName: request.SiteName, IsActive: *request.IsActive, AutoOnboard: request.AutoOnboard,
+			PollIntervalSeconds: request.PollIntervalSeconds, APIPollingEnabled: request.APIPollingEnabled,
 		}, remoteIP(r.RemoteAddr))
 		if writeMiddlewareError(w, err) {
 			return
@@ -95,11 +101,11 @@ func importMiddlewareConfigHandler(service *core.Service) func(http.ResponseWrit
 
 func pushMiddlewareConfigHandler(service *core.Service) func(http.ResponseWriter, *http.Request, auth.Principal) {
 	return func(w http.ResponseWriter, r *http.Request, principal auth.Principal) {
-		err := service.PushMiddlewareConfig(r.Context(), principal, r.PathValue("middlewareId"), remoteIP(r.RemoteAddr))
+		result, err := service.PushMiddlewareConfig(r.Context(), principal, r.PathValue("middlewareId"), remoteIP(r.RemoteAddr))
 		if writeMiddlewareError(w, err) {
 			return
 		}
-		w.WriteHeader(http.StatusNoContent)
+		writeJSON(w, http.StatusOK, result)
 	}
 }
 
@@ -141,7 +147,9 @@ func writeMiddlewareError(w http.ResponseWriter, err error) bool {
 	switch {
 	case err == nil:
 		return false
-	case errors.Is(err, core.ErrMiddlewareInvalid), errors.Is(err, core.ErrInvalid):
+	case errors.Is(err, core.ErrMiddlewareInvalid):
+		http.Error(w, err.Error(), http.StatusBadRequest)
+	case errors.Is(err, core.ErrInvalid):
 		http.Error(w, "invalid request data", http.StatusBadRequest)
 	case errors.Is(err, core.ErrForbidden):
 		http.Error(w, "permission denied", http.StatusForbidden)

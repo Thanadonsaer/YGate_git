@@ -3,8 +3,8 @@ SELECT latest.telemetry_reading_id AS id, latest.organization_id, latest.plant_i
        d.external_id AS device_external_id, d.name AS device_name,
        latest.gateway_id, latest.observed_at, latest.received_at,
        latest.data_item_map, latest.parameter_count
-FROM telemetry_latest latest
-JOIN device d ON d.organization_id = latest.organization_id
+FROM telemetry.telemetry_latest latest
+JOIN plant.device d ON d.organization_id = latest.organization_id
              AND d.plant_id = latest.plant_id
              AND d.id = latest.device_id
 WHERE latest.organization_id = sqlc.arg(organization_id)
@@ -14,19 +14,22 @@ LIMIT 500;
 
 -- name: GetPlantDevice :one
 SELECT id
-FROM device
+FROM plant.device
 WHERE organization_id = sqlc.arg(organization_id)
   AND plant_id = sqlc.arg(plant_id)
   AND id = sqlc.arg(device_id)
 LIMIT 1;
 
+-- NOTE: internal/core/telemetry.go has a hand-written duplicate of this
+-- query (listDeviceTelemetryHistorySQL) working around an sqlc cursor-type
+-- inference bug — if you change this query's shape, update that too.
 -- name: ListDeviceTelemetryHistory :many
 SELECT tr.id, tr.organization_id, tr.plant_id, tr.device_id,
        d.external_id AS device_external_id, d.name AS device_name,
        tr.gateway_id, tr.observed_at, tr.received_at,
        tr.data_item_map, tr.parameter_count
-FROM telemetry_reading tr
-JOIN device d ON d.organization_id = tr.organization_id
+FROM telemetry.telemetry_reading tr
+JOIN plant.device d ON d.organization_id = tr.organization_id
              AND d.plant_id = tr.plant_id
              AND d.id = tr.device_id
 WHERE tr.organization_id = sqlc.arg(organization_id)

@@ -30,9 +30,9 @@ func (s *Service) MiddlewarePlants(ctx context.Context, principal auth.Principal
 	}
 	rows, err := s.pool.Query(ctx, `
 SELECT p.id, p.organization_id, o.name, p.code, p.name, p.timezone, p.latitude, p.longitude,
-       p.installed_dc_kw, p.installed_ac_kw, p.is_active, p.created_at, p.updated_at
-FROM middleware_plant mp
-JOIN plant p ON p.id = mp.plant_id
+       p.installed_dc_kw, p.installed_ac_kw, p.image_url, p.is_active, p.created_at, p.updated_at
+FROM middleware_gateway.middleware_plant mp
+JOIN plant.plant p ON p.id = mp.plant_id
 JOIN organization o ON o.id = p.organization_id
 WHERE mp.middleware_client_id=$1
 ORDER BY p.code`, id)
@@ -46,12 +46,13 @@ ORDER BY p.code`, id)
 		var organizationName, code, name, timezone string
 		var latitude, longitude pgtype.Float8
 		var installedDcKW, installedAcKW pgtype.Numeric
+		var imageURL *string
 		var isActive bool
 		var createdAt, updatedAt pgtype.Timestamptz
-		if err := rows.Scan(&plantID, &organizationID, &organizationName, &code, &name, &timezone, &latitude, &longitude, &installedDcKW, &installedAcKW, &isActive, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(&plantID, &organizationID, &organizationName, &code, &name, &timezone, &latitude, &longitude, &installedDcKW, &installedAcKW, &imageURL, &isActive, &createdAt, &updatedAt); err != nil {
 			return nil, fmt.Errorf("scan middleware plant: %w", err)
 		}
-		plants = append(plants, plantFromFields(plantID, organizationID, organizationName, code, name, timezone, latitude, longitude, installedDcKW, installedAcKW, isActive, createdAt, updatedAt))
+		plants = append(plants, plantFromFields(plantID, organizationID, organizationName, code, name, timezone, latitude, longitude, installedDcKW, installedAcKW, imageURL, isActive, createdAt, updatedAt))
 	}
 	return plants, rows.Err()
 }
@@ -78,7 +79,7 @@ func (s *Service) AssignMiddlewarePlant(ctx context.Context, principal auth.Prin
 	defer tx.Rollback(ctx)
 	q := s.queries.WithTx(tx)
 	var mwOrgID pgtype.UUID
-	if err = tx.QueryRow(ctx, `SELECT organization_id FROM middleware_client WHERE id=$1`, mwUUID).Scan(&mwOrgID); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT organization_id FROM auth.middleware_client WHERE id=$1`, mwUUID).Scan(&mwOrgID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrMiddlewareNotFound
 		}
@@ -88,7 +89,7 @@ func (s *Service) AssignMiddlewarePlant(ctx context.Context, principal auth.Prin
 		return err
 	}
 	var plantOrgID pgtype.UUID
-	if err = tx.QueryRow(ctx, `SELECT organization_id FROM plant WHERE id=$1`, plantUUID).Scan(&plantOrgID); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT organization_id FROM plant.plant WHERE id=$1`, plantUUID).Scan(&plantOrgID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrInvalid
 		}
@@ -98,7 +99,7 @@ func (s *Service) AssignMiddlewarePlant(ctx context.Context, principal auth.Prin
 		return ErrInvalid
 	}
 	if _, err = tx.Exec(ctx, `
-INSERT INTO middleware_plant (middleware_client_id, organization_id, plant_id) VALUES ($1,$2,$3)
+INSERT INTO middleware_gateway.middleware_plant (middleware_client_id, organization_id, plant_id) VALUES ($1,$2,$3)
 ON CONFLICT (plant_id) DO UPDATE SET middleware_client_id=EXCLUDED.middleware_client_id, created_at=now()`,
 		mwUUID, mwOrgID, plantUUID); err != nil {
 		return fmt.Errorf("assign middleware plant: %w", err)
@@ -136,7 +137,7 @@ func (s *Service) UnassignMiddlewarePlant(ctx context.Context, principal auth.Pr
 	defer tx.Rollback(ctx)
 	q := s.queries.WithTx(tx)
 	var mwOrgID pgtype.UUID
-	if err = tx.QueryRow(ctx, `SELECT organization_id FROM middleware_client WHERE id=$1`, mwUUID).Scan(&mwOrgID); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT organization_id FROM auth.middleware_client WHERE id=$1`, mwUUID).Scan(&mwOrgID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrMiddlewareNotFound
 		}
@@ -145,7 +146,7 @@ func (s *Service) UnassignMiddlewarePlant(ctx context.Context, principal auth.Pr
 	if err = s.requireOrganizationPermission(ctx, q, principal, "update", "middleware_plant", mwOrgID); err != nil {
 		return err
 	}
-	result, err := tx.Exec(ctx, `DELETE FROM middleware_plant WHERE middleware_client_id=$1 AND plant_id=$2`, mwUUID, plantUUID)
+	result, err := tx.Exec(ctx, `DELETE FROM middleware_gateway.middleware_plant WHERE middleware_client_id=$1 AND plant_id=$2`, mwUUID, plantUUID)
 	if err != nil {
 		return fmt.Errorf("unassign middleware plant: %w", err)
 	}

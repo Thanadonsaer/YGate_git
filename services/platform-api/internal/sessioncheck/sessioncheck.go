@@ -49,8 +49,8 @@ func (p Principal) ValidCSRF(token string) bool {
 const activeSessionQuery = `
 SELECT s.id AS session_id, s.organization_id, s.user_id, s.csrf_hash,
        u.email, u.display_name
-FROM user_session s
-JOIN app_user u ON u.id = s.user_id
+FROM auth.user_session s
+JOIN auth.app_user u ON u.id = s.user_id
 WHERE s.token_hash = $1
   AND s.revoked_at IS NULL
   AND s.expires_at > now()
@@ -63,7 +63,7 @@ LIMIT 1`
 // dbgen.TouchSession it wraps) exactly, including the "at most once per
 // minute" guard that caps write amplification on hot sessions.
 const touchSessionQuery = `
-UPDATE user_session
+UPDATE auth.user_session
 SET last_seen_at = now(),
     idle_expires_at = LEAST(expires_at, now() + $1::bigint * interval '1 second')
 WHERE id = $2

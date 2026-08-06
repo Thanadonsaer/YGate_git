@@ -1,5 +1,5 @@
 -- name: InsertRawRegisterReading :one
-INSERT INTO raw_register_reading (
+INSERT INTO telemetry.raw_register_reading (
     id, organization_id, plant_id, device_id, middleware_client_id, ingest_batch_id,
     gateway_id, external_key, observed_at, register_address_map, parameter_count
 ) VALUES (
@@ -8,5 +8,5 @@ INSERT INTO raw_register_reading (
     sqlc.arg(external_key), sqlc.arg(observed_at), sqlc.arg(register_address_map),
     sqlc.arg(parameter_count)
 )
-ON CONFLICT (middleware_client_id, external_key) DO NOTHING
+ON CONFLICT (middleware_client_id, external_key, observed_at) DO NOTHING
 RETURNING id;

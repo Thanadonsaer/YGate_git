@@ -29,11 +29,11 @@ func TestEvaluateAlarmsBreachAndClearAgainstPostgreSQL(t *testing.T) {
 	if _, err := pool.Exec(ctx, "INSERT INTO organization(id,code,name) VALUES($1,'YGATE-ALARM-TEST','Alarm Test')", organizationID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO middleware_client(id,organization_id,name,key_prefix,key_hash,auto_onboard) VALUES($1,$2,'Alarm Gateway','ygm_cccccccc',$3,true)`, clientID, organizationID, keyHash[:]); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO auth.middleware_client(id,organization_id,name,key_prefix,key_hash,auto_onboard) VALUES($1,$2,'Alarm Gateway','ygm_cccccccc',$3,true)`, clientID, organizationID, keyHash[:]); err != nil {
 		t.Fatal(err)
 	}
 
-	service := New(pool)
+	service := New(pool, nil)
 	client, err := service.Authenticate(ctx, key)
 	if err != nil {
 		t.Fatal(err)
@@ -57,23 +57,29 @@ func TestEvaluateAlarmsBreachAndClearAgainstPostgreSQL(t *testing.T) {
 	send(t, -30*time.Minute, 10)
 
 	var plantID, deviceID pgtype.UUID
-	if err = pool.QueryRow(ctx, `SELECT id FROM plant WHERE code='ALARM-PLANT'`).Scan(&plantID); err != nil {
+	if err = pool.QueryRow(ctx, `SELECT id FROM plant.plant WHERE code='ALARM-PLANT'`).Scan(&plantID); err != nil {
 		t.Fatal(err)
 	}
-	if err = pool.QueryRow(ctx, `SELECT id FROM device WHERE external_id='INV-1' AND plant_id=$1`, plantID).Scan(&deviceID); err != nil {
+	if err = pool.QueryRow(ctx, `SELECT id FROM plant.device WHERE external_id='INV-1' AND plant_id=$1`, plantID).Scan(&deviceID); err != nil {
 		t.Fatal(err)
 	}
 	ruleID, _ := newUUID()
 	if _, err = pool.Exec(ctx, `
-INSERT INTO alarm_rule (id, organization_id, plant_id, device_id, point_key, label, max_value, severity)
-VALUES ($1,$2,$3,$4,'active_power','High power',50,'major')`, ruleID, organizationID, plantID, deviceID); err != nil {
+INSERT INTO alarm.alarm_rule (id, organization_id, plant_id, device_id, label, severity)
+VALUES ($1,$2,$3,$4,'High power','major')`, ruleID, organizationID, plantID, deviceID); err != nil {
+		t.Fatal(err)
+	}
+	conditionID, _ := newUUID()
+	if _, err = pool.Exec(ctx, `
+INSERT INTO alarm.alarm_rule_condition (id, alarm_rule_id, point_key, max_value, position)
+VALUES ($1,$2,'active_power',50,0)`, conditionID, ruleID); err != nil {
 		t.Fatal(err)
 	}
 
 	openEventCount := func(t *testing.T) int {
 		t.Helper()
 		var count int
-		if err = pool.QueryRow(ctx, `SELECT count(*) FROM alarm_event WHERE alarm_rule_id=$1 AND cleared_at IS NULL`, ruleID).Scan(&count); err != nil {
+		if err = pool.QueryRow(ctx, `SELECT count(*) FROM alarm.alarm_event WHERE alarm_rule_id=$1 AND cleared_at IS NULL`, ruleID).Scan(&count); err != nil {
 			t.Fatal(err)
 		}
 		return count
@@ -81,7 +87,7 @@ VALUES ($1,$2,$3,$4,'active_power','High power',50,'major')`, ruleID, organizati
 	totalEventCount := func(t *testing.T) int {
 		t.Helper()
 		var count int
-		if err = pool.QueryRow(ctx, `SELECT count(*) FROM alarm_event WHERE alarm_rule_id=$1`, ruleID).Scan(&count); err != nil {
+		if err = pool.QueryRow(ctx, `SELECT count(*) FROM alarm.alarm_event WHERE alarm_rule_id=$1`, ruleID).Scan(&count); err != nil {
 			t.Fatal(err)
 		}
 		return count
@@ -108,7 +114,7 @@ VALUES ($1,$2,$3,$4,'active_power','High power',50,'major')`, ruleID, organizati
 		t.Fatalf("open events after clear = %d", got)
 	}
 	var clearedAt pgtype.Timestamptz
-	if err = pool.QueryRow(ctx, `SELECT cleared_at FROM alarm_event WHERE alarm_rule_id=$1 ORDER BY id DESC LIMIT 1`, ruleID).Scan(&clearedAt); err != nil || !clearedAt.Valid {
+	if err = pool.QueryRow(ctx, `SELECT cleared_at FROM alarm.alarm_event WHERE alarm_rule_id=$1 ORDER BY id DESC LIMIT 1`, ruleID).Scan(&clearedAt); err != nil || !clearedAt.Valid {
 		t.Fatalf("cleared_at=%+v err=%v", clearedAt, err)
 	}
 

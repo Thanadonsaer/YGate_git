@@ -85,7 +85,7 @@ func (s *Service) UploadMiddlewarePatch(ctx context.Context, principal auth.Prin
 		BinaryFilename: manifest.Binary, SHA256: strings.ToLower(manifest.SHA256), FileSizeBytes: int64(len(data)),
 	}
 	if _, err = s.pool.Exec(ctx, `
-INSERT INTO middleware_patch (id, version, os, arch, binary_filename, sha256, file_size_bytes, storage_path, uploaded_by)
+INSERT INTO middleware_gateway.middleware_patch (id, version, os, arch, binary_filename, sha256, file_size_bytes, storage_path, uploaded_by)
 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
 		id, patch.Version, patch.OS, patch.Arch, patch.BinaryFilename, patch.SHA256, patch.FileSizeBytes, storagePath, principal.UserID); err != nil {
 		_ = os.Remove(storagePath)
@@ -170,8 +170,8 @@ func (s *Service) ListMiddlewarePatches(ctx context.Context, principal auth.Prin
 	}
 	rows, err := s.pool.Query(ctx, `
 SELECT mp.id, mp.version, mp.os, mp.arch, mp.binary_filename, mp.sha256, mp.file_size_bytes, u.display_name, mp.created_at
-FROM middleware_patch mp
-LEFT JOIN app_user u ON u.id = mp.uploaded_by
+FROM middleware_gateway.middleware_patch mp
+LEFT JOIN auth.app_user u ON u.id = mp.uploaded_by
 ORDER BY mp.created_at DESC
 LIMIT 200`)
 	if err != nil {
@@ -204,7 +204,7 @@ func (s *Service) DeleteMiddlewarePatch(ctx context.Context, principal auth.Prin
 		return ErrMiddlewarePatchNotFound
 	}
 	var storagePath string
-	err = s.pool.QueryRow(ctx, `DELETE FROM middleware_patch WHERE id=$1 RETURNING storage_path`, id).Scan(&storagePath)
+	err = s.pool.QueryRow(ctx, `DELETE FROM middleware_gateway.middleware_patch WHERE id=$1 RETURNING storage_path`, id).Scan(&storagePath)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrMiddlewarePatchNotFound
 	}
@@ -232,7 +232,7 @@ func (s *Service) MiddlewarePatchFilePath(ctx context.Context, patchID string) (
 	if err != nil {
 		return "", "", ErrMiddlewarePatchNotFound
 	}
-	err = s.pool.QueryRow(ctx, `SELECT storage_path, binary_filename FROM middleware_patch WHERE id=$1`, id).Scan(&path, &filename)
+	err = s.pool.QueryRow(ctx, `SELECT storage_path, binary_filename FROM middleware_gateway.middleware_patch WHERE id=$1`, id).Scan(&path, &filename)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", "", ErrMiddlewarePatchNotFound
 	}
@@ -255,7 +255,7 @@ func (s *Service) runMiddlewareLifecycleCommand(ctx context.Context, principal a
 		return ErrMiddlewareNotFound
 	}
 	var mwOrgID pgtype.UUID
-	if err = s.pool.QueryRow(ctx, `SELECT organization_id FROM middleware_client WHERE id=$1`, mwUUID).Scan(&mwOrgID); err != nil {
+	if err = s.pool.QueryRow(ctx, `SELECT organization_id FROM auth.middleware_client WHERE id=$1`, mwUUID).Scan(&mwOrgID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrMiddlewareNotFound
 		}
@@ -271,7 +271,17 @@ func (s *Service) runMiddlewareLifecycleCommand(ctx context.Context, principal a
 		body[k] = v
 	}
 	payload, _ := json.Marshal(body)
-	runCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	// update.stage makes the middleware synchronously download the patch zip
+	// (modbus-api-middleware's stageUpdate uses a 60s HTTP client timeout)
+	// before it can ACK -- a plain command like restart/apply/rollback/
+	// config-export needs no such allowance. Give it a longer budget than the
+	// rest so a large patch over a slow site link has room to finish instead
+	// of reporting a false timeout while the download is still in flight.
+	timeout := 15 * time.Second
+	if kind == "update.stage" {
+		timeout = 90 * time.Second
+	}
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	raw, err := s.hub.RunCommand(runCtx, uuidString(mwUUID), uuidString(commandID), payload)
 	if errors.Is(err, context.DeadlineExceeded) {
@@ -311,7 +321,7 @@ func (s *Service) StageMiddlewareUpdate(ctx context.Context, principal auth.Prin
 		return ErrMiddlewarePatchNotFound
 	}
 	var patch MiddlewarePatch
-	err = s.pool.QueryRow(ctx, `SELECT version, os, arch, binary_filename, sha256 FROM middleware_patch WHERE id=$1`, id).
+	err = s.pool.QueryRow(ctx, `SELECT version, os, arch, binary_filename, sha256 FROM middleware_gateway.middleware_patch WHERE id=$1`, id).
 		Scan(&patch.Version, &patch.OS, &patch.Arch, &patch.BinaryFilename, &patch.SHA256)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrMiddlewarePatchNotFound

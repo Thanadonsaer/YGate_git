@@ -47,13 +47,18 @@ func (s *Store) CurrentConfigVersion() (int64, error) {
 // and is recorded as a FAILED config_history row instead. The caller must
 // only hot-swap the in-memory cache after this returns nil.
 //
-// IDs inside snapshot (brandId, deviceSetId, ...) are treated purely as
-// cross-reference keys within this one snapshot, never as literal local
-// primary keys: every apply deletes and re-creates every row, letting
-// SQLite assign fresh IDs. This sidesteps having to reconcile a
-// Central-Platform-invented ID space with the local autoincrement space,
-// and matches the "full snapshot, not diff" design -- the platform is
-// never trying to patch specific rows, only replace everything.
+// IDs inside snapshot (brandId, deviceSetId, addressId, connectionId) are
+// written as the actual local primary keys (SQLite allows explicit values
+// on an INTEGER PRIMARY KEY column), not left to autoincrement. They're
+// deterministic, collision-free wire IDs derived from the platform's own
+// UUIDs (see wireID in platform-api's middleware_config.go) -- preserving
+// them keeps a Device's connectionId stable across every push, which the
+// platform relies on to route command.request{connectionId} (Test
+// Connection / Test Read) to the right row after a config push. Letting
+// SQLite reassign fresh autoincrement IDs on every apply used to break that
+// silently: the platform kept sending the wireID it always had, but the
+// local row now had a different con_id, so every command failed with
+// "connection not found" the moment a config had ever been re-applied.
 func (s *Store) ApplyConfigSnapshot(version int64, snapshot domain.ConfigSnapshot) error {
 	if err := s.ensureConfigHistory(); err != nil {
 		return err
@@ -83,28 +88,22 @@ func (s *Store) applyConfigSnapshotTx(snapshot domain.ConfigSnapshot) error {
 		}
 	}
 
-	brandIDs := map[int64]int64{}
+	brandIDs := map[int64]bool{}
 	for _, b := range snapshot.Brands {
 		name := strings.TrimSpace(b.BrandName)
 		if name == "" {
 			return fmt.Errorf("brand: brandName is required")
 		}
-		res, err := tx.Exec(`INSERT INTO brands(brand_name,brand_description) VALUES(?,?)`, name, strings.TrimSpace(b.BrandDescription))
-		if err != nil {
+		if _, err = tx.Exec(`INSERT INTO brands(brand_id,brand_name,brand_description) VALUES(?,?,?)`, b.BrandID, name, strings.TrimSpace(b.BrandDescription)); err != nil {
 			return fmt.Errorf("brand %q: %w", name, err)
 		}
-		newID, err := res.LastInsertId()
-		if err != nil {
-			return err
-		}
-		brandIDs[b.BrandID] = newID
+		brandIDs[b.BrandID] = true
 	}
 
-	deviceSetIDs := map[int64]int64{}
+	deviceSetIDs := map[int64]bool{}
 	for _, ds := range snapshot.DeviceSets {
 		normalized := normalizeDeviceSet(ds)
-		brandID, ok := brandIDs[ds.BrandID]
-		if !ok {
+		if !brandIDs[ds.BrandID] {
 			return fmt.Errorf("device set %q: unknown brandId %d", normalized.DevModel, ds.BrandID)
 		}
 		if strings.TrimSpace(normalized.DevType) == "" || strings.TrimSpace(normalized.DevModel) == "" {
@@ -116,16 +115,11 @@ func (s *Store) applyConfigSnapshotTx(snapshot domain.ConfigSnapshot) error {
 		if len(ds.Addresses) == 0 {
 			return fmt.Errorf("device set %q: at least one address is required", normalized.DevModel)
 		}
-		res, err := tx.Exec(`INSERT INTO device_sets(brand_id,dev_type_id,dev_type,dev_model,address_mode,byte_order,word_order,max_block_size) VALUES(?,?,?,?,?,?,?,?)`,
-			brandID, normalized.DevTypeID, normalized.DevType, normalized.DevModel, normalized.AddressMode, normalized.ByteOrder, normalized.WordOrder, normalized.MaxBlockSize)
-		if err != nil {
+		if _, err = tx.Exec(`INSERT INTO device_sets(dev_set_id,brand_id,dev_type_id,dev_type,dev_model,address_mode,byte_order,word_order,max_block_size) VALUES(?,?,?,?,?,?,?,?,?)`,
+			ds.DeviceSetID, ds.BrandID, normalized.DevTypeID, normalized.DevType, normalized.DevModel, normalized.AddressMode, normalized.ByteOrder, normalized.WordOrder, normalized.MaxBlockSize); err != nil {
 			return fmt.Errorf("device set %q: %w", normalized.DevModel, err)
 		}
-		newID, err := res.LastInsertId()
-		if err != nil {
-			return err
-		}
-		deviceSetIDs[ds.DeviceSetID] = newID
+		deviceSetIDs[ds.DeviceSetID] = true
 
 		for i, addr := range ds.Addresses {
 			a, err := normalizeAddress(addr, normalized.AddressMode)
@@ -135,8 +129,8 @@ func (s *Store) applyConfigSnapshotTx(snapshot domain.ConfigSnapshot) error {
 			if err = validateAddress(a, normalized.AddressMode); err != nil {
 				return fmt.Errorf("device set %q address %d: %w", normalized.DevModel, i+1, err)
 			}
-			if _, err = tx.Exec(`INSERT INTO addresses(dev_set_id,address_fc,address_register,address_description,canonical_key,source_tag,address_factor,address_offset,address_data_type,address_length,word_order,source_unit,canonical_unit,address_remark,enabled) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-				newID, a.FunctionCode, a.Register, a.Description, a.CanonicalKey, a.SourceTag, a.Factor, a.Offset, a.DataType, a.Length, a.WordOrder, a.SourceUnit, a.CanonicalUnit, a.Remark, a.Enabled); err != nil {
+			if _, err = tx.Exec(`INSERT INTO addresses(address_id,dev_set_id,address_fc,address_register,address_description,canonical_key,source_tag,address_factor,address_offset,address_data_type,address_length,word_order,source_unit,canonical_unit,address_remark,enabled) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+				addr.AddressID, ds.DeviceSetID, a.FunctionCode, a.Register, a.Description, a.CanonicalKey, a.SourceTag, a.Factor, a.Offset, a.DataType, a.Length, a.WordOrder, a.SourceUnit, a.CanonicalUnit, a.Remark, a.Enabled); err != nil {
 				return fmt.Errorf("device set %q address %d: %w", normalized.DevModel, i+1, err)
 			}
 		}
@@ -155,15 +149,14 @@ func (s *Store) applyConfigSnapshotTx(snapshot domain.ConfigSnapshot) error {
 
 	for _, conn := range snapshot.Connections {
 		normalized := normalizeConnection(conn)
-		devSetID, ok := deviceSetIDs[conn.DeviceSetID]
-		if !ok {
+		if !deviceSetIDs[conn.DeviceSetID] {
 			return fmt.Errorf("connection %q: unknown deviceSetId %d", normalized.ConnectionName, conn.DeviceSetID)
 		}
 		if strings.TrimSpace(normalized.ConnectionName) == "" || strings.TrimSpace(normalized.Host) == "" || normalized.Port < 1 || normalized.Port > 65535 {
 			return fmt.Errorf("connection %q: connectionName, host and valid port are required", normalized.ConnectionName)
 		}
-		if _, err = tx.Exec(`INSERT INTO connections(con_name,con_host,con_port,unit_id,con_dev_set,dev_dn,device_name,plant_code,plant_name,enabled) VALUES(?,?,?,?,?,?,?,?,?,?)`,
-			normalized.ConnectionName, normalized.Host, normalized.Port, normalized.UnitID, devSetID, normalized.DevDn, normalized.DeviceName, normalized.PlantCode, normalized.PlantName, normalized.Enabled); err != nil {
+		if _, err = tx.Exec(`INSERT INTO connections(con_id,con_name,con_host,con_port,unit_id,con_dev_set,dev_dn,device_name,plant_code,plant_name,enabled) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+			conn.ConnectionID, normalized.ConnectionName, normalized.Host, normalized.Port, normalized.UnitID, conn.DeviceSetID, normalized.DevDn, normalized.DeviceName, normalized.PlantCode, normalized.PlantName, normalized.Enabled); err != nil {
 			return fmt.Errorf("connection %q: %w", normalized.ConnectionName, err)
 		}
 	}

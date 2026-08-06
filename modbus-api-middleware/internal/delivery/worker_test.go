@@ -19,10 +19,11 @@ func TestDelivery(t *testing.T) {
 	defer st.Close()
 	r := testReading()
 	_, _ = st.Enqueue("key", "hash", r)
-	var key string
+	var key, path string
 	var body string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		key = r.Header.Get("X-Api-Key")
+		path = r.URL.Path
 		payload, _ := io.ReadAll(r.Body)
 		body = string(payload)
 		w.WriteHeader(201)
@@ -32,6 +33,9 @@ func TestDelivery(t *testing.T) {
 	n, err := (&Worker{Store: st, Endpoint: srv.URL, APIKey: "secret", BatchSize: 20, Client: srv.Client()}).SendOnce()
 	if err != nil || n != 1 || key != "secret" {
 		t.Fatalf("n=%d key=%s err=%v", n, key, err)
+	}
+	if path != "/api/v2/ingestion/register-readings" {
+		t.Fatalf("posted to path %q, want /api/v2/ingestion/register-readings (a bare Endpoint with no ingest path suffix hits whatever else lives at that URL and 404s/405s)", path)
 	}
 	if !strings.Contains(body, `"schemaVersion":"2.0"`) || !strings.Contains(body, `"registerAddressMap"`) || strings.Contains(body, `"dataItemMap"`) {
 		t.Fatalf("unexpected v2 body: %s", body)

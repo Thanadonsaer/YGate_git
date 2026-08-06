@@ -39,7 +39,7 @@ func TestRoleAdministrationLifecycleAgainstPostgreSQL(t *testing.T) {
 		id    pgtype.UUID
 		email string
 	}{{platformAdminID, "roles-admin@test.invalid"}, {orgAdminID, "roles-orgadmin@test.invalid"}, {viewerID, "roles-viewer@test.invalid"}, {assignedUserID, "roles-assigned@test.invalid"}} {
-		if _, err = pool.Exec(ctx, `INSERT INTO app_user(id,organization_id,email,display_name,password_hash) VALUES($1,$2,$3,$4,'unused')`, user.id, orgA, user.email, user.email); err != nil {
+		if _, err = pool.Exec(ctx, `INSERT INTO auth.app_user(id,organization_id,email,display_name,password_hash) VALUES($1,$2,$3,$4,'unused')`, user.id, orgA, user.email, user.email); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -51,7 +51,7 @@ func TestRoleAdministrationLifecycleAgainstPostgreSQL(t *testing.T) {
 		{mustUUID(t, "20000000-0000-4000-8000-000000000023"), viewerID, mustUUID(t, "00000000-0000-4000-8000-000000000206"), orgA},
 	}
 	for _, assignment := range assignments {
-		if _, err = pool.Exec(ctx, `INSERT INTO user_role(id,organization_id,user_id,role_id) VALUES($1,$2,$3,$4)`, assignment.id, assignment.organization, assignment.user, assignment.role); err != nil {
+		if _, err = pool.Exec(ctx, `INSERT INTO auth.user_role(id,organization_id,user_id,role_id) VALUES($1,$2,$3,$4)`, assignment.id, assignment.organization, assignment.user, assignment.role); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -111,14 +111,14 @@ func TestRoleAdministrationLifecycleAgainstPostgreSQL(t *testing.T) {
 	}
 
 	// A role assigned to a user cannot be deleted until unassigned.
-	if _, err = pool.Exec(ctx, `INSERT INTO user_role(id,organization_id,user_id,role_id) VALUES($1,$2,$3,$4)`,
+	if _, err = pool.Exec(ctx, `INSERT INTO auth.user_role(id,organization_id,user_id,role_id) VALUES($1,$2,$3,$4)`,
 		mustUUID(t, "20000000-0000-4000-8000-000000000024"), orgA, assignedUserID, mustUUID(t, created.ID)); err != nil {
 		t.Fatal(err)
 	}
 	if err = service.DeleteRole(ctx, orgAdmin, created.ID, nil); !errors.Is(err, ErrRoleInUse) {
 		t.Fatalf("in-use delete error = %v", err)
 	}
-	if _, err = pool.Exec(ctx, `DELETE FROM user_role WHERE role_id=$1 AND user_id=$2`, mustUUID(t, created.ID), assignedUserID); err != nil {
+	if _, err = pool.Exec(ctx, `DELETE FROM auth.user_role WHERE role_id=$1 AND user_id=$2`, mustUUID(t, created.ID), assignedUserID); err != nil {
 		t.Fatal(err)
 	}
 	if err = service.DeleteRole(ctx, orgAdmin, created.ID, nil); err != nil {

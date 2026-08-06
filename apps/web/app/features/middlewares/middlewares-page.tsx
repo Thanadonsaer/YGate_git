@@ -2,7 +2,7 @@
 
 import { ArchiveX, ArrowDownToLine, ArrowLeft, ArrowUpToLine, CheckCircle2, FileUp, Loader2, Pencil, Plus, RefreshCw, RotateCcw, Save, Settings2, Trash2, X } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { api, csrfToken } from "../../lib/api";
+import { api, errorMessage, csrfToken } from "../../lib/api";
 import type { CreatedMiddlewareGateway, ImportMiddlewareConfigResult, MiddlewareConfigSnapshot, MiddlewareGateway, MiddlewarePatch, Plant } from "../../lib/types";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody } from "../../components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../../components/ui/select";
@@ -28,7 +28,7 @@ export function MiddlewaresPage({ defaultOrganizationId }: { defaultOrganization
       if (!response.ok) throw new Error("ไม่สามารถโหลดรายการ Middleware ได้");
       setGateways((await response.json()) as MiddlewareGateway[]);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+      setError(errorMessage(cause));
     } finally {
       setLoading(false);
     }
@@ -57,8 +57,8 @@ export function MiddlewaresPage({ defaultOrganizationId }: { defaultOrganization
       method: "DELETE",
       headers: { "X-CSRF-Token": csrfToken(), "X-Hard-Delete-Confirm": expected },
     });
-    if (response.ok) await loadGateways();
-    else setError(response.status === 403 ? "เฉพาะ Platform Admin เท่านั้นที่ลบ Middleware ถาวรได้" : "ไม่สามารถลบ Middleware ถาวรได้");
+    if (response.ok) { toast.success(`ลบ Middleware "${gateway.name}" ถาวรแล้ว`); await loadGateways(); }
+    else setError(response.status === 403 ? "เฉพาะ System Admin เท่านั้นที่ลบ Middleware ถาวรได้" : "ไม่สามารถลบ Middleware ถาวรได้");
   }
 
   if (selected) {
@@ -102,7 +102,7 @@ export function MiddlewaresPage({ defaultOrganizationId }: { defaultOrganization
               <Button variant="icon" onClick={() => void setGatewayActive(gateway, !gateway.isActive)} title={gateway.isActive ? "ปิดใช้งาน" : "เปิดใช้งาน"} aria-label={gateway.isActive ? `ปิดใช้งาน ${gateway.name}` : `เปิดใช้งาน ${gateway.name}`}>
                 {gateway.isActive ? <ArchiveX size={17} /> : <CheckCircle2 size={17} />}
               </Button>
-              <Button variant="icon" danger onClick={() => void hardDeleteGateway(gateway)} title="ลบถาวร (Platform Admin)" aria-label={`ลบ ${gateway.name} ถาวร`}><Trash2 size={17} /></Button>
+              <Button variant="icon" danger onClick={() => void hardDeleteGateway(gateway)} title="ลบถาวร (System Admin)" aria-label={`ลบ ${gateway.name} ถาวร`}><Trash2 size={17} /></Button>
             </div>
           </div>
         ))}
@@ -126,6 +126,8 @@ function MiddlewareEditor({ gateway, defaultOrganizationId, onClose, onSaved }: 
   const [name, setName] = useState(gateway?.name ?? "");
   const [siteName, setSiteName] = useState(gateway?.siteName ?? "");
   const [autoOnboard, setAutoOnboard] = useState(gateway?.autoOnboard ?? true);
+  const [pollIntervalMinutes, setPollIntervalMinutes] = useState(gateway ? Math.max(1, Math.round(gateway.pollIntervalSeconds / 60)).toString() : "1");
+  const [apiPollingEnabled, setApiPollingEnabled] = useState(gateway?.apiPollingEnabled ?? false);
   const [isActive, setIsActive] = useState(gateway?.isActive ?? true);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
@@ -135,15 +137,20 @@ function MiddlewareEditor({ gateway, defaultOrganizationId, onClose, onSaved }: 
     setPending(true);
     setError("");
     try {
+      const pollIntervalSeconds = Number(pollIntervalMinutes) * 60;
       const response = await api(gateway ? `/api/v1/admin/middlewares/${encodeURIComponent(gateway.id)}` : "/api/v1/admin/middlewares", {
         method: gateway ? "PUT" : "POST",
         headers: { "X-CSRF-Token": csrfToken() },
-        body: JSON.stringify(gateway ? { name, siteName, autoOnboard, isActive } : { organizationId, name, siteName, autoOnboard }),
+        body: JSON.stringify(
+          gateway
+            ? { name, siteName, autoOnboard, isActive, pollIntervalSeconds, apiPollingEnabled }
+            : { organizationId, name, siteName, autoOnboard, pollIntervalSeconds, apiPollingEnabled },
+        ),
       });
       if (!response.ok) throw new Error(response.status === 409 ? "ชื่อ Middleware นี้มีอยู่แล้ว" : response.status === 403 ? "บัญชีนี้ไม่มีสิทธิ์จัดการ Middleware" : "ไม่สามารถบันทึก Middleware ได้");
       onSaved(gateway ? undefined : ((await response.json()) as CreatedMiddlewareGateway));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+      setError(errorMessage(cause));
     } finally {
       setPending(false);
     }
@@ -160,6 +167,8 @@ function MiddlewareEditor({ gateway, defaultOrganizationId, onClose, onSaved }: 
             <label className="full-field">ชื่อ Gateway<input autoFocus value={name} onChange={(event) => setName(event.target.value)} maxLength={200} required /></label>
             <label className="full-field">ชื่อ Site<input value={siteName} onChange={(event) => setSiteName(event.target.value)} maxLength={200} placeholder="เช่น VT1 - Vientiane Solar" /></label>
             {!gateway && <label className="full-field">Organization ID<input value={organizationId} onChange={(event) => setOrganizationId(event.target.value)} required /></label>}
+            <label>ส่งข้อมูลทุก (นาที)<input type="number" min="1" max="60" value={pollIntervalMinutes} onChange={(event) => setPollIntervalMinutes(event.target.value)} /></label>
+            <label className="toggle-field full-field"><input type="checkbox" checked={apiPollingEnabled} onChange={(event) => setApiPollingEnabled(event.target.checked)} /> เปิดใช้งาน API Polling (ส่ง telemetry ผ่าน REST API)</label>
             <label className="toggle-field full-field"><input type="checkbox" checked={autoOnboard} onChange={(event) => setAutoOnboard(event.target.checked)} /> Auto onboard Plant/Device</label>
             {gateway && <label className="toggle-field full-field"><input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} /> เปิดใช้งาน Middleware</label>}
             {error && <p className="form-message error full-field">{error}</p>}
@@ -169,6 +178,18 @@ function MiddlewareEditor({ gateway, defaultOrganizationId, onClose, onSaved }: 
       </DialogContent>
     </Dialog>
   );
+}
+
+// The lifecycle endpoints (stage/apply/rollback/restart) return the real
+// reason as the response body (see writeMiddlewareError in platform-api) --
+// prefer that over a guess, since "offline" is only one of several distinct
+// failure modes (missing server config, unsupported old middleware build,
+// no staged patch, etc) that a generic message would otherwise conflate.
+async function middlewareLifecycleError(response: Response, fallbackHint: string): Promise<string> {
+  if (response.status === 503) return "Middleware ออฟไลน์อยู่";
+  if (response.status === 504) return "Middleware เชื่อมต่ออยู่ (online) แต่ไม่ตอบสนองคำสั่งนี้ — อาจเป็น Middleware เวอร์ชันเก่าที่ยังไม่รองรับ remote update";
+  const body = (await response.text()).trim();
+  return body || `ดำเนินการไม่สำเร็จ (${fallbackHint})`;
 }
 
 function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGateway; onBack: () => void }) {
@@ -206,7 +227,7 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
       setAllPlants((await allPlantsResponse.json()) as Plant[]);
       if (patchesResponse.ok) setPatches((await patchesResponse.json()) as MiddlewarePatch[]);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+      setError(errorMessage(cause));
     } finally {
       setLoading(false);
     }
@@ -231,7 +252,7 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
       setAddPlantId("");
       await load();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+      setError(errorMessage(cause));
     } finally {
       setPending(false);
     }
@@ -250,14 +271,14 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
       toast.success(`เอา "${plant.name}" ออกจาก ${gateway.name} แล้ว`);
       await load();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+      setError(errorMessage(cause));
     } finally {
       setPending(false);
     }
   }
 
   async function importConfig() {
-    if (!window.confirm(`ดึง Config จาก "${gateway.name}" มาสร้าง/อัปเดต Device Model และ Register Metadata?`)) return;
+    if (!window.confirm(`ดึง Config จาก "${gateway.name}" มาสร้าง/อัปเดต Device Model, Register Metadata และ Device (IP/Port/Unit ID) ของ Plant ที่มีอยู่แล้ว?`)) return;
     setImporting(true);
     setError("");
     try {
@@ -269,10 +290,13 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
       if (!response.ok) throw new Error("ไม่สามารถดึง Config จาก Middleware ได้");
       const result = (await response.json()) as ImportMiddlewareConfigResult;
       toast.success(
-        `Import สำเร็จ: ${result.deviceModelsCreated} Model ใหม่, ${result.deviceModelsReused} Model เดิม, ${result.registerMetadataUpserted} Register, พบ ${result.connectionsFound.length} Connection (ไปสร้าง Device เองที่ Plants → Devices)${result.registerMetadataSkipped > 0 ? `, ข้าม ${result.registerMetadataSkipped} Register ที่ import ไม่ได้` : ""}`,
+        `Import สำเร็จ: ${result.deviceModelsCreated} Model ใหม่, ${result.deviceModelsReused} Model เดิม, ${result.registerMetadataUpserted} Register, ${result.devicesCreated} Device ใหม่, ${result.devicesUpdated} Device อัปเดต IP/Port`
+        + `${result.registerMetadataSkipped > 0 ? `, ข้าม ${result.registerMetadataSkipped} Register ที่ import ไม่ได้` : ""}`
+        + `${result.registerMetadataPruned > 0 ? `, ลบ ${result.registerMetadataPruned} Register เก่าที่ไม่มีใน Middleware แล้ว` : ""}`
+        + `${result.devicesSkipped > 0 ? `, ข้าม ${result.devicesSkipped} Connection (Plant ยังไม่มีในระบบ หรือไม่มี external_id)` : ""}`,
       );
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+      setError(errorMessage(cause));
     } finally {
       setImporting(false);
     }
@@ -288,10 +312,21 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
         headers: { "X-CSRF-Token": csrfToken() },
       });
       if (!response.ok) throw new Error("ไม่สามารถส่ง Config ไปที่ Middleware ได้");
-      toast.success(gateway.isOnline ? `ส่ง Config ไปที่ ${gateway.name} แล้ว` : `คำนวณ Config ไว้แล้ว แต่ ${gateway.name} ออฟไลน์อยู่ — กด "ส่ง Config" อีกครั้งหลังเชื่อมต่อ`);
+      const result = (await response.json()) as { plantCount: number; deviceCount: number; deviceSetCount: number; delivered: boolean };
+      if (result.deviceCount === 0) {
+        toast.error(
+          result.plantCount === 0
+            ? "ไม่มี Plant ที่ assign ให้ Middleware นี้ — ไปที่แท็บ Plants ก่อน"
+            : "Assign Plant แล้วแต่ไม่มี Device พร้อม push — ตรวจว่า Device ตั้ง Modbus host/port ครบ และ Device Model มี Register Metadata ที่กรอก Modbus Function Code/Register แล้ว",
+        );
+      } else if (result.delivered) {
+        toast.success(`ส่ง Config ไปที่ ${gateway.name} แล้ว (${result.deviceCount} device, ${result.deviceSetCount} device set)`);
+      } else {
+        toast.error(`คำนวณ Config ไว้แล้ว (${result.deviceCount} device) แต่ยังไม่ถึง ${gateway.name} — Middleware ไม่ได้เชื่อมต่ออยู่จริงตอนนี้ กด "ส่ง Config" อีกครั้งหลังเชื่อมต่อ`);
+      }
       await load();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+      setError(errorMessage(cause));
     } finally {
       setPushing(false);
     }
@@ -314,7 +349,7 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
       toast.success("Upload patch สำเร็จ");
       await load();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+      setError(errorMessage(cause));
     } finally {
       setUploading(false);
     }
@@ -330,10 +365,10 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
         headers: { "X-CSRF-Token": csrfToken() },
         body: JSON.stringify({ patchId: selectedPatchId }),
       });
-      if (!response.ok) throw new Error("Stage patch ไม่สำเร็จ (Middleware อาจ offline หรือไม่ตอบสนอง)");
+      if (!response.ok) throw new Error(await middlewareLifecycleError(response, "Middleware อาจ offline หรือไม่ตอบสนอง"));
       toast.success(`Stage patch บน ${gateway.name} แล้ว — กด "Apply" เพื่อติดตั้งจริง`);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+      setError(errorMessage(cause));
     } finally {
       setStaging(false);
     }
@@ -348,11 +383,11 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
         method: "POST",
         headers: { "X-CSRF-Token": csrfToken() },
       });
-      if (!response.ok) throw new Error("Apply ไม่สำเร็จ (ตรวจสอบว่า stage patch ไว้แล้วหรือยัง)");
+      if (!response.ok) throw new Error(await middlewareLifecycleError(response, "ตรวจสอบว่า stage patch ไว้แล้วหรือยัง"));
       toast.success("Apply เริ่มแล้ว — Middleware จะ offline ชั่วครู่ระหว่าง restart");
       await load();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+      setError(errorMessage(cause));
     } finally {
       setApplying(false);
     }
@@ -367,11 +402,11 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
         method: "POST",
         headers: { "X-CSRF-Token": csrfToken() },
       });
-      if (!response.ok) throw new Error("Rollback ไม่สำเร็จ (อาจไม่มี backup)");
+      if (!response.ok) throw new Error(await middlewareLifecycleError(response, "อาจไม่มี backup"));
       toast.success("Rollback เริ่มแล้ว — Middleware จะ offline ชั่วครู่ระหว่าง restart");
       await load();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+      setError(errorMessage(cause));
     } finally {
       setRollingBack(false);
     }
@@ -386,11 +421,11 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
         method: "POST",
         headers: { "X-CSRF-Token": csrfToken() },
       });
-      if (!response.ok) throw new Error("Restart ไม่สำเร็จ (Middleware อาจไม่ได้รันเป็น Service)");
+      if (!response.ok) throw new Error(await middlewareLifecycleError(response, "Middleware อาจไม่ได้รันเป็น Service"));
       toast.success("Restart เริ่มแล้ว");
       await load();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+      setError(errorMessage(cause));
     } finally {
       setRestarting(false);
     }
@@ -476,7 +511,10 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
             <div className="heading-actions">
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <label className="secondary-button compact icon-only" style={{ cursor: "pointer" }} aria-label="Upload Patch (.zip)">
+                  <label
+                    className={`inline-flex items-center justify-center gap-1.5 rounded-[var(--radius-md)] border border-line bg-surface px-2.5 py-1.5 text-xs font-bold text-ink transition hover:bg-canvas focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus ${lifecycleBusy ? "pointer-events-none opacity-48" : "cursor-pointer"}`}
+                    aria-label="Upload Patch (.zip)"
+                  >
                     {uploading ? <Loader2 size={17} className="animate-spin" /> : <FileUp size={17} />}
                     <input
                       type="file"

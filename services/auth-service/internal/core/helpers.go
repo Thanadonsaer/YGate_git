@@ -82,10 +82,10 @@ func hasGlobalPermissionQuery(ctx context.Context, querier rowQuerier, principal
 	var allowed bool
 	err := querier.QueryRow(ctx, `
 SELECT EXISTS (
-    SELECT 1 FROM user_role ur
-    JOIN role r ON r.id = ur.role_id
-    JOIN role_permission rp ON rp.role_id = ur.role_id
-    JOIN permission pm ON pm.id = rp.permission_id
+    SELECT 1 FROM auth.user_role ur
+    JOIN auth.role r ON r.id = ur.role_id
+    JOIN auth.role_permission rp ON rp.role_id = ur.role_id
+    JOIN auth.permission pm ON pm.id = rp.permission_id
     WHERE ur.user_id = $1
       AND ur.organization_id IS NULL
       AND pm.action = $2

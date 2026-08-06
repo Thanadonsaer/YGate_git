@@ -1,9 +1,9 @@
 -- name: HasOrganizationPermission :one
 SELECT EXISTS (
-    SELECT 1 FROM user_role ur
-    JOIN role r ON r.id = ur.role_id
-    JOIN role_permission rp ON rp.role_id = ur.role_id
-    JOIN permission pm ON pm.id = rp.permission_id
+    SELECT 1 FROM auth.user_role ur
+    JOIN auth.role r ON r.id = ur.role_id
+    JOIN auth.role_permission rp ON rp.role_id = ur.role_id
+    JOIN auth.permission pm ON pm.id = rp.permission_id
     WHERE ur.user_id = sqlc.arg(user_id)
       AND pm.action = sqlc.arg(action)
       AND pm.resource_type = sqlc.arg(resource_type)
@@ -15,10 +15,10 @@ SELECT EXISTS (
 
 -- name: HasUserPermission :one
 SELECT EXISTS (
-    SELECT 1 FROM user_role ur
-    JOIN role r ON r.id = ur.role_id
-    JOIN role_permission rp ON rp.role_id = ur.role_id
-    JOIN permission pm ON pm.id = rp.permission_id
+    SELECT 1 FROM auth.user_role ur
+    JOIN auth.role r ON r.id = ur.role_id
+    JOIN auth.role_permission rp ON rp.role_id = ur.role_id
+    JOIN auth.permission pm ON pm.id = rp.permission_id
     WHERE ur.user_id = sqlc.arg(user_id)
       AND pm.action = sqlc.arg(action)
       AND pm.resource_type = sqlc.arg(resource_type)
@@ -32,14 +32,15 @@ SELECT p.id, p.organization_id, o.name AS organization_name,
        p.code, p.name, p.timezone, p.latitude, p.longitude,
        p.installed_dc_kw,
        p.installed_ac_kw,
+       p.image_url,
        p.is_active, p.created_at, p.updated_at
-FROM plant p
+FROM plant.plant p
 JOIN organization o ON o.id = p.organization_id
 WHERE EXISTS (
-    SELECT 1 FROM user_role ur
-    JOIN role r ON r.id = ur.role_id
-    JOIN role_permission rp ON rp.role_id = ur.role_id
-    JOIN permission pm ON pm.id = rp.permission_id
+    SELECT 1 FROM auth.user_role ur
+    JOIN auth.role r ON r.id = ur.role_id
+    JOIN auth.role_permission rp ON rp.role_id = ur.role_id
+    JOIN auth.permission pm ON pm.id = rp.permission_id
     WHERE ur.user_id = sqlc.arg(user_id)
       AND pm.action = 'read' AND pm.resource_type = 'plant'
       AND (r.organization_id IS NULL OR r.organization_id = ur.organization_id)
@@ -55,15 +56,16 @@ SELECT p.id, p.organization_id, o.name AS organization_name,
        p.code, p.name, p.timezone, p.latitude, p.longitude,
        p.installed_dc_kw,
        p.installed_ac_kw,
+       p.image_url,
        p.is_active, p.created_at, p.updated_at
-FROM plant p
+FROM plant.plant p
 JOIN organization o ON o.id = p.organization_id
 WHERE p.id = sqlc.arg(plant_id)
   AND EXISTS (
-      SELECT 1 FROM user_role ur
-      JOIN role r ON r.id = ur.role_id
-      JOIN role_permission rp ON rp.role_id = ur.role_id
-      JOIN permission pm ON pm.id = rp.permission_id
+      SELECT 1 FROM auth.user_role ur
+      JOIN auth.role r ON r.id = ur.role_id
+      JOIN auth.role_permission rp ON rp.role_id = ur.role_id
+      JOIN auth.permission pm ON pm.id = rp.permission_id
       WHERE ur.user_id = sqlc.arg(user_id)
         AND pm.action = sqlc.arg(action) AND pm.resource_type = 'plant'
         AND (r.organization_id IS NULL OR r.organization_id = ur.organization_id)
@@ -78,15 +80,16 @@ SELECT p.id, p.organization_id, o.name AS organization_name,
        p.code, p.name, p.timezone, p.latitude, p.longitude,
        p.installed_dc_kw,
        p.installed_ac_kw,
+       p.image_url,
        p.is_active, p.created_at, p.updated_at
-FROM plant p
+FROM plant.plant p
 JOIN organization o ON o.id = p.organization_id
 WHERE p.id = sqlc.arg(plant_id)
   AND EXISTS (
-      SELECT 1 FROM user_role ur
-      JOIN role r ON r.id = ur.role_id
-      JOIN role_permission rp ON rp.role_id = ur.role_id
-      JOIN permission pm ON pm.id = rp.permission_id
+      SELECT 1 FROM auth.user_role ur
+      JOIN auth.role r ON r.id = ur.role_id
+      JOIN auth.role_permission rp ON rp.role_id = ur.role_id
+      JOIN auth.permission pm ON pm.id = rp.permission_id
       WHERE ur.user_id = sqlc.arg(user_id)
         AND pm.action = 'update' AND pm.resource_type = 'plant'
         AND (r.organization_id IS NULL OR r.organization_id = ur.organization_id)
@@ -98,7 +101,7 @@ LIMIT 1
 FOR UPDATE OF p;
 
 -- name: CreatePlant :one
-INSERT INTO plant (
+INSERT INTO plant.plant (
     id, organization_id, code, name, timezone, latitude, longitude,
     installed_dc_kw, installed_ac_kw
 ) VALUES (
@@ -109,10 +112,11 @@ INSERT INTO plant (
 RETURNING id, organization_id, code, name, timezone, latitude, longitude,
           installed_dc_kw,
           installed_ac_kw,
+          image_url,
           is_active, created_at, updated_at;
 
 -- name: UpdatePlant :one
-UPDATE plant
+UPDATE plant.plant
 SET code = sqlc.arg(code), name = sqlc.arg(name), timezone = sqlc.arg(timezone),
     latitude = sqlc.narg(latitude)::double precision,
     longitude = sqlc.narg(longitude)::double precision,
@@ -123,6 +127,7 @@ WHERE id = sqlc.arg(id)
 RETURNING id, organization_id, code, name, timezone, latitude, longitude,
           installed_dc_kw,
           installed_ac_kw,
+          image_url,
           is_active, created_at, updated_at;
 
 -- name: CreateAuditEventFull :exec

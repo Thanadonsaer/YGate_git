@@ -1,9 +1,9 @@
 -- name: HasOrganizationPermission :one
 SELECT EXISTS (
-    SELECT 1 FROM user_role ur
-    JOIN role r ON r.id = ur.role_id
-    JOIN role_permission rp ON rp.role_id = ur.role_id
-    JOIN permission pm ON pm.id = rp.permission_id
+    SELECT 1 FROM auth.user_role ur
+    JOIN auth.role r ON r.id = ur.role_id
+    JOIN auth.role_permission rp ON rp.role_id = ur.role_id
+    JOIN auth.permission pm ON pm.id = rp.permission_id
     WHERE ur.user_id = sqlc.arg(user_id)
       AND pm.action = sqlc.arg(action)
       AND pm.resource_type = sqlc.arg(resource_type)
@@ -15,10 +15,10 @@ SELECT EXISTS (
 
 -- name: HasUserPermission :one
 SELECT EXISTS (
-    SELECT 1 FROM user_role ur
-    JOIN role r ON r.id = ur.role_id
-    JOIN role_permission rp ON rp.role_id = ur.role_id
-    JOIN permission pm ON pm.id = rp.permission_id
+    SELECT 1 FROM auth.user_role ur
+    JOIN auth.role r ON r.id = ur.role_id
+    JOIN auth.role_permission rp ON rp.role_id = ur.role_id
+    JOIN auth.permission pm ON pm.id = rp.permission_id
     WHERE ur.user_id = sqlc.arg(user_id)
       AND pm.action = sqlc.arg(action)
       AND pm.resource_type = sqlc.arg(resource_type)
@@ -28,11 +28,11 @@ SELECT EXISTS (
 
 -- name: ListUserPermissions :many
 SELECT DISTINCT pm.resource_type, pm.action
-FROM user_role ur
-JOIN role r ON r.id = ur.role_id
-JOIN role_permission rp ON rp.role_id = ur.role_id
+FROM auth.user_role ur
+JOIN auth.role r ON r.id = ur.role_id
+JOIN auth.role_permission rp ON rp.role_id = ur.role_id
     AND (rp.organization_id IS NULL OR rp.organization_id = ur.organization_id)
-JOIN permission pm ON pm.id = rp.permission_id
+JOIN auth.permission pm ON pm.id = rp.permission_id
 WHERE ur.user_id = sqlc.arg(user_id)
   AND (r.organization_id IS NULL OR r.organization_id = ur.organization_id);
 

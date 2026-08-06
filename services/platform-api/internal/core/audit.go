@@ -52,17 +52,17 @@ func (s *Service) AuditEvents(ctx context.Context, principal auth.Principal, lim
 SELECT al.id, al.organization_id, al.actor_user_id, u.email, al.action, al.target_type,
        al.target_id, al.before_data, al.after_data, al.source_ip::text, al.correlation_id, al.occurred_at
 FROM audit_log al
-LEFT JOIN app_user u ON u.id = al.actor_user_id
+LEFT JOIN auth.app_user u ON u.id = al.actor_user_id
 WHERE al.occurred_at > COALESCE((
     SELECT max(marker.occurred_at)
     FROM audit_log marker
     WHERE marker.action='audit.cleared' AND marker.organization_id IS NULL
 ), '-infinity'::timestamptz)
 AND EXISTS (
-    SELECT 1 FROM user_role ur
-    JOIN role r ON r.id = ur.role_id
-    JOIN role_permission rp ON rp.role_id = ur.role_id
-    JOIN permission pm ON pm.id = rp.permission_id
+    SELECT 1 FROM auth.user_role ur
+    JOIN auth.role r ON r.id = ur.role_id
+    JOIN auth.role_permission rp ON rp.role_id = ur.role_id
+    JOIN auth.permission pm ON pm.id = rp.permission_id
     WHERE ur.user_id = $1
       AND pm.action = 'read' AND pm.resource_type = 'audit'
       AND (r.organization_id IS NULL OR r.organization_id = ur.organization_id)

@@ -146,6 +146,11 @@ PLATFORM_WEBSOCKET_ORIGINS=ygate.yokogawasolution.com
 AUTH_DATABASE_URL=postgresql://<user>:<password>@127.0.0.1:5432/<database>
 AUTH_HTTP_ADDR=127.0.0.1:44442
 AUTH_COOKIE_SECURE=true
+AUTH_SMTP_ADDR=smtp.example.com:587
+AUTH_SMTP_FROM=ygate@example.com
+AUTH_SMTP_USERNAME=<smtp-user>
+AUTH_SMTP_PASSWORD=<smtp-password>
+AUTH_PASSWORD_RESET_URL=https://ygate.yokogawasolution.com
 GATEWAY_HTTP_ADDR=127.0.0.1:44440
 GATEWAY_PLATFORM_URL=http://127.0.0.1:44441
 GATEWAY_AUTH_SERVICE_URL=http://127.0.0.1:44442
@@ -160,7 +165,7 @@ param(
     [Parameter(Mandatory)][string]$OrganizationCode,
     [Parameter(Mandatory)][string]$OrganizationName,
     [string]$Username = "admin",
-    [string]$Role = "Platform Admin"
+    [string]$Role = "System Admin"
 )
 
 Set-StrictMode -Version Latest
@@ -202,6 +207,8 @@ if (Select-String -LiteralPath $EnvFile -SimpleMatch "<") {
 
 Get-Command node, pm2.cmd -ErrorAction Stop | Out-Null
 $env:YGATE_ENV_FILE = $EnvFile
+& .\bin\platform-admin.exe migrate
+if ($LASTEXITCODE -ne 0) { throw "Database migration failed." }
 & pm2.cmd startOrRestart .\ecosystem.config.cjs --update-env
 if ($LASTEXITCODE -ne 0) { throw "PM2 failed to start YGATE." }
 & pm2.cmd save

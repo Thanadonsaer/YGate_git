@@ -3,7 +3,7 @@
 import { CheckCircle2, ImageIcon, Palette, Save, Trash2, Upload } from "lucide-react";
 import { ChangeEvent, FormEvent, useState } from "react";
 import { usePlatformSession } from "../../components/platform-shell";
-import { api, assetURL, csrfToken } from "../../lib/api";
+import { api, errorMessage, assetURL, csrfToken } from "../../lib/api";
 import { ACCENT_PRESETS } from "../../lib/theme";
 import type { AccentColor, SiteSettings } from "../../lib/types";
 import { toast } from "../../components/ui/sonner";
@@ -31,7 +31,7 @@ export function SiteSettingsPage() {
       updateSiteSettings((await response.json()) as SiteSettings);
       toast.success("บันทึก Site Branding แล้ว");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+      setError(errorMessage(cause));
     } finally {
       setPending(false);
     }
@@ -55,7 +55,7 @@ export function SiteSettingsPage() {
       updateSiteSettings((await response.json()) as SiteSettings);
       toast.success("อัปโหลด logo แล้ว");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+      setError(errorMessage(cause));
     } finally {
       setLogoPending(false);
     }
@@ -73,7 +73,7 @@ export function SiteSettingsPage() {
       updateSiteSettings((await response.json()) as SiteSettings);
       toast.success("ลบ logo แล้ว");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+      setError(errorMessage(cause));
     } finally {
       setLogoPending(false);
     }

@@ -15,15 +15,15 @@ const getAuthorizedDeviceForUpdate = `-- name: GetAuthorizedDeviceForUpdate :one
 SELECT d.id, d.organization_id, d.plant_id, d.external_id, d.name,
        d.device_model_id, dm.manufacturer, dm.model, dm.device_type,
        dm.source_type_id, d.is_active, d.created_at, d.updated_at
-FROM device d
-JOIN device_model dm ON dm.id = d.device_model_id
+FROM plant.device d
+JOIN plant.device_model dm ON dm.id = d.device_model_id
 WHERE d.id = $1
   AND d.plant_id = $2
   AND EXISTS (
-      SELECT 1 FROM user_role ur
-      JOIN role r ON r.id = ur.role_id
-      JOIN role_permission rp ON rp.role_id = ur.role_id
-      JOIN permission pm ON pm.id = rp.permission_id
+      SELECT 1 FROM auth.user_role ur
+      JOIN auth.role r ON r.id = ur.role_id
+      JOIN auth.role_permission rp ON rp.role_id = ur.role_id
+      JOIN auth.permission pm ON pm.id = rp.permission_id
       WHERE ur.user_id = $3
         AND pm.action = 'update'
         AND pm.resource_type = 'device'
@@ -81,13 +81,13 @@ func (q *Queries) GetAuthorizedDeviceForUpdate(ctx context.Context, arg GetAutho
 
 const getAuthorizedPlantResource = `-- name: GetAuthorizedPlantResource :one
 SELECT p.id, p.organization_id, p.code, p.name
-FROM plant p
+FROM plant.plant p
 WHERE p.id = $1
   AND EXISTS (
-      SELECT 1 FROM user_role ur
-      JOIN role r ON r.id = ur.role_id
-      JOIN role_permission rp ON rp.role_id = ur.role_id
-      JOIN permission pm ON pm.id = rp.permission_id
+      SELECT 1 FROM auth.user_role ur
+      JOIN auth.role r ON r.id = ur.role_id
+      JOIN auth.role_permission rp ON rp.role_id = ur.role_id
+      JOIN auth.permission pm ON pm.id = rp.permission_id
       WHERE ur.user_id = $2
         AND pm.action = $3
         AND pm.resource_type = $4
@@ -134,8 +134,8 @@ const listPlantDevices = `-- name: ListPlantDevices :many
 SELECT d.id, d.organization_id, d.plant_id, d.external_id, d.name,
        d.device_model_id, dm.manufacturer, dm.model, dm.device_type,
        dm.source_type_id, d.is_active, d.created_at, d.updated_at
-FROM device d
-JOIN device_model dm ON dm.id = d.device_model_id
+FROM plant.device d
+JOIN plant.device_model dm ON dm.id = d.device_model_id
 WHERE d.organization_id = $1
   AND d.plant_id = $2
 ORDER BY d.name, d.external_id, d.id
@@ -198,7 +198,7 @@ func (q *Queries) ListPlantDevices(ctx context.Context, arg ListPlantDevicesPara
 }
 
 const updateDevice = `-- name: UpdateDevice :one
-UPDATE device
+UPDATE plant.device
 SET name = $1, is_active = $2, updated_at = now()
 WHERE id = $3
 RETURNING id, organization_id, plant_id, external_id, name, device_model_id,

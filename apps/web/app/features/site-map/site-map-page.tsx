@@ -1,10 +1,11 @@
 "use client";
 
-import { MapContainer, Marker, Popup, TileLayer } from "react-leaflet";
+import { MapContainer, Marker, Popup, TileLayer, useMap } from "react-leaflet";
+import MarkerClusterGroup from "react-leaflet-cluster";
 import { divIcon } from "leaflet";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { api } from "../../lib/api";
+import { api, errorMessage, assetURL } from "../../lib/api";
 import type { DashboardPlantStatus, Plant } from "../../lib/types";
 
 const statusLabel: Record<DashboardPlantStatus["communicationStatus"], string> = {
@@ -12,14 +13,25 @@ const statusLabel: Record<DashboardPlantStatus["communicationStatus"], string> =
 };
 
 function markerIcon(status: DashboardPlantStatus["communicationStatus"] | undefined) {
+  const color = status === "ONLINE" ? "#0f6c49" : status === "DEGRADED" ? "#b7791f" : status === "OFFLINE" ? "#b42318" : "#6d767d";
   return divIcon({
     className: "",
-    html: `<span class="site-map-marker ${(status ?? "no_devices").toLowerCase()}"></span>`,
+    html: "<span class=\"site-map-marker\" style=\"background:" + color + "\"></span>",
     iconSize: [16, 16],
+    iconAnchor: [8, 8],
     popupAnchor: [0, -8],
   });
 }
+function FitBounds({ positions }: { positions: Array<[number, number]> }) {
+  const map = useMap();
 
+  useEffect(() => {
+    if (positions.length === 1) map.setView(positions[0], 10);
+    if (positions.length > 1) map.fitBounds(positions, { padding: [40, 40], maxZoom: 10 });
+  }, [map, positions]);
+
+  return null;
+}
 export function SiteMapPage() {
   const [plants, setPlants] = useState<Plant[]>([]);
   const [statusByPlant, setStatusByPlant] = useState<Record<string, DashboardPlantStatus>>({});
@@ -30,14 +42,22 @@ export function SiteMapPage() {
     setLoading(true);
     setError("");
     try {
+      // Plant locations only need plant:read. The dashboard overview call (used
+      // just to color pins by communication status) needs device:read on top of
+      // that — a role can legitimately have one without the other, so its
+      // failure must not block the map itself, only the status coloring.
       const [plantResponse, overviewResponse] = await Promise.all([api("/api/v1/plants"), api("/api/v1/dashboard/overview")]);
-      if (plantResponse.status === 403 || overviewResponse.status === 403) throw new Error("บัญชีนี้ไม่มีสิทธิ์ดูข้อมูลโรงไฟฟ้า");
-      if (!plantResponse.ok || !overviewResponse.ok) throw new Error("ไม่สามารถโหลดข้อมูลแผนที่ได้");
+      if (plantResponse.status === 403) throw new Error("บัญชีนี้ไม่มีสิทธิ์ดูข้อมูลโรงไฟฟ้า");
+      if (!plantResponse.ok) throw new Error("ไม่สามารถโหลดข้อมูลแผนที่ได้");
       setPlants((await plantResponse.json()) as Plant[]);
-      const overview = (await overviewResponse.json()) as { plants: DashboardPlantStatus[] };
-      setStatusByPlant(Object.fromEntries(overview.plants.map((item) => [item.plantId, item])));
+      if (overviewResponse.ok) {
+        const overview = (await overviewResponse.json()) as { plants: DashboardPlantStatus[] };
+        setStatusByPlant(Object.fromEntries(overview.plants.map((item) => [item.plantId, item])));
+      } else {
+        setStatusByPlant({});
+      }
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+      setError(errorMessage(cause));
     } finally {
       setLoading(false);
     }
@@ -57,12 +77,15 @@ export function SiteMapPage() {
         <div><p>Site overview</p><h2>แผนที่โรงไฟฟ้า</h2></div>
       </div>
       {error && <p className="form-message error">{error}</p>}
-      {!loading && !error && missingCount > 0 && <p className="site-map-note">{missingCount} โรงไฟฟ้ายังไม่ได้ระบุพิกัด จึงไม่แสดงบนแผนที่</p>}
+      {!loading && !error && plants.length === 0 && <p className="site-map-note">บัญชีนี้ไม่มีโรงไฟฟ้าที่เข้าถึงได้เลย (ไม่ใช่ปัญหาพิกัด — ตรวจสิทธิ์ plant:read ของ role)</p>}
+      {!loading && !error && missingCount > 0 && <p className="site-map-note">{missingCount}/{plants.length} โรงไฟฟ้ายังไม่ได้ระบุพิกัด จึงไม่แสดงบนแผนที่</p>}
       {loading ? (
         <div className="table-state">กำลังโหลดข้อมูล</div>
       ) : (
         <MapContainer className="site-map-canvas" center={center} zoom={located.length > 0 ? 6 : 5} scrollWheelZoom>
           <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+          <FitBounds positions={located.map((plant) => [plant.latitude, plant.longitude])} />
+          <MarkerClusterGroup chunkedLoading showCoverageOnHover={false}>
           {located.map((plant) => {
             const status = statusByPlant[plant.id];
             return (
@@ -71,17 +94,25 @@ export function SiteMapPage() {
                   <div className="site-map-popup">
                     <p>{plant.code}</p>
                     <h3>{plant.name}</h3>
+                    {plant.imageUrl ? <img className="site-map-popup-image" src={assetURL(plant.imageUrl)} alt={"รูป " + plant.name} /> : <div className="site-map-popup-fallback">ไม่มีรูปโรงไฟฟ้า</div>}
                     <dl>
                       <dt>สถานะ</dt><dd>{status ? statusLabel[status.communicationStatus] : "ไม่ทราบ"}</dd>
                       <dt>Installed DC</dt><dd>{plant.installedDcKw == null ? "-" : `${plant.installedDcKw.toLocaleString()} kW`}</dd>
                       <dt>Installed AC</dt><dd>{plant.installedAcKw == null ? "-" : `${plant.installedAcKw.toLocaleString()} kW`}</dd>
+                      {status && (
+                        <>
+                          <dt>Device</dt><dd>{status.reportingDeviceCount}/{status.deviceCount} รายงานอยู่{status.staleDeviceCount > 0 ? ` (${status.staleDeviceCount} ค้าง)` : ""}{status.offlineDeviceCount > 0 ? ` (${status.offlineDeviceCount} offline)` : ""}</dd>
+                          <dt>ข้อมูลล่าสุด</dt><dd>{status.lastObservedAt ? new Date(status.lastObservedAt).toLocaleString("th-TH") : "ไม่มีข้อมูล"}</dd>
+                        </>
+                      )}
                     </dl>
-                    <Link href="/plants">ดูรายละเอียดโรงไฟฟ้า</Link>
+                    <Link href={`/plants?open=${encodeURIComponent(plant.id)}`}>ดู Overview โรงไฟฟ้านี้</Link>
                   </div>
                 </Popup>
               </Marker>
             );
           })}
+          </MarkerClusterGroup>
         </MapContainer>
       )}
     </div>

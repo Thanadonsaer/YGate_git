@@ -2,9 +2,9 @@
 
 import { Check, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { api, csrfToken, formatDate } from "../../lib/api";
+import { api, errorMessage, csrfToken, formatDate } from "../../lib/api";
 import { useRealtimeSocket } from "../../lib/realtime";
-import type { AlarmEvent, AlarmRule, Device, Plant } from "../../lib/types";
+import type { AlarmEvent, AlarmNotifyRole, AlarmRule, AlarmRuleCondition, Device, Plant } from "../../lib/types";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody } from "../../components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../../components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "../../components/ui/tabs";
@@ -24,6 +24,7 @@ export function AlarmsPage() {
   const [rules, setRules] = useState<AlarmRule[]>([]);
   const [events, setEvents] = useState<AlarmEvent[]>([]);
   const [devices, setDevices] = useState<Device[]>([]);
+  const [notifyRoles, setNotifyRoles] = useState<AlarmNotifyRole[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [editor, setEditor] = useState<AlarmRule | "create" | null>(null);
@@ -44,18 +45,20 @@ export function AlarmsPage() {
     setLoading(true);
     setError("");
     try {
-      const [rulesResponse, eventsResponse, devicesResponse] = await Promise.all([
+      const [rulesResponse, eventsResponse, devicesResponse, notifyRolesResponse] = await Promise.all([
         api(`/api/v1/plants/${plantId}/alarms/rules`),
         api(`/api/v1/plants/${plantId}/alarms/events`),
         api(`/api/v1/plants/${plantId}/devices`),
+        api(`/api/v1/plants/${plantId}/alarms/notify-roles`),
       ]);
       if (rulesResponse.status === 403 || eventsResponse.status === 403) throw new Error("บัญชีนี้ไม่มีสิทธิ์ดู Alarm ของโรงไฟฟ้านี้");
       if (!rulesResponse.ok || !eventsResponse.ok) throw new Error("ไม่สามารถโหลดข้อมูล Alarm ได้");
       setRules((await rulesResponse.json()) as AlarmRule[]);
       setEvents((await eventsResponse.json()) as AlarmEvent[]);
       setDevices(devicesResponse.ok ? (await devicesResponse.json()) as Device[] : []);
+      setNotifyRoles(notifyRolesResponse.ok ? (await notifyRolesResponse.json()) as AlarmNotifyRole[] : []);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+      setError(errorMessage(cause));
     } finally {
       setLoading(false);
     }
@@ -97,6 +100,14 @@ export function AlarmsPage() {
     return devices.find((device) => device.id === deviceId)?.name ?? deviceId;
   }
 
+  function notifyRoleName(roleId?: string | null) {
+    return roleId ? notifyRoles.find((role) => role.id === roleId)?.name ?? "-" : null;
+  }
+
+  function conditionThreshold(condition: { minValue?: number | null; maxValue?: number | null }) {
+    return [condition.minValue != null ? `min ${condition.minValue}` : null, condition.maxValue != null ? `max ${condition.maxValue}` : null].filter(Boolean).join(" / ") || "-";
+  }
+
   return (
     <div className="content plants-content">
       <div className="section-heading">
@@ -123,8 +134,15 @@ export function AlarmsPage() {
           {!loading && events.map((event) => (
             <div className="audit-row" role="row" key={event.id}>
               <div><strong>{formatDate(event.breachedAt)}</strong><small>{event.clearedAt ? `Cleared ${formatDate(event.clearedAt)}` : "เปิดอยู่"}</small></div>
-              <div><strong>{deviceName(event.deviceId)}</strong><small>{event.pointKey}</small></div>
-              <div><strong>{event.value.toLocaleString()}</strong><small>{[event.thresholdMin != null ? `min ${event.thresholdMin}` : null, event.thresholdMax != null ? `max ${event.thresholdMax}` : null].filter(Boolean).join(" / ") || "-"}</small></div>
+              <div>
+                <strong>{deviceName(event.deviceId)}</strong>
+                <small>{(event.conditionSnapshot ?? []).map((c) => c.pointKey).join(", ") || "-"}</small>
+              </div>
+              <div>
+                {(event.conditionSnapshot ?? []).map((c) => (
+                  <div key={c.pointKey}><strong>{c.breached ? "⚠ " : ""}{c.value.toLocaleString()}</strong><small> {conditionThreshold(c)}</small></div>
+                ))}
+              </div>
               <span className={severityStatusClass[event.severity]}>{event.severity}</span>
               {event.acknowledgedBy ? (
                 <span className="status active">Acked {event.acknowledgedAt ? formatDate(event.acknowledgedAt) : ""}</span>
@@ -141,9 +159,9 @@ export function AlarmsPage() {
           <div className="plant-row plant-head" role="row"><span>กฎ</span><span>Device / Point</span><span>Threshold</span><span>สถานะ</span><span aria-label="คำสั่ง" /></div>
           {!loading && rules.map((rule) => (
             <div className="plant-row" role="row" key={rule.id}>
-              <div><strong>{rule.label}</strong><small>{rule.severity}</small></div>
-              <div><span>{deviceName(rule.deviceId)}</span><small>{rule.pointKey}</small></div>
-              <div><span>{rule.minValue != null ? `min ${rule.minValue}` : "-"}</span><small>{rule.maxValue != null ? `max ${rule.maxValue}` : "-"}</small></div>
+              <div><strong>{rule.label}</strong><small>{rule.severity}{notifyRoleName(rule.notifyRoleId) ? ` · แจ้ง ${notifyRoleName(rule.notifyRoleId)}` : ""}</small></div>
+              <div><span>{deviceName(rule.deviceId)}</span><small>{(rule.conditions ?? []).map((c) => c.pointKey).join(rule.conditionLogic === "OR" ? " หรือ " : " และ ")}</small></div>
+              <div>{(rule.conditions ?? []).map((c) => <div key={c.pointKey}><span>{c.pointKey}</span> <small>{conditionThreshold(c)}</small></div>)}</div>
               <span className={rule.isActive ? "status active" : "status revoked"}>{rule.isActive ? "ใช้งาน" : "ปิดใช้งาน"}</span>
               <div className="row-actions">
                 <Button variant="icon" onClick={() => setEditor(rule)} title="แก้ไขกฎ" aria-label={`แก้ไข ${rule.label}`}><Pencil size={17} /></Button>
@@ -160,6 +178,7 @@ export function AlarmsPage() {
           plantId={plantId}
           rule={editor === "create" ? undefined : editor}
           devices={devices}
+          notifyRoles={notifyRoles}
           onClose={() => setEditor(null)}
           onSaved={() => { setEditor(null); void loadAlarms(); }}
         />
@@ -168,14 +187,24 @@ export function AlarmsPage() {
   );
 }
 
-function AlarmRuleEditor({ plantId, rule, devices, onClose, onSaved }: { plantId: string; rule?: AlarmRule; devices: Device[]; onClose: () => void; onSaved: () => void }) {
+const NO_NOTIFY = "__none__";
+
+type ConditionDraft = { pointKey: string; minValue: string; maxValue: string };
+
+function draftFromCondition(condition: AlarmRuleCondition): ConditionDraft {
+  return { pointKey: condition.pointKey, minValue: condition.minValue?.toString() ?? "", maxValue: condition.maxValue?.toString() ?? "" };
+}
+
+function AlarmRuleEditor({ plantId, rule, devices, notifyRoles, onClose, onSaved }: { plantId: string; rule?: AlarmRule; devices: Device[]; notifyRoles: AlarmNotifyRole[]; onClose: () => void; onSaved: () => void }) {
   const [deviceId, setDeviceId] = useState(rule?.deviceId ?? devices[0]?.id ?? "");
-  const [pointKey, setPointKey] = useState(rule?.pointKey ?? "");
   const [label, setLabel] = useState(rule?.label ?? "");
-  const [minValue, setMinValue] = useState(rule?.minValue?.toString() ?? "");
-  const [maxValue, setMaxValue] = useState(rule?.maxValue?.toString() ?? "");
+  const [conditions, setConditions] = useState<ConditionDraft[]>(
+    rule && rule.conditions?.length > 0 ? rule.conditions.map(draftFromCondition) : [{ pointKey: "", minValue: "", maxValue: "" }],
+  );
+  const [conditionLogic, setConditionLogic] = useState<AlarmRule["conditionLogic"]>(rule?.conditionLogic ?? "AND");
   const [severity, setSeverity] = useState<AlarmRule["severity"]>(rule?.severity ?? "warning");
   const [isActive, setIsActive] = useState(rule?.isActive ?? true);
+  const [notifyRoleId, setNotifyRoleId] = useState(rule?.notifyRoleId ?? "");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
 
@@ -183,14 +212,30 @@ function AlarmRuleEditor({ plantId, rule, devices, onClose, onSaved }: { plantId
     return value.trim() === "" ? null : Number(value);
   }
 
+  function updateCondition(index: number, patch: Partial<ConditionDraft>) {
+    setConditions((current) => current.map((condition, i) => (i === index ? { ...condition, ...patch } : condition)));
+  }
+
+  function addCondition() {
+    setConditions((current) => [...current, { pointKey: "", minValue: "", maxValue: "" }]);
+  }
+
+  function removeCondition(index: number) {
+    setConditions((current) => current.filter((_, i) => i !== index));
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     setPending(true);
     setError("");
     try {
+      const notifyRoleValue = notifyRoleId === "" ? null : notifyRoleId;
+      const conditionsPayload = conditions.map((condition) => ({
+        pointKey: condition.pointKey, minValue: optionalNumber(condition.minValue), maxValue: optionalNumber(condition.maxValue),
+      }));
       const body = rule
-        ? { label, minValue: optionalNumber(minValue), maxValue: optionalNumber(maxValue), severity, isActive }
-        : { deviceId, pointKey, label, minValue: optionalNumber(minValue), maxValue: optionalNumber(maxValue), severity };
+        ? { label, conditionLogic, conditions: conditionsPayload, severity, isActive, notifyRoleId: notifyRoleValue }
+        : { deviceId, label, conditionLogic, conditions: conditionsPayload, severity, notifyRoleId: notifyRoleValue };
       const response = await api(rule ? `/api/v1/plants/${plantId}/alarms/rules/${encodeURIComponent(rule.id)}` : `/api/v1/plants/${plantId}/alarms/rules`, {
         method: rule ? "PUT" : "POST",
         headers: { "X-CSRF-Token": csrfToken() },
@@ -200,7 +245,7 @@ function AlarmRuleEditor({ plantId, rule, devices, onClose, onSaved }: { plantId
       if (!response.ok) throw new Error("ข้อมูลไม่ถูกต้องหรือไม่สามารถบันทึกได้");
       onSaved();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+      setError(errorMessage(cause));
     } finally {
       setPending(false);
     }
@@ -222,10 +267,32 @@ function AlarmRuleEditor({ plantId, rule, devices, onClose, onSaved }: { plantId
                 </Select>
               </label>
             )}
-            {!rule && <label className="full-field">Point key<input value={pointKey} onChange={(event) => setPointKey(event.target.value)} maxLength={200} required /></label>}
             <label className="full-field">ชื่อกฎ<input autoFocus value={label} onChange={(event) => setLabel(event.target.value)} maxLength={200} required /></label>
-            <label>Min value<input type="number" step="any" value={minValue} onChange={(event) => setMinValue(event.target.value)} /></label>
-            <label>Max value<input type="number" step="any" value={maxValue} onChange={(event) => setMaxValue(event.target.value)} /></label>
+
+            <div className="full-field alarm-conditions">
+              <div className="alarm-conditions-head">
+                <span>Criteria (point + threshold) — ต้องเข้าเงื่อนไขตาม logic ด้านล่าง</span>
+                {conditions.length > 1 && (
+                  <Select value={conditionLogic} onValueChange={(value) => setConditionLogic(value as AlarmRule["conditionLogic"])}>
+                    <SelectTrigger className="w-28" aria-label="Logic ระหว่างเงื่อนไข"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="AND">ต้องครบทุกข้อ (AND)</SelectItem>
+                      <SelectItem value="OR">เข้าข้อใดข้อหนึ่ง (OR)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+              {conditions.map((condition, index) => (
+                <div className="alarm-condition-row" key={index}>
+                  <input placeholder="Point key" value={condition.pointKey} onChange={(event) => updateCondition(index, { pointKey: event.target.value })} maxLength={200} required />
+                  <input type="number" step="any" placeholder="Min" value={condition.minValue} onChange={(event) => updateCondition(index, { minValue: event.target.value })} />
+                  <input type="number" step="any" placeholder="Max" value={condition.maxValue} onChange={(event) => updateCondition(index, { maxValue: event.target.value })} />
+                  <Button type="button" variant="icon" danger disabled={conditions.length <= 1} onClick={() => removeCondition(index)} title="ลบเงื่อนไขนี้" aria-label={`ลบเงื่อนไข ${index + 1}`}><Trash2 size={16} /></Button>
+                </div>
+              ))}
+              <Button type="button" variant="secondary" compact onClick={addCondition}><Plus size={15} /> เพิ่มเงื่อนไข</Button>
+            </div>
+
             <label className="full-field">Severity
               <Select value={severity} onValueChange={(value) => setSeverity(value as AlarmRule["severity"])}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
@@ -233,6 +300,15 @@ function AlarmRuleEditor({ plantId, rule, devices, onClose, onSaved }: { plantId
                   <SelectItem value="warning">Warning</SelectItem>
                   <SelectItem value="major">Major</SelectItem>
                   <SelectItem value="critical">Critical</SelectItem>
+                </SelectContent>
+              </Select>
+            </label>
+            <label className="full-field">แจ้งเตือนไปที่ Role
+              <Select value={notifyRoleId || NO_NOTIFY} onValueChange={(value) => setNotifyRoleId(value === NO_NOTIFY ? "" : value)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_NOTIFY}>ไม่ต้องแจ้งเตือน</SelectItem>
+                  {notifyRoles.map((role) => <SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </label>

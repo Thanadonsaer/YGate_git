@@ -13,6 +13,10 @@ export function csrfToken() {
   return cookie ? decodeURIComponent(cookie.slice(prefix.length)) : "";
 }
 
+export function errorMessage(cause: unknown) {
+  return cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด";
+}
+
 export async function api(path: string, init?: RequestInit) {
   try {
     return await fetch(`${gatewayURL}${path}`, {
@@ -30,6 +34,15 @@ export async function api(path: string, init?: RequestInit) {
     // the same way it handles a 4xx/5xx from the server.
     return new Response(null, { status: 503, statusText: "Network error" });
   }
+}
+
+export function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 export function formatDate(value: string) {

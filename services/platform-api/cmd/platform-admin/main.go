@@ -111,7 +111,7 @@ func bootstrapInputFromEnvironment() (bootstrapInput, error) {
 		role:             strings.TrimSpace(os.Getenv("PLATFORM_BOOTSTRAP_ROLE")),
 	}
 	if input.role == "" {
-		input.role = "Platform Admin"
+		input.role = "System Admin"
 	}
 	address, err := mail.ParseAddress(input.email)
 	if err != nil || address.Address != input.email {
@@ -130,7 +130,7 @@ func bootstrapInputFromEnvironment() (bootstrapInput, error) {
 		return input, fmt.Errorf("PLATFORM_BOOTSTRAP_USERNAME must not exceed 100 characters")
 	}
 	validRole := false
-	for _, role := range []string{"Platform Admin", "Organization Admin", "Plant Manager", "Engineer", "Operator", "Viewer", "Auditor"} {
+	for _, role := range []string{"System Admin", "Organization Admin", "Plant Manager", "Engineer", "Operator", "Viewer", "Auditor"} {
 		if input.role == role {
 			validRole = true
 			break
@@ -174,7 +174,7 @@ func bootstrapMiddleware(ctx context.Context, pool databasePool, input middlewar
 		return "", fmt.Errorf("load middleware organization: %w", err)
 	}
 	prefix := key[:12]
-	if _, err = tx.Exec(ctx, `INSERT INTO middleware_client(id,organization_id,name,key_prefix,key_hash,auto_onboard)
+	if _, err = tx.Exec(ctx, `INSERT INTO auth.middleware_client(id,organization_id,name,key_prefix,key_hash,auto_onboard)
 		VALUES($1,$2,$3,$4,$5,$6)`, id, organizationID, input.name, prefix, hash[:], input.autoOnboard); err != nil {
 		if isUniqueViolation(err) {
 			return "", fmt.Errorf("middleware client name already exists")
@@ -229,7 +229,7 @@ func bootstrapUser(ctx context.Context, pool databasePool, input bootstrapInput)
 	if input.username != "" {
 		username = input.username
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO app_user(
+	if _, err = tx.Exec(ctx, `INSERT INTO auth.app_user(
 		id,organization_id,email,username,display_name,password_hash
 	) VALUES($1,$2,$3,$4,$5,$6)`, userID, organizationID, input.email, username, input.displayName, passwordHash); err != nil {
 		if isUniqueViolation(err) {
@@ -238,14 +238,14 @@ func bootstrapUser(ctx context.Context, pool databasePool, input bootstrapInput)
 		return fmt.Errorf("create bootstrap user: %w", err)
 	}
 	var roleID pgtype.UUID
-	if err = tx.QueryRow(ctx, "SELECT id FROM role WHERE organization_id IS NULL AND name=$1 AND is_system=true", input.role).Scan(&roleID); err != nil {
+	if err = tx.QueryRow(ctx, "SELECT id FROM auth.role WHERE organization_id IS NULL AND name=$1", input.role).Scan(&roleID); err != nil {
 		return fmt.Errorf("load bootstrap role: %w", err)
 	}
 	var roleOrganization any = organizationID
-	if input.role == "Platform Admin" {
+	if input.role == "System Admin" {
 		roleOrganization = nil
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO user_role(id,organization_id,user_id,role_id)
+	if _, err = tx.Exec(ctx, `INSERT INTO auth.user_role(id,organization_id,user_id,role_id)
 		VALUES($1,$2,$3,$4)`, userRoleID, roleOrganization, userID, roleID); err != nil {
 		return fmt.Errorf("assign bootstrap role: %w", err)
 	}

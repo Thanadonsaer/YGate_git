@@ -1,29 +1,11 @@
 "use client";
 
-import {
-  Activity,
-  BellRing,
-  Building2,
-  FileText,
-  LogOut,
-  MapPinned,
-  Menu,
-  Palette,
-  Radio,
-  Server,
-  Settings2,
-  ShieldCheck,
-  ShieldEllipsis,
-  SunMedium,
-  UserRound,
-  Users,
-  Workflow,
-  X,
-} from "lucide-react";
+import { LogOut, Menu, SunMedium, UserRound, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createContext, ReactNode, useContext, useEffect, useState } from "react";
 import { api, assetURL, csrfToken } from "../lib/api";
+import { navigation, navRequirements, titles } from "../lib/navigation";
 import { hasPermission } from "../lib/permissions";
 import { useRealtimeSocket } from "../lib/realtime";
 import { applyAccentColor } from "../lib/theme";
@@ -51,60 +33,6 @@ export function usePlatformSession() {
   return value;
 }
 
-const navigation = [
-  {
-    group: "Monitoring",
-    items: [
-      { href: "/", label: "Overview", icon: Activity },
-      { href: "/site-map", label: "Site Map", icon: MapPinned, requires: "plant:read" },
-      { href: "/scada/live", label: "SCADA Viewer", icon: Radio, requires: "scada_screen:view" },
-      { href: "/alarms", label: "Alarms", icon: BellRing, requires: "alarm:read" },
-    ],
-  },
-  {
-    group: "Assets & Config",
-    items: [
-      { href: "/plants", label: "Plants", icon: Building2, requires: "plant:read" },
-      { href: "/register-metadata", label: "Register Metadata", icon: Settings2, requires: "device_model:read" },
-      { href: "/scada", label: "SCADA Builder", icon: Workflow, requires: "scada_screen:edit" },
-    ],
-  },
-  {
-    group: "Administration",
-    items: [
-      { href: "/users", label: "Users", icon: Users, requires: "user:read" },
-      { href: "/roles", label: "Roles & Permissions", icon: ShieldEllipsis, requires: "role:read" },
-      { href: "/middlewares", label: "Middleware Gateways", icon: Server, requires: "middleware_client:read" },
-      { href: "/openapi", label: "OpenAPI", icon: FileText, requires: "api_contract:read" },
-      { href: "/audit", label: "Audit Log", icon: ShieldCheck, requires: "audit:read" },
-      { href: "/sessions", label: "Sessions", icon: ShieldCheck },
-      { href: "/settings", label: "Site Branding", icon: Palette, requires: "site_setting:update" },
-    ],
-  },
-] satisfies ReadonlyArray<{ group: string; items: ReadonlyArray<{ href: string; label: string; icon: typeof Activity; requires?: string }> }>;
-
-const navRequirements: Record<string, string> = Object.fromEntries(
-  navigation.flatMap(({ items }) => items.filter((item) => item.requires).map((item) => [item.href, item.requires as string])),
-);
-
-const titles: Record<string, string> = {
-  "/": "System Overview",
-  "/plants": "Plant Management",
-  "/site-map": "Site Map",
-  "/register-metadata": "Register Metadata",
-  "/scada": "SCADA Builder",
-  "/scada/live": "SCADA Viewer",
-  "/alarms": "Alarm Monitoring",
-  "/users": "User Management",
-  "/roles": "Roles & Permissions",
-  "/middlewares": "Middleware Gateways",
-  "/openapi": "OpenAPI Contract",
-  "/audit": "Audit Log",
-  "/sessions": "My Sessions",
-  "/settings": "Site Branding",
-  "/profile": "My Profile",
-};
-
 export function PlatformShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -118,7 +46,9 @@ export function PlatformShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const token = new URLSearchParams(window.location.search).get("token");
-    if (token) setAuthMode("reset");
+    const verify = new URLSearchParams(window.location.search).get("verify");
+    if (verify) setAuthMode("verify");
+    else if (token) setAuthMode("reset");
 
     void (async () => {
       try {

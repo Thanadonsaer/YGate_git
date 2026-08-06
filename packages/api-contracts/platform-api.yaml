@@ -77,6 +77,55 @@ paths:
           description: Too many recent failed attempts
         "500":
           description: Internal error
+  /api/v1/auth/register:
+    post:
+      operationId: register
+      summary: Register a disabled account and send an email verification link
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "202":
+          description: Registration accepted; the account remains disabled until email verification and Admin approval
+        "400":
+          description: Invalid registration data
+        "409":
+          description: Email or username is already in use
+        "503":
+          description: Email verification delivery is not configured
+  /api/v1/auth/verify-email:
+    get:
+      operationId: verifyEmail
+      summary: Verify a registered account email address
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Email verified; Admin approval is still required before login
+        "400":
+          description: Token is invalid or expired
+  /api/v1/auth/resend-verification:
+    post:
+      operationId: resendVerification
+      summary: Resend an email verification link without revealing account existence
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResendVerificationRequest"
+      responses:
+        "202":
+          description: Request accepted
+        "400":
+          description: Invalid request
   /api/v1/auth/me:
     get:
       operationId: getCurrentUser
@@ -367,7 +416,7 @@ paths:
     delete:
       operationId: hardDeleteAdminUser
       summary: Permanently delete a User and owned dependent records
-      description: Platform Admin only. Audit rows and actor UUIDs remain append-only. The current user and final active Platform Admin cannot be deleted.
+      description: System Admin only. Audit rows and actor UUIDs remain append-only. The current user and final active System Admin cannot be deleted.
       security:
         - cookieAuth: []
           csrfToken: []
@@ -383,7 +432,7 @@ paths:
         "204":
           description: User permanently deleted
         "400":
-          description: Confirmation mismatch, self-delete, or final Platform Admin
+          description: Confirmation mismatch, self-delete, or final System Admin
         "401":
           description: Authentication required
         "403":
@@ -656,7 +705,7 @@ paths:
     put:
       operationId: updateSiteSettings
       summary: Change the site name and accent color
-      description: Platform Admin only. Logo is managed separately via /api/v1/site-settings/logo.
+      description: System Admin only. Logo is managed separately via /api/v1/site-settings/logo.
       security:
         - cookieAuth: []
           csrfToken: []
@@ -682,7 +731,7 @@ paths:
   /api/v1/site-settings/logo:
     post:
       operationId: uploadSiteLogo
-      summary: Upload the site logo (png/jpeg/svg/webp/gif, up to 2 MiB). Platform Admin only.
+      summary: Upload the site logo (png/jpeg/svg/webp/gif, up to 2 MiB). System Admin only.
       security:
         - cookieAuth: []
           csrfToken: []
@@ -709,7 +758,7 @@ paths:
           description: Missing global site_setting update permission
     delete:
       operationId: deleteSiteLogo
-      summary: Remove the configured site logo, reverting to the default mark. Platform Admin only.
+      summary: Remove the configured site logo, reverting to the default mark. System Admin only.
       security:
         - cookieAuth: []
           csrfToken: []
@@ -779,7 +828,7 @@ paths:
     delete:
       operationId: clearAdminAuditEvents
       summary: Clear the visible audit history and append one audit.cleared marker
-      description: Platform Admin only. Append-only source rows remain immutable; subsequent list calls hide rows at or before the latest global clear marker.
+      description: System Admin only. Append-only source rows remain immutable; subsequent list calls hide rows at or before the latest global clear marker.
       security:
         - cookieAuth: []
           csrfToken: []
@@ -920,7 +969,7 @@ paths:
     delete:
       operationId: hardDeleteAdminAPIKey
       summary: Permanently delete a Middleware API key client and its ingestion data
-      description: Platform Admin only. Requires the exact confirmation header `DELETE`.
+      description: System Admin only. Requires the exact confirmation header `DELETE`.
       security:
         - cookieAuth: []
           csrfToken: []
@@ -1093,8 +1142,12 @@ paths:
         - cookieAuth: []
           csrfToken: []
       responses:
-        "204":
-          description: Config recomputed and, if the gateway is connected, pushed
+        "200":
+          description: Config recomputed and, if the gateway is connected, pushed. Counts reflect what buildConfigSnapshot actually included -- deviceCount 0 with plantCount > 0 means every assigned Plant's Devices are missing Modbus host/port, or their Device Model has no Register Metadata with a Modbus function code set.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PushConfigResult"
         "401":
           description: Authentication required
         "403":
@@ -1109,7 +1162,7 @@ paths:
         schema: { type: string, format: uuid }
     post:
       operationId: stageAdminMiddlewareUpdate
-      summary: Tell a connected middleware gateway to download and stage a previously-uploaded patch, ready for Apply. Platform Admin only.
+      summary: Tell a connected middleware gateway to download and stage a previously-uploaded patch, ready for Apply. System Admin only.
       security:
         - cookieAuth: []
           csrfToken: []
@@ -1146,7 +1199,7 @@ paths:
         schema: { type: string, format: uuid }
     post:
       operationId: applyAdminMiddlewareUpdate
-      summary: Apply whatever patch is currently staged on the middleware gateway -- backs up the running binary, restarts the service with the staged one. Platform Admin only.
+      summary: Apply whatever patch is currently staged on the middleware gateway -- backs up the running binary, restarts the service with the staged one. System Admin only.
       security:
         - cookieAuth: []
           csrfToken: []
@@ -1171,7 +1224,7 @@ paths:
         schema: { type: string, format: uuid }
     post:
       operationId: rollbackAdminMiddlewareUpdate
-      summary: Roll a middleware gateway back to its last backed-up binary. Platform Admin only.
+      summary: Roll a middleware gateway back to its last backed-up binary. System Admin only.
       security:
         - cookieAuth: []
           csrfToken: []
@@ -1196,7 +1249,7 @@ paths:
         schema: { type: string, format: uuid }
     post:
       operationId: restartAdminMiddleware
-      summary: Restart a middleware gateway's service without changing its binary. Platform Admin only.
+      summary: Restart a middleware gateway's service without changing its binary. System Admin only.
       security:
         - cookieAuth: []
           csrfToken: []
@@ -1216,7 +1269,7 @@ paths:
   /api/v1/admin/middleware-patches:
     get:
       operationId: listAdminMiddlewarePatches
-      summary: List uploaded middleware software patches. Platform Admin only.
+      summary: List uploaded middleware software patches. System Admin only.
       security:
         - cookieAuth: []
       responses:
@@ -1234,7 +1287,7 @@ paths:
           description: Missing middleware_patch read permission
     post:
       operationId: uploadAdminMiddlewarePatch
-      summary: Upload a middleware software patch zip (update-manifest.json + signed binary). Platform Admin only.
+      summary: Upload a middleware software patch zip (update-manifest.json + signed binary). System Admin only.
       security:
         - cookieAuth: []
           csrfToken: []
@@ -1269,7 +1322,7 @@ paths:
         schema: { type: string, format: uuid }
     delete:
       operationId: deleteAdminMiddlewarePatch
-      summary: Delete an uploaded middleware software patch. Platform Admin only.
+      summary: Delete an uploaded middleware software patch. System Admin only.
       security:
         - cookieAuth: []
           csrfToken: []
@@ -1468,6 +1521,68 @@ paths:
           description: Missing create permission for the requested organization scope
         "409":
           description: Plant code already exists in the organization
+  /api/v1/plants/export-all:
+    get:
+      operationId: exportAllPlantsDevicesCSV
+      summary: Export every Plant (and their Devices) the caller can see as CSV, one row per Device, one row for a Device-less Plant
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: plants-devices.csv
+          content:
+            text/csv:
+              schema:
+                type: string
+        "401":
+          description: Authentication required
+  /api/v1/plants/import-template:
+    get:
+      operationId: plantDeviceCSVTemplate
+      summary: Download a header-only CSV for the Plant/Device import format
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: plant-device-template.csv
+          content:
+            text/csv:
+              schema:
+                type: string
+        "401":
+          description: Authentication required
+  /api/v1/plants/import:
+    post:
+      operationId: importPlantsDevicesCSV
+      summary: Upsert Plants (matched by code) and Devices (matched by external_id within the Plant) from an uploaded CSV -- never deletes rows the CSV omits
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                organizationId:
+                  type: string
+                  format: uuid
+      responses:
+        "200":
+          description: Import result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CSVImportResult"
+        "400":
+          description: Invalid CSV upload
+        "401":
+          description: Authentication required
   /api/v1/plants/{plantId}:
     parameters:
       - name: plantId
@@ -1522,7 +1637,7 @@ paths:
     delete:
       operationId: hardDeletePlant
       summary: Permanently delete a Plant, its Devices, metadata and normalized telemetry
-      description: Platform Admin only. Requires the exact confirmation header `DELETE`.
+      description: System Admin only. Requires the exact confirmation header `DELETE`.
       security:
         - cookieAuth: []
           csrfToken: []
@@ -1539,6 +1654,118 @@ paths:
           description: Missing global Plant hard-delete permission
         "404":
           description: Plant is missing
+  /api/v1/plants/{plantId}/image:
+    parameters:
+      - name: plantId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: uploadPlantImage
+      summary: Upload or replace the primary Plant image
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [image]
+              properties:
+                image:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: Plant with the new image URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Plant"
+        "400":
+          description: Missing, unsupported, or over-sized image
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing Plant update permission
+        "404":
+          description: Plant is missing or outside the caller's scope
+    delete:
+      operationId: deletePlantImage
+      summary: Remove the primary Plant image
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      responses:
+        "200":
+          description: Plant with image URL cleared
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Plant"
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing Plant update permission
+        "404":
+          description: Plant is missing or outside the caller's scope
+  /api/v1/plants/{plantId}/image/{filename}:
+    parameters:
+      - name: plantId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: filename
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getPlantImage
+      summary: Fetch the authorized primary Plant image
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Plant image bytes
+          content:
+            image/png: {}
+            image/jpeg: {}
+            image/webp: {}
+        "401":
+          description: Authentication required
+        "404":
+          description: Image is missing or outside the caller's scope
+  /api/v1/plants/{plantId}/export:
+    parameters:
+      - name: plantId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: exportPlantDeviceCSV
+      summary: Export one Plant and its Devices as CSV
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: plant-devices.csv
+          content:
+            text/csv:
+              schema:
+                type: string
+        "401":
+          description: Authentication required
+        "404":
+          description: Plant not found
   /api/v1/plants/{plantId}/devices:
     parameters:
       - name: plantId
@@ -1639,6 +1866,68 @@ paths:
           description: Missing Device Model create permission
         "409":
           description: Device Model already exists
+  /api/v1/device-models/register-metadata/export-all:
+    get:
+      operationId: exportAllRegisterMetadataCSV
+      summary: Export Register Metadata for every Device Model the caller can see as CSV, one row per register
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: register-metadata.csv
+          content:
+            text/csv:
+              schema:
+                type: string
+        "401":
+          description: Authentication required
+  /api/v1/device-models/register-metadata/import-template:
+    get:
+      operationId: registerMetadataCSVTemplate
+      summary: Download a header-only CSV for the Register Metadata import format
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: register-metadata-template.csv
+          content:
+            text/csv:
+              schema:
+                type: string
+        "401":
+          description: Authentication required
+  /api/v1/device-models/register-metadata/import:
+    post:
+      operationId: importRegisterMetadataCSV
+      summary: Upsert Device Models (matched by trimmed manufacturer/deviceType/model) and their Register Metadata (upserted by addressKey) from an uploaded CSV
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                organizationId:
+                  type: string
+                  format: uuid
+      responses:
+        "200":
+          description: Import result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CSVImportResult"
+        "400":
+          description: Invalid CSV upload
+        "401":
+          description: Authentication required
   /api/v1/device-models/{modelId}:
     parameters:
       - name: modelId
@@ -1679,7 +1968,7 @@ paths:
     delete:
       operationId: hardDeleteDeviceModel
       summary: Permanently delete a Device Model and Devices using it
-      description: Platform Admin only. Requires the exact confirmation header `DELETE`.
+      description: System Admin only. Requires the exact confirmation header `DELETE`.
       security:
         - cookieAuth: []
           csrfToken: []
@@ -1696,6 +1985,30 @@ paths:
           description: Missing global Device Model hard-delete permission
         "404":
           description: Device Model is missing
+  /api/v1/device-models/{modelId}/register-metadata/export:
+    parameters:
+      - name: modelId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: exportDeviceModelRegisterMetadataCSV
+      summary: Export one Device Model's Register Metadata as CSV
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: register-metadata.csv
+          content:
+            text/csv:
+              schema:
+                type: string
+        "401":
+          description: Authentication required
+        "404":
+          description: Device Model not found
   /api/v1/device-models/{modelId}/register-metadata:
     parameters:
       - name: modelId
@@ -1820,7 +2133,7 @@ paths:
     delete:
       operationId: hardDeletePlantDevice
       summary: Permanently delete a Device, its metadata and normalized telemetry
-      description: Platform Admin only. Requires the exact confirmation header `DELETE`.
+      description: System Admin only. Requires the exact confirmation header `DELETE`.
       security:
         - cookieAuth: []
           csrfToken: []
@@ -2072,7 +2385,7 @@ paths:
           description: Plant is missing or outside the caller's alarm-read scope
     post:
       operationId: createAlarmRule
-      summary: Create an alarm rule watching one Device point in a Plant
+      summary: Create an alarm rule watching one or more Device points in a Plant, combined with AND/OR
       security:
         - cookieAuth: []
           csrfToken: []
@@ -2097,6 +2410,32 @@ paths:
           description: Missing alarm create permission for the Plant
         "404":
           description: Plant is missing or outside the caller's scope
+  /api/v1/plants/{plantId}/alarms/notify-roles:
+    parameters:
+      - name: plantId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: listAlarmNotifyRoles
+      summary: List roles an alarm rule in this Plant may notify (global roles plus the Plant's organization roles)
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Roles available as an alarm rule's notify target
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/NotifyRoleOption"
+        "401":
+          description: Authentication required
+        "404":
+          description: Plant is missing or outside the caller's alarm-read scope
   /api/v1/plants/{plantId}/alarms/rules/{ruleId}:
     parameters:
       - name: plantId
@@ -2339,7 +2678,7 @@ paths:
     delete:
       operationId: hardDeleteScadaScreen
       summary: Permanently delete a SCADA screen and publication history
-      description: Platform Admin only. Requires the exact confirmation header `DELETE`.
+      description: System Admin only. Requires the exact confirmation header `DELETE`.
       security:
         - cookieAuth: []
           csrfToken: []
@@ -2880,6 +3219,40 @@ components:
           enum: [ok, ready]
         version:
           type: string
+    RegisterRequest:
+      type: object
+      additionalProperties: false
+      required: [organizationCode, email, password]
+      properties:
+        organizationCode:
+          type: string
+          minLength: 1
+          maxLength: 100
+        email:
+          type: string
+          format: email
+          maxLength: 320
+        username:
+          type: string
+          maxLength: 100
+        displayName:
+          type: string
+          maxLength: 200
+        password:
+          type: string
+          minLength: 12
+          maxLength: 1024
+          format: password
+    ResendVerificationRequest:
+      type: object
+      additionalProperties: false
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 320
+
     LoginRequest:
       type: object
       additionalProperties: false
@@ -3315,7 +3688,7 @@ components:
     MiddlewareGateway:
       type: object
       additionalProperties: false
-      required: [id, organizationId, organizationName, name, siteName, keyPrefix, autoOnboard, isActive, isOnline, configVersion, configAppliedVersion, createdAt, updatedAt]
+      required: [id, organizationId, organizationName, name, siteName, keyPrefix, autoOnboard, isActive, isOnline, configVersion, configAppliedVersion, pollIntervalSeconds, apiPollingEnabled, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -3345,6 +3718,12 @@ components:
         configAppliedVersion:
           type: integer
           format: int64
+        pollIntervalSeconds:
+          type: integer
+          description: How often (seconds) this gateway should poll and send telemetry, pushed to it as part of every config push
+        apiPollingEnabled:
+          type: boolean
+          description: Whether the gateway should send telemetry over its REST ingest API on its own interval, pushed to it as part of every config push
         lastSeenAt:
           type: [string, "null"]
           format: date-time
@@ -3382,6 +3761,14 @@ components:
         autoOnboard:
           type: boolean
           default: false
+        pollIntervalSeconds:
+          type: integer
+          minimum: 5
+          maximum: 3600
+          default: 60
+        apiPollingEnabled:
+          type: boolean
+          default: false
     UpdateMiddlewareRequest:
       type: object
       additionalProperties: false
@@ -3397,6 +3784,12 @@ components:
         isActive:
           type: boolean
         autoOnboard:
+          type: boolean
+        pollIntervalSeconds:
+          type: integer
+          minimum: 5
+          maximum: 3600
+        apiPollingEnabled:
           type: boolean
     MiddlewareAddress:
       type: object
@@ -3503,6 +3896,31 @@ components:
         port: { type: integer }
         unitId: { type: integer }
         deviceModel: { type: string }
+    CSVImportResult:
+      type: object
+      additionalProperties: false
+      required: [deviceModelsCreated, deviceModelsReused, plantsCreated, plantsUpdated, devicesCreated, devicesUpdated, rowsUpserted, rowsSkipped]
+      properties:
+        deviceModelsCreated:
+          type: integer
+        deviceModelsReused:
+          type: integer
+        plantsCreated:
+          type: integer
+        plantsUpdated:
+          type: integer
+        devicesCreated:
+          type: integer
+        devicesUpdated:
+          type: integer
+        rowsUpserted:
+          type: integer
+        rowsSkipped:
+          type: integer
+        errors:
+          type: array
+          items:
+            type: string
     ImportMiddlewareConfigResult:
       type: object
       additionalProperties: false
@@ -3514,10 +3932,38 @@ components:
           type: integer
         registerMetadataUpserted:
           type: integer
+        registerMetadataSkipped:
+          type: integer
+        registerMetadataPruned:
+          type: integer
+          description: Stale Modbus-mapped register rows removed because they weren't reported by this import (e.g. left over from a since-changed addressKey scheme)
+        devicesCreated:
+          type: integer
+          description: Device rows created from Connections, matched to an existing Plant by PlantCode and given a new external_id (DevDn)
+        devicesUpdated:
+          type: integer
+          description: Existing Device rows (matched by Plant + external_id) whose modbusHost/modbusPort/modbusUnitId were overwritten from this import
+        devicesSkipped:
+          type: integer
+          description: Connections whose Plant isn't in the platform yet (matched by PlantCode) or that had no usable external_id -- these are never silently dropped, just not turned into a Device
         connectionsFound:
           type: array
           items:
             $ref: "#/components/schemas/ImportedConnectionSummary"
+    PushConfigResult:
+      type: object
+      additionalProperties: false
+      required: [plantCount, deviceCount, deviceSetCount, delivered]
+      properties:
+        plantCount:
+          type: integer
+        deviceCount:
+          type: integer
+        deviceSetCount:
+          type: integer
+        delivered:
+          type: boolean
+          description: Whether the computed config was actually sent over an active realtime connection to the gateway right now (false if the gateway isn't connected, or the identical content was already confirmed applied so nothing needed sending)
     MiddlewarePatch:
       type: object
       additionalProperties: false
@@ -3626,6 +4072,8 @@ components:
         installedAcKw:
           type: [number, "null"]
           minimum: 0
+        imageUrl:
+          type: [string, "null"]
         isActive:
           type: boolean
         createdAt:
@@ -3705,7 +4153,7 @@ components:
     Device:
       type: object
       additionalProperties: false
-      required: [id, organizationId, plantId, externalId, name, deviceModelId, manufacturer, model, deviceType, modbusUnitId, pollIntervalSeconds, isActive, createdAt, updatedAt]
+      required: [id, organizationId, plantId, externalId, name, deviceModelId, manufacturer, model, deviceType, modbusUnitId, isActive, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -3737,8 +4185,6 @@ components:
         modbusPort:
           type: [integer, "null"]
         modbusUnitId:
-          type: integer
-        pollIntervalSeconds:
           type: integer
         isActive:
           type: boolean
@@ -3777,11 +4223,9 @@ components:
           minimum: 0
           maximum: 255
           default: 1
-        pollIntervalSeconds:
-          type: integer
-          minimum: 1
-          maximum: 3600
-          default: 10
+        isActive:
+          type: boolean
+          default: true
     DeviceModelOption:
       type: object
       additionalProperties: false
@@ -4042,10 +4486,21 @@ components:
             $ref: "#/components/schemas/LatestTelemetry"
         nextCursor:
           type: [string, "null"]
+    AlarmRuleCondition:
+      type: object
+      additionalProperties: false
+      required: [pointKey, minValue, maxValue]
+      properties:
+        pointKey:
+          type: string
+        minValue:
+          type: [number, "null"]
+        maxValue:
+          type: [number, "null"]
     AlarmRule:
       type: object
       additionalProperties: false
-      required: [id, organizationId, plantId, deviceId, pointKey, label, severity, isActive, createdAt, updatedAt]
+      required: [id, organizationId, plantId, deviceId, label, conditionLogic, conditions, severity, isActive, notifyRoleId, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -4059,19 +4514,23 @@ components:
         deviceId:
           type: string
           format: uuid
-        pointKey:
-          type: string
         label:
           type: string
-        minValue:
-          type: [number, "null"]
-        maxValue:
-          type: [number, "null"]
+        conditionLogic:
+          type: string
+          enum: [AND, OR]
+        conditions:
+          type: array
+          items:
+            $ref: "#/components/schemas/AlarmRuleCondition"
         severity:
           type: string
           enum: [warning, major, critical]
         isActive:
           type: boolean
+        notifyRoleId:
+          type: [string, "null"]
+          format: uuid
         createdAt:
           type: string
           format: date-time
@@ -4081,48 +4540,83 @@ components:
     CreateAlarmRuleRequest:
       type: object
       additionalProperties: false
-      required: [deviceId, pointKey, label, severity]
+      required: [deviceId, label, conditions, severity]
       properties:
         deviceId:
           type: string
           format: uuid
-        pointKey:
-          type: string
-          minLength: 1
-          maxLength: 200
         label:
           type: string
           minLength: 1
           maxLength: 200
-        minValue:
-          type: [number, "null"]
-        maxValue:
-          type: [number, "null"]
+        conditionLogic:
+          type: string
+          enum: [AND, OR]
+        conditions:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/AlarmRuleCondition"
         severity:
           type: string
           enum: [warning, major, critical]
+        notifyRoleId:
+          type: [string, "null"]
+          format: uuid
     UpdateAlarmRuleRequest:
       type: object
       additionalProperties: false
-      required: [label, severity, isActive]
+      required: [label, conditions, severity, isActive]
       properties:
         label:
           type: string
           minLength: 1
           maxLength: 200
-        minValue:
-          type: [number, "null"]
-        maxValue:
-          type: [number, "null"]
+        conditionLogic:
+          type: string
+          enum: [AND, OR]
+        conditions:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/AlarmRuleCondition"
         severity:
           type: string
           enum: [warning, major, critical]
         isActive:
           type: boolean
+        notifyRoleId:
+          type: [string, "null"]
+          format: uuid
+    NotifyRoleOption:
+      type: object
+      additionalProperties: false
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+    AlarmEventCondition:
+      type: object
+      additionalProperties: false
+      required: [pointKey, value, minValue, maxValue, breached]
+      properties:
+        pointKey:
+          type: string
+        value:
+          type: number
+        minValue:
+          type: [number, "null"]
+        maxValue:
+          type: [number, "null"]
+        breached:
+          type: boolean
     AlarmEvent:
       type: object
       additionalProperties: false
-      required: [id, organizationId, plantId, deviceId, alarmRuleId, pointKey, severity, value, breachedAt]
+      required: [id, organizationId, plantId, deviceId, alarmRuleId, severity, conditionSnapshot, breachedAt]
       properties:
         id:
           type: integer
@@ -4139,17 +4633,13 @@ components:
         alarmRuleId:
           type: string
           format: uuid
-        pointKey:
-          type: string
         severity:
           type: string
           enum: [warning, major, critical]
-        value:
-          type: number
-        thresholdMin:
-          type: [number, "null"]
-        thresholdMax:
-          type: [number, "null"]
+        conditionSnapshot:
+          type: array
+          items:
+            $ref: "#/components/schemas/AlarmEventCondition"
         breachedAt:
           type: string
           format: date-time
@@ -4734,10 +5224,6 @@ components:
           type: integer
           minimum: 0
           maximum: 255
-        pollIntervalSeconds:
-          type: integer
-          minimum: 1
-          maximum: 3600
         isActive:
           type: boolean
     MiddlewareReading:

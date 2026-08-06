@@ -5,6 +5,7 @@ Next.js operator shell for the Solar SCADA platform.
 ## Configuration
 
 - `NEXT_PUBLIC_GATEWAY_URL`: default `http://localhost:44440`
+- Plant images accept PNG/JPEG/WebP files up to 2 MiB; Site Map groups nearby Plant markers into clusters
 
 ## Run
 

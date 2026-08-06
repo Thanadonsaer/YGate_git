@@ -13,7 +13,7 @@ import (
 
 const authenticateMiddlewareClient = `-- name: AuthenticateMiddlewareClient :one
 SELECT id, organization_id, name, auto_onboard
-FROM middleware_client
+FROM auth.middleware_client
 WHERE key_hash = $1 AND is_active = true
 LIMIT 1
 `
@@ -38,7 +38,7 @@ func (q *Queries) AuthenticateMiddlewareClient(ctx context.Context, keyHash []by
 }
 
 const completeIngestBatch = `-- name: CompleteIngestBatch :exec
-UPDATE telemetry_ingest_batch
+UPDATE telemetry.telemetry_ingest_batch
 SET accepted_count = $1,
     duplicate_count = $2,
     rejected_count = $3,
@@ -102,7 +102,7 @@ func (q *Queries) CreateInventoryAuditEvent(ctx context.Context, arg CreateInven
 }
 
 const createOrGetIngestBatch = `-- name: CreateOrGetIngestBatch :one
-INSERT INTO telemetry_ingest_batch (
+INSERT INTO telemetry.telemetry_ingest_batch (
     id, organization_id, middleware_client_id, idempotency_key, payload_hash, raw_payload
 ) VALUES (
     $1, $2, $3,
@@ -161,7 +161,7 @@ func (q *Queries) CreateOrGetIngestBatch(ctx context.Context, arg CreateOrGetIng
 
 const getIngestionDevice = `-- name: GetIngestionDevice :one
 SELECT id, organization_id, plant_id, device_model_id, external_id, name, is_active
-FROM device
+FROM plant.device
 WHERE organization_id = $1
   AND plant_id = $2
   AND external_id = $3
@@ -201,7 +201,7 @@ func (q *Queries) GetIngestionDevice(ctx context.Context, arg GetIngestionDevice
 
 const getIngestionPlant = `-- name: GetIngestionPlant :one
 SELECT id, organization_id, code, name, is_active
-FROM plant
+FROM plant.plant
 WHERE organization_id = $1 AND code = $2
 LIMIT 1
 `
@@ -233,7 +233,7 @@ func (q *Queries) GetIngestionPlant(ctx context.Context, arg GetIngestionPlantPa
 }
 
 const insertTelemetryReading = `-- name: InsertTelemetryReading :one
-INSERT INTO telemetry_reading (
+INSERT INTO telemetry.telemetry_reading (
     id, organization_id, plant_id, device_id, middleware_client_id, ingest_batch_id,
     gateway_id, external_key, observed_at, data_item_map, parameter_count
 ) VALUES (
@@ -278,35 +278,8 @@ func (q *Queries) InsertTelemetryReading(ctx context.Context, arg InsertTelemetr
 	return id, err
 }
 
-const upsertTelemetryLatest = `-- name: UpsertTelemetryLatest :exec
-INSERT INTO telemetry_latest (
-    organization_id, plant_id, device_id, telemetry_reading_id, gateway_id,
-    observed_at, received_at, data_item_map, parameter_count
-)
-SELECT organization_id, plant_id, device_id, id, gateway_id,
-       observed_at, received_at, data_item_map, parameter_count
-FROM telemetry_reading
-WHERE id = $1
-ON CONFLICT (organization_id, device_id) DO UPDATE
-SET plant_id = EXCLUDED.plant_id,
-    telemetry_reading_id = EXCLUDED.telemetry_reading_id,
-    gateway_id = EXCLUDED.gateway_id,
-    observed_at = EXCLUDED.observed_at,
-    received_at = EXCLUDED.received_at,
-    data_item_map = EXCLUDED.data_item_map,
-    parameter_count = EXCLUDED.parameter_count,
-    updated_at = now()
-WHERE (EXCLUDED.observed_at, EXCLUDED.received_at, EXCLUDED.telemetry_reading_id) >
-      (telemetry_latest.observed_at, telemetry_latest.received_at, telemetry_latest.telemetry_reading_id)
-`
-
-func (q *Queries) UpsertTelemetryLatest(ctx context.Context, readingID pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, upsertTelemetryLatest, readingID)
-	return err
-}
-
 const onboardDevice = `-- name: OnboardDevice :one
-INSERT INTO device (
+INSERT INTO plant.device (
     id, organization_id, plant_id, device_model_id, external_id, name, source_metadata
 ) VALUES (
     $1, $2, $3, $4,
@@ -363,7 +336,7 @@ func (q *Queries) OnboardDevice(ctx context.Context, arg OnboardDeviceParams) (O
 }
 
 const onboardDeviceModel = `-- name: OnboardDeviceModel :one
-INSERT INTO device_model (
+INSERT INTO plant.device_model (
     id, organization_id, manufacturer, model, device_type, source_type_id
 ) VALUES (
     $1, $2, 'Middleware', $3,
@@ -416,7 +389,7 @@ func (q *Queries) OnboardDeviceModel(ctx context.Context, arg OnboardDeviceModel
 }
 
 const onboardPlant = `-- name: OnboardPlant :one
-INSERT INTO plant (id, organization_id, code, name, timezone)
+INSERT INTO plant.plant (id, organization_id, code, name, timezone)
 VALUES ($1, $2, $3, $4, 'Asia/Bangkok')
 ON CONFLICT (organization_id, code) DO UPDATE SET code = EXCLUDED.code
 RETURNING id, organization_id, code, name, is_active, (xmax = 0) AS created
@@ -458,10 +431,37 @@ func (q *Queries) OnboardPlant(ctx context.Context, arg OnboardPlantParams) (Onb
 }
 
 const touchMiddlewareClient = `-- name: TouchMiddlewareClient :exec
-UPDATE middleware_client SET last_seen_at = now(), updated_at = now() WHERE id = $1
+UPDATE auth.middleware_client SET last_seen_at = now(), updated_at = now() WHERE id = $1
 `
 
 func (q *Queries) TouchMiddlewareClient(ctx context.Context, id pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, touchMiddlewareClient, id)
+	return err
+}
+
+const upsertTelemetryLatest = `-- name: UpsertTelemetryLatest :exec
+INSERT INTO telemetry.telemetry_latest (
+    organization_id, plant_id, device_id, telemetry_reading_id, gateway_id,
+    observed_at, received_at, data_item_map, parameter_count
+)
+SELECT organization_id, plant_id, device_id, id, gateway_id,
+       observed_at, received_at, data_item_map, parameter_count
+FROM telemetry.telemetry_reading
+WHERE id = $1
+ON CONFLICT (organization_id, device_id) DO UPDATE
+SET plant_id = EXCLUDED.plant_id,
+    telemetry_reading_id = EXCLUDED.telemetry_reading_id,
+    gateway_id = EXCLUDED.gateway_id,
+    observed_at = EXCLUDED.observed_at,
+    received_at = EXCLUDED.received_at,
+    data_item_map = EXCLUDED.data_item_map,
+    parameter_count = EXCLUDED.parameter_count,
+    updated_at = now()
+WHERE (EXCLUDED.observed_at, EXCLUDED.received_at, EXCLUDED.telemetry_reading_id) >
+      (telemetry.telemetry_latest.observed_at, telemetry.telemetry_latest.received_at, telemetry.telemetry_latest.telemetry_reading_id)
+`
+
+func (q *Queries) UpsertTelemetryLatest(ctx context.Context, readingID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, upsertTelemetryLatest, readingID)
 	return err
 }

@@ -108,6 +108,7 @@ export type Plant = {
   longitude?: number | null;
   installedDcKw?: number | null;
   installedAcKw?: number | null;
+  imageUrl?: string | null;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -126,7 +127,6 @@ export type Device = {
   modbusHost?: string | null;
   modbusPort?: number | null;
   modbusUnitId: number;
-  pollIntervalSeconds: number;
   isActive: boolean;
   updatedAt: string;
 };
@@ -266,19 +266,35 @@ export type LatestTelemetry = {
   parameterCount: number;
 };
 
+export type AlarmRuleCondition = {
+  pointKey: string;
+  minValue?: number | null;
+  maxValue?: number | null;
+};
+
 export type AlarmRule = {
   id: string;
   organizationId: string;
   plantId: string;
   deviceId: string;
-  pointKey: string;
   label: string;
-  minValue?: number | null;
-  maxValue?: number | null;
+  conditionLogic: "AND" | "OR";
+  conditions: AlarmRuleCondition[];
   severity: "warning" | "major" | "critical";
   isActive: boolean;
+  notifyRoleId?: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type AlarmNotifyRole = { id: string; name: string };
+
+export type AlarmEventCondition = {
+  pointKey: string;
+  value: number;
+  minValue?: number | null;
+  maxValue?: number | null;
+  breached: boolean;
 };
 
 export type AlarmEvent = {
@@ -287,11 +303,8 @@ export type AlarmEvent = {
   plantId: string;
   deviceId: string;
   alarmRuleId: string;
-  pointKey: string;
   severity: "warning" | "major" | "critical";
-  value: number;
-  thresholdMin?: number | null;
-  thresholdMax?: number | null;
+  conditionSnapshot: AlarmEventCondition[];
   breachedAt: string;
   clearedAt?: string | null;
   acknowledgedBy?: string | null;
@@ -338,7 +351,7 @@ export type TimeseriesWidgetConfig = {
   dataBinding: { plantId: string; deviceId: string; pointKey: string; timeRangeHours: 1 | 6 | 24 | 168 };
   display: { unit: string; decimals: number };
 };
-export type DashboardWidgetConfigs = { "timeseries-line"?: TimeseriesWidgetConfig };
+export type DashboardWidgetConfigs = { "timeseries-line"?: TimeseriesWidgetConfig; "energy-line"?: TimeseriesWidgetConfig };
 export type DashboardLayout = {
   id?: string | null;
   version: number;
@@ -373,6 +386,8 @@ export type MiddlewareGateway = {
   isOnline: boolean;
   configVersion: number;
   configAppliedVersion: number;
+  pollIntervalSeconds: number;
+  apiPollingEnabled: boolean;
   lastSeenAt?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -450,6 +465,10 @@ export type ImportMiddlewareConfigResult = {
   deviceModelsReused: number;
   registerMetadataUpserted: number;
   registerMetadataSkipped: number;
+  registerMetadataPruned: number;
+  devicesCreated: number;
+  devicesUpdated: number;
+  devicesSkipped: number;
   connectionsFound: Array<{ host: string; port: number; unitId: number; deviceModel: string }>;
 };
 
@@ -468,5 +487,5 @@ export type MiddlewarePatch = {
 export const MIDDLEWARE_DATA_TYPES = ["U16", "I16", "U32", "I32", "U64", "FLOAT32"] as const;
 
 export type TelemetryHistoryPage = { data: LatestTelemetry[]; nextCursor?: string | null };
-export type AuthMode = "login" | "forgot" | "reset";
+export type AuthMode = "login" | "forgot" | "reset" | "register" | "verify";
 export type ConnectionState = "connecting" | "connected" | "offline";

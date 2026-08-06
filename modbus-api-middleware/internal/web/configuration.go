@@ -54,6 +54,12 @@ func sortedConnections(cfg *configcache.Config) []domain.ConnectionConfig {
 
 func (s *Server) FullHandler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("/login", s.loginPage)
+	mux.HandleFunc("/api/auth/login", s.login)
+	mux.HandleFunc("/api/auth/logout", s.logout)
+	mux.HandleFunc("/activate", s.activatePage)
+	mux.HandleFunc("/api/license/status", s.licenseStatus)
+	mux.HandleFunc("/api/license/activate", s.activateLicense)
 	mux.HandleFunc("/config", s.configPage)
 	mux.HandleFunc("/logs", s.logsPage)
 	mux.HandleFunc("/service", http.NotFound)
@@ -82,7 +88,7 @@ func (s *Server) FullHandler() http.Handler {
 	mux.HandleFunc("/api/device-profiles/sma", s.installSMAProfile)
 	mux.HandleFunc("/api/connections", s.connections)
 	mux.Handle("/", s.Handler())
-	return s.licenseGate(mux)
+	return s.authGate(s.licenseGate(mux))
 }
 
 func (s *Server) installSMAProfile(w http.ResponseWriter, r *http.Request) {
@@ -204,6 +210,7 @@ func (s *Server) gatewayConfig(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 400, err)
 			return
 		}
+		s.signalRealtimeReload()
 		writeJSON(w, 201, saved)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

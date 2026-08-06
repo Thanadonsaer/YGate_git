@@ -53,6 +53,35 @@ func TestApplyConfigSnapshotValidSnapshotIsAppliedAndVisible(t *testing.T) {
 	if err != nil || len(connections) != 1 || connections[0].Host != "127.0.0.1" {
 		t.Fatalf("Connections()=%+v err=%v", connections, err)
 	}
+	// The platform routes command.request{connectionId} (Test Connection /
+	// Test Read) using the ConnectionID it sent in the snapshot -- if the
+	// locally applied row got a different (autoincrement-assigned) ID, every
+	// such command would fail with "connection not found" even though the
+	// gateway is online and the connection genuinely exists.
+	if connections[0].ConnectionID != 100 {
+		t.Fatalf("Connections()[0].ConnectionID=%d, want 100 (must match the pushed snapshot's id, not a locally reassigned one)", connections[0].ConnectionID)
+	}
+}
+
+func TestApplyConfigSnapshotPreservesConnectionIDAcrossReapply(t *testing.T) {
+	st, err := OpenNormalized(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	if err = st.ApplyConfigSnapshot(1, validSnapshot()); err != nil {
+		t.Fatalf("first ApplyConfigSnapshot() err=%v", err)
+	}
+	snapshot2 := validSnapshot()
+	snapshot2.Version = 2
+	if err = st.ApplyConfigSnapshot(2, snapshot2); err != nil {
+		t.Fatalf("second ApplyConfigSnapshot() err=%v", err)
+	}
+	connections, err := st.Connections()
+	if err != nil || len(connections) != 1 || connections[0].ConnectionID != 100 {
+		t.Fatalf("Connections() after reapply = %+v err=%v, want ConnectionID=100 unchanged across pushes", connections, err)
+	}
 }
 
 func TestApplyConfigSnapshotDanglingDeviceSetIDFailsAndLeavesStateUntouched(t *testing.T) {

@@ -10,23 +10,22 @@ import (
 )
 
 type updateDeviceRequest struct {
-	Name                string `json:"name"`
-	DeviceModelID       string `json:"deviceModelId"`
-	ModbusHost          string `json:"modbusHost"`
-	ModbusPort          *int32 `json:"modbusPort"`
-	ModbusUnitID        int32  `json:"modbusUnitId"`
-	PollIntervalSeconds int32  `json:"pollIntervalSeconds"`
-	IsActive            *bool  `json:"isActive"`
+	Name          string `json:"name"`
+	DeviceModelID string `json:"deviceModelId"`
+	ModbusHost    string `json:"modbusHost"`
+	ModbusPort    *int32 `json:"modbusPort"`
+	ModbusUnitID  int32  `json:"modbusUnitId"`
+	IsActive      *bool  `json:"isActive"`
 }
 
 type createDeviceRequest struct {
-	ExternalID          string `json:"externalId"`
-	Name                string `json:"name"`
-	DeviceModelID       string `json:"deviceModelId"`
-	ModbusHost          string `json:"modbusHost"`
-	ModbusPort          *int32 `json:"modbusPort"`
-	ModbusUnitID        int32  `json:"modbusUnitId"`
-	PollIntervalSeconds int32  `json:"pollIntervalSeconds"`
+	ExternalID    string `json:"externalId"`
+	Name          string `json:"name"`
+	DeviceModelID string `json:"deviceModelId"`
+	ModbusHost    string `json:"modbusHost"`
+	ModbusPort    *int32 `json:"modbusPort"`
+	ModbusUnitID  int32  `json:"modbusUnitId"`
+	IsActive      *bool  `json:"isActive"`
 }
 
 type deviceModelRequest struct {
@@ -80,10 +79,11 @@ func createDeviceHandler(service *core.Service) func(http.ResponseWriter, *http.
 		if !decodeJSON(w, r, &request, 16<<10) {
 			return
 		}
+		isActive := request.IsActive == nil || *request.IsActive
 		device, err := service.CreateDevice(r.Context(), principal, r.PathValue("plantId"), core.CreateDeviceInput{
 			ExternalID: request.ExternalID, Name: request.Name, DeviceModelID: request.DeviceModelID,
 			ModbusHost: request.ModbusHost, ModbusPort: request.ModbusPort,
-			ModbusUnitID: request.ModbusUnitID, PollIntervalSeconds: request.PollIntervalSeconds,
+			ModbusUnitID: request.ModbusUnitID, IsActive: isActive,
 		}, remoteIP(r.RemoteAddr))
 		switch {
 		case errors.Is(err, core.ErrInvalid):
@@ -261,8 +261,7 @@ func updateDeviceHandler(service *core.Service) func(http.ResponseWriter, *http.
 		}
 		device, err := service.UpdateDevice(r.Context(), principal, r.PathValue("plantId"), r.PathValue("deviceId"), core.UpdateDeviceInput{
 			Name: request.Name, DeviceModelID: request.DeviceModelID, ModbusHost: request.ModbusHost,
-			ModbusPort: request.ModbusPort, ModbusUnitID: request.ModbusUnitID,
-			PollIntervalSeconds: request.PollIntervalSeconds, IsActive: *request.IsActive,
+			ModbusPort: request.ModbusPort, ModbusUnitID: request.ModbusUnitID, IsActive: *request.IsActive,
 		}, remoteIP(r.RemoteAddr))
 		switch {
 		case errors.Is(err, core.ErrInvalid):

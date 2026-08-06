@@ -68,6 +68,14 @@ type Status struct {
 	Staged         *Manifest `json:"staged,omitempty"`
 	Backup         string    `json:"backup,omitempty"`
 	Message        string    `json:"message,omitempty"`
+	// LastApplyResult is the most recent apply-update.ps1/.sh outcome (see
+	// startUpdater's -ResultFile) -- "SUCCESS ..." or "FAILED ...: <reason>".
+	// The stop/copy/start script runs detached (fire-and-forget) from Apply,
+	// so this file is the only place a failed Copy-Item (permission, file
+	// lock, disk full, etc) is recorded; without surfacing it, the operator
+	// only sees the service bounce back up on its old, unreplaced binary
+	// with no error anywhere.
+	LastApplyResult string `json:"lastApplyResult,omitempty"`
 }
 
 // Manager is safe to share between the local web UI and the realtime
@@ -90,7 +98,11 @@ func (m *Manager) Status() Status {
 	if !m.CanApply {
 		msg = "Upload/stage enabled; Apply requires Windows Service or Linux systemd runtime"
 	}
-	return Status{Enabled: true, CanApply: m.CanApply, CurrentVersion: m.Version, OS: runtime.GOOS, Arch: runtime.GOARCH, ServiceName: AppName, Staged: staged, Backup: backupName, Message: msg}
+	lastResult := ""
+	if data, err := os.ReadFile(filepath.Join(m.root(), "run", "last-result.txt")); err == nil {
+		lastResult = strings.TrimSpace(string(data))
+	}
+	return Status{Enabled: true, CanApply: m.CanApply, CurrentVersion: m.Version, OS: runtime.GOOS, Arch: runtime.GOARCH, ServiceName: AppName, Staged: staged, Backup: backupName, Message: msg, LastApplyResult: lastResult}
 }
 
 // StageZip validates a patch zip (update-manifest.json + a binary matching

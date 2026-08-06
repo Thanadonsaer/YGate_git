@@ -41,11 +41,11 @@ func TestIngestionAutoOnboardingAndIdempotencyAgainstPostgreSQL(t *testing.T) {
 	if _, err := pool.Exec(ctx, "INSERT INTO organization(id,code,name) VALUES($1,'YGATE-INGEST-TEST','Ingestion Test')", organizationID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO middleware_client(id,organization_id,name,key_prefix,key_hash,auto_onboard) VALUES($1,$2,'Auto Gateway','ygm_aaaaaaaa',$3,true),($4,$2,'Locked Gateway','ygm_bbbbbbbb',$5,false)`, clientID, organizationID, keyHash[:], lockedClientID, lockedHash[:]); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO auth.middleware_client(id,organization_id,name,key_prefix,key_hash,auto_onboard) VALUES($1,$2,'Auto Gateway','ygm_aaaaaaaa',$3,true),($4,$2,'Locked Gateway','ygm_bbbbbbbb',$5,false)`, clientID, organizationID, keyHash[:], lockedClientID, lockedHash[:]); err != nil {
 		t.Fatal(err)
 	}
 
-	service := New(pool)
+	service := New(pool, nil)
 	client, err := service.Authenticate(ctx, key)
 	if err != nil || !client.AutoOnboard || client.ID != clientID {
 		t.Fatalf("client=%+v err=%v", client, err)
@@ -86,7 +86,7 @@ func TestIngestionAutoOnboardingAndIdempotencyAgainstPostgreSQL(t *testing.T) {
 	}
 
 	var plants, devices, readings, audits, unknownPlants int
-	if err = pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM plant), (SELECT count(*) FROM device), (SELECT count(*) FROM telemetry_reading), (SELECT count(*) FROM audit_log WHERE action IN ('plant.auto_onboarded','device.auto_onboarded')), (SELECT count(*) FROM plant WHERE code='UNKNOWN')`).Scan(&plants, &devices, &readings, &audits, &unknownPlants); err != nil {
+	if err = pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM plant.plant), (SELECT count(*) FROM plant.device), (SELECT count(*) FROM telemetry.telemetry_reading), (SELECT count(*) FROM audit_log WHERE action IN ('plant.auto_onboarded','device.auto_onboarded')), (SELECT count(*) FROM plant.plant WHERE code='UNKNOWN')`).Scan(&plants, &devices, &readings, &audits, &unknownPlants); err != nil {
 		t.Fatal(err)
 	}
 	if plants != 1 || devices != 1 || readings != 2 || audits != 2 || unknownPlants != 0 {
@@ -94,7 +94,7 @@ func TestIngestionAutoOnboardingAndIdempotencyAgainstPostgreSQL(t *testing.T) {
 	}
 	var data map[string]float64
 	var storedRaw []byte
-	if err = pool.QueryRow(ctx, `SELECT data_item_map FROM telemetry_reading ORDER BY observed_at LIMIT 1`).Scan(&storedRaw); err != nil {
+	if err = pool.QueryRow(ctx, `SELECT data_item_map FROM telemetry.telemetry_reading ORDER BY observed_at LIMIT 1`).Scan(&storedRaw); err != nil {
 		t.Fatal(err)
 	}
 	if err = json.Unmarshal(storedRaw, &data); err != nil || data["active_power"] != 42.5 {
@@ -105,20 +105,20 @@ func TestIngestionAutoOnboardingAndIdempotencyAgainstPostgreSQL(t *testing.T) {
 	assignmentID, _ := newUUID()
 	engineerID, _ := newUUID()
 	engineerAssignmentID, _ := newUUID()
-	if _, err = pool.Exec(ctx, `INSERT INTO app_user(id,organization_id,email,display_name,password_hash) VALUES($1,$2,'registry@test.invalid','Registry Admin','unused')`, adminID, organizationID); err != nil {
+	if _, err = pool.Exec(ctx, `INSERT INTO auth.app_user(id,organization_id,email,display_name,password_hash) VALUES($1,$2,'registry@test.invalid','Registry Admin','unused')`, adminID, organizationID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = pool.Exec(ctx, `INSERT INTO user_role(id,user_id,role_id) VALUES($1,$2,'00000000-0000-4000-8000-000000000201')`, assignmentID, adminID); err != nil {
+	if _, err = pool.Exec(ctx, `INSERT INTO auth.user_role(id,user_id,role_id) VALUES($1,$2,'00000000-0000-4000-8000-000000000201')`, assignmentID, adminID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = pool.Exec(ctx, `INSERT INTO app_user(id,organization_id,email,display_name,password_hash) VALUES($1,$2,'engineer@test.invalid','Dashboard Engineer','unused')`, engineerID, organizationID); err != nil {
+	if _, err = pool.Exec(ctx, `INSERT INTO auth.app_user(id,organization_id,email,display_name,password_hash) VALUES($1,$2,'engineer@test.invalid','Dashboard Engineer','unused')`, engineerID, organizationID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = pool.Exec(ctx, `INSERT INTO user_role(id,user_id,role_id) VALUES($1,$2,'00000000-0000-4000-8000-000000000204')`, engineerAssignmentID, engineerID); err != nil {
+	if _, err = pool.Exec(ctx, `INSERT INTO auth.user_role(id,user_id,role_id) VALUES($1,$2,'00000000-0000-4000-8000-000000000204')`, engineerAssignmentID, engineerID); err != nil {
 		t.Fatal(err)
 	}
 	var plantID pgtype.UUID
-	if err = pool.QueryRow(ctx, "SELECT id FROM plant WHERE code='NE=49712672'").Scan(&plantID); err != nil {
+	if err = pool.QueryRow(ctx, "SELECT id FROM plant.plant WHERE code='NE=49712672'").Scan(&plantID); err != nil {
 		t.Fatal(err)
 	}
 	registry := core.New(pool, gatewayhub.New())
@@ -226,21 +226,28 @@ func disposablePool(t *testing.T, ctx context.Context, databaseURL string) *pgxp
 	if err != nil {
 		t.Fatal(err)
 	}
-	schema := fmt.Sprintf("ingestion_test_%d", time.Now().UnixNano())
-	identifier := pgx.Identifier{schema}.Sanitize()
-	if _, err = admin.Exec(ctx, "CREATE SCHEMA "+identifier); err != nil {
+
+	name := fmt.Sprintf("ingestion_test_%d", time.Now().UnixNano())
+	identifier := pgx.Identifier{name}.Sanitize()
+	if _, err = admin.Exec(ctx, "CREATE DATABASE "+identifier); err != nil {
 		admin.Close()
 		t.Fatal(err)
 	}
+
 	t.Cleanup(func() {
-		_, _ = admin.Exec(context.Background(), "DROP SCHEMA "+identifier+" CASCADE")
+		_, _ = admin.Exec(context.Background(), "DROP DATABASE IF EXISTS "+identifier)
 		admin.Close()
 	})
-	query.Set("search_path", schema)
-	parsed.RawQuery = query.Encode()
-	pool, err := database.Open(ctx, parsed.String())
+
+	dbURL := *parsed
+	dbURL.Path = "/" + name
+	pool, err := database.Open(ctx, dbURL.String())
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	t.Cleanup(func() {
+		pool.Close()
+	})
 	return pool
 }

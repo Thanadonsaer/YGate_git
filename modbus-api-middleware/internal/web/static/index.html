@@ -663,7 +663,6 @@
             ภาพรวม</button><button type="button"
             data-view="setup">Setup</button><button type="button"
             data-view="api">API</button><button type="button"
-            data-view="monitor">Live Monitor</button><button type="button"
             data-view="update">Update Patch</button>
         </nav>
         <div class="side-note">
@@ -754,20 +753,6 @@
                     class="btn secondary"
                     onclick="showApi('logs')">
                     Logs
-                  </button>
-                </div>
-              </div>
-              <div class="card">
-                <h3>Monitor</h3>
-                <p>
-                  Live Test อ่านทุก enabled connection ตามรอบของหน้านี้
-                </p>
-                <div class="actions mt-14">
-                  <button
-                    type="button"
-                    class="btn primary"
-                    onclick="view('monitor')">
-                    Live Test
                   </button>
                 </div>
               </div>
@@ -1099,6 +1084,7 @@
                 </p>
               </div>
               <div class="actions">
+                <button type="button" class="btn secondary" onclick="showSetup('plants')">← Plant List</button>
                 <input
                   id="live-interval"
                   class="w-220"
@@ -1642,7 +1628,16 @@
         const d = $(id);
         if (d && d.open) d.close();
       }
-      function view(name) {
+      function viewPlantLive(id) {
+        state.selectedPlant = +id || 0;
+        const plant = state.plants.find((p) => p.plantId === state.selectedPlant);
+        if (!plant) return;
+        const first = state.connections.find((c) => c.plantCode === plant.plantCode);
+        state.monitorId = first?.connectionId || 0;
+        view("monitor");
+        renderMonitor();
+        if (state.monitorId) loadPollLogs(false);
+      }      function view(name) {
         document
           .querySelectorAll(".view")
           .forEach((v) => v.classList.toggle("active", v.id === name));
@@ -1651,8 +1646,9 @@
           .forEach((b) =>
             b.classList.toggle("active", b.dataset.view === name),
           );
-        $("page-title").textContent = titles[name][0];
-        $("page-subtitle").textContent = titles[name][1];
+        const monitorPlant = state.plants.find((p) => p.plantId === state.selectedPlant);
+        $("page-title").textContent = name === "monitor" && monitorPlant ? "Live Monitor — " + monitorPlant.plantCode : titles[name][0];
+        $("page-subtitle").textContent = name === "monitor" && monitorPlant ? monitorPlant.plantName + " • Live Test เฉพาะ Device ใน Plant นี้" : titles[name][1];
       }
       function showSetup(tab = "brands", brandId) {
         if (tab === "import") tab = "sets";
@@ -1737,11 +1733,13 @@
           `<tr><th>Staged</th><td>${s.version ? esc(s.version + " / " + s.os + "/" + s.arch) : "-"}</td></tr>` +
           `<tr><th>Binary</th><td class="mono">${esc(s.binary || "-")}</td></tr>` +
           `<tr><th>SHA256</th><td class="mono">${esc(s.sha256 || "-")}</td></tr>` +
-          `<tr><th>Backup</th><td class="mono">${esc(u.backup || "-")}</td></tr>`;
+          `<tr><th>Backup</th><td class="mono">${esc(u.backup || "-")}</td></tr>` +
+          `<tr><th>Last Apply Result</th><td class="mono">${esc(u.lastApplyResult || "-")}</td></tr>`;
         const message = $("update-message");
         if (message) {
-          message.textContent = u.message || "";
-          message.className = "status-line mt-12 " + (u.canApply ? "ok" : "bad");
+          const failed = (u.lastApplyResult || "").startsWith("FAILED");
+          message.textContent = u.message || (failed ? u.lastApplyResult : "");
+          message.className = "status-line mt-12 " + (failed ? "bad" : (u.canApply ? "ok" : "bad"));
         }
         if ($("update-actions-card")) $("update-actions-card").style.display = (s.version || u.backup) ? "block" : "none";
         if ($("update-apply")) $("update-apply").disabled = !(u.canApply && s.version);
@@ -1983,23 +1981,28 @@
       function renderMonitor() {
         const rows = $("monitor-rows");
         if (!rows) return;
-        if (!state.connections.length) {
-          rows.innerHTML = '<tr><td colspan="6">ยังไม่มี Connection</td></tr>';
+        const plant = state.plants.find((p) => p.plantId === state.selectedPlant);
+        const items = plant
+          ? state.connections.filter((c) => c.plantCode === plant.plantCode)
+          : state.connections;
+        if (!items.length) {
+          rows.innerHTML = '<tr><td colspan="6">Plant นี้ยังไม่มี Connection</td></tr>';
+          state.monitorId = 0;
           renderMonitorCurrent();
           return;
         }
-        rows.innerHTML = state.connections
+        if (!items.some((c) => c.connectionId === state.monitorId)) {
+          state.monitorId = items[0].connectionId;
+        }
+        rows.innerHTML = items
           .map(
             (c) =>
               `<tr class="${c.connectionId === state.monitorId ? "selected" : ""}"><td><b>${esc(c.connectionName)}</b></td><td><b>${esc(c.plantCode || "-")}</b><br>${esc(c.deviceName || c.devDn || "-")}</td><td>${esc(c.host)}:${c.port}<br>unit ${c.unitId || c.slaveId || 1}</td><td><span class="${c.enabled ? "ok" : "bad"}">${c.enabled ? "Enabled" : "Disabled"}</span></td><td>${latestPollText(c.connectionId)}</td><td><div class="actions"><button type="button" class="btn primary" onclick="connectTest(${c.connectionId})">Connect Test</button><button type="button" class="btn primary" onclick="readNow(${c.connectionId})">Read Now</button><button type="button" class="btn secondary" onclick="sendAPIOnce(${c.connectionId})">Send API Once</button><button type="button" class="btn secondary" onclick="selectMonitorConnection(${c.connectionId})">View</button></div></td></tr>`,
           )
           .join("");
-        if (!state.monitorId && state.connections[0])
-          state.monitorId = state.connections[0].connectionId;
         renderMonitorCurrent();
-        if (state.monitorId) loadPollLogs(false);
-      }
-      function latestPollText(id) {
+        loadPollLogs(false);
+      }      function latestPollText(id) {
         const log = state.pollLogs.find((x) => x.connectionId === id);
         return log ? `${esc(log.status)}<br>${dt(log.createdAt)}` : "-";
       }
@@ -2184,7 +2187,7 @@
         rows.innerHTML = state.plants
           .map(
             (p) =>
-              `<tr><td><b>${esc(p.plantCode)}</b></td><td>${esc(p.plantName)}</td><td>${state.connections.filter((c) => c.plantCode === p.plantCode).length}</td><td><div class="actions"><button type="button" class="btn primary" onclick="viewPlant(${p.plantId})">เข้า Plant</button><button type="button" class="btn secondary" onclick="openPlant(${p.plantId})">แก้ไข</button><button type="button" class="btn danger" onclick="deletePlant(${p.plantId})">ลบ</button></div></td></tr>`,
+              `<tr><td><b>${esc(p.plantCode)}</b></td><td>${esc(p.plantName)}</td><td>${state.connections.filter((c) => c.plantCode === p.plantCode).length}</td><td><div class="actions"><button type="button" class="btn primary" onclick="viewPlant(${p.plantId})">เข้า Plant</button><button type="button" class="btn secondary" onclick="viewPlantLive(${p.plantId})">Live Monitor</button><button type="button" class="btn secondary" onclick="openPlant(${p.plantId})">แก้ไข</button><button type="button" class="btn danger" onclick="deletePlant(${p.plantId})">ลบ</button></div></td></tr>`,
           )
           .join("");
       }
@@ -2974,7 +2977,8 @@
         }
       }
       async function runLiveSweep() {
-        const items = state.connections.filter((c) => c.enabled);
+        const plant = state.plants.find((p) => p.plantId === state.selectedPlant);
+        const items = state.connections.filter((c) => c.enabled && (!plant || c.plantCode === plant.plantCode));
         if (!items.length) {
           toast("ไม่มี enabled connection", true);
           return;

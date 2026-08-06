@@ -12,11 +12,15 @@ import (
 
 func (s *Server) licenseGate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if s.LicensePublicKey == "" || s.hasValidLicense() {
+		if s.LicensePublicKey == "" || s.hasValidLicense() || r.URL.Path == "/activate" || strings.HasPrefix(r.URL.Path, "/api/license/") {
 			next.ServeHTTP(w, r)
 			return
 		}
-		writeError(w, http.StatusForbidden, fmt.Errorf("license required; activate from Terminal with -activate-license"))
+		if r.Method == http.MethodGet && !strings.HasPrefix(r.URL.Path, "/api/") {
+			http.Redirect(w, r, "/activate", http.StatusFound)
+			return
+		}
+		writeError(w, http.StatusForbidden, fmt.Errorf("license required; activate from Web"))
 	})
 }
 

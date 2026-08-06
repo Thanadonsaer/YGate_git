@@ -252,9 +252,14 @@ func ingestRawReading(ctx context.Context, tx pgx.Tx, q *dbgen.Queries, client C
 	// doc comment), so newly discovered address keys default to "number"
 	// here — same as the v1 dataItemMap auto-onboard path in service.go.
 	// Operators refine the type (e.g. to boolean) in Register Metadata.
+	// Keyed as "reg"+address (not the bare address) to match the curated
+	// vendor register catalogs (PVS100/PVS50/SUN2000, imported from Register
+	// Metadata's CSV import) so a newly-discovered register that already has
+	// a curated row picks up its real display name/scale/unit immediately
+	// instead of colliding under a different key and sitting unmatched.
 	metadata := make(map[string]string, len(reading.RegisterAddressMap))
 	for key := range reading.RegisterAddressMap {
-		metadata[key] = "number"
+		metadata["reg"+key] = "number"
 	}
 	if err = ensureModelRegisterMetadata(ctx, tx, q, client, device.DeviceModelID, metadata, "MIDDLEWARE_V2"); err != nil {
 		return outcome, nil, err
@@ -280,5 +285,60 @@ func ingestRawReading(ctx context.Context, tx pgx.Tx, q *dbgen.Queries, client C
 		return outcome, nil, fmt.Errorf("insert raw register reading: %w", err)
 	}
 	outcome.accepted++
+
+	// Raw registers are addresses, not named parameters -- translate through
+	// Register Metadata's scale/offset before they're usable as telemetry
+	// (dashboard charts, Energy Analysis, alarms). A register with no
+	// metadata row yet (shouldn't happen, ensureModelRegisterMetadata just
+	// created one for every key above) or explicitly disabled by an operator
+	// is left out of the reading entirely rather than stored raw.
+	dataItemMap, err := scaledDataItemMap(ctx, tx, client.OrganizationID, device.DeviceModelID, reading.RegisterAddressMap)
+	if err != nil {
+		return outcome, nil, err
+	}
+	if len(dataItemMap) == 0 {
+		return outcome, nil, nil
+	}
+	if _, err = recordTelemetryReading(ctx, tx, q, client, batchID, plant, device, reading.GatewayID, externalKey, reading.ObservedAt, dataItemMap, &outcome); err != nil {
+		return outcome, nil, err
+	}
 	return outcome, nil, nil
+}
+
+// scaledDataItemMap translates a raw register reading into named-parameter
+// values using device_model_register_metadata's scale/value_offset, the same
+// table Register Metadata (the admin page) edits. Disabled registers, and
+// keys with no metadata row at all, are dropped rather than passed through
+// raw -- an operator explicitly turned them off, or hasn't reviewed them yet.
+func scaledDataItemMap(ctx context.Context, tx pgx.Tx, organizationID, modelID pgtype.UUID, registers map[string]float64) (map[string]float64, error) {
+	rows, err := tx.Query(ctx, `
+SELECT address_key, scale, value_offset, is_enabled
+FROM plant.device_model_register_metadata
+WHERE organization_id=$1 AND device_model_id=$2`, organizationID, modelID)
+	if err != nil {
+		return nil, fmt.Errorf("load register metadata for scaling: %w", err)
+	}
+	defer rows.Close()
+	dataItemMap := make(map[string]float64, len(registers))
+	for rows.Next() {
+		var addressKey string
+		var scale, offset float64
+		var isEnabled bool
+		if err := rows.Scan(&addressKey, &scale, &offset, &isEnabled); err != nil {
+			return nil, fmt.Errorf("scan register metadata for scaling: %w", err)
+		}
+		if !isEnabled {
+			continue
+		}
+		// registers is keyed by bare address (the wire format); addressKey is
+		// the metadata row's key, "reg"+address for both the curated vendor
+		// catalogs and newly-onboarded registers (see ensureModelRegisterMetadata
+		// call above) -- strip the prefix to look the raw value up, but keep
+		// the DB's addressKey as the dataItemMap key so it still matches what
+		// Register Metadata / Device Detail join against.
+		if raw, ok := registers[strings.TrimPrefix(addressKey, "reg")]; ok {
+			dataItemMap[addressKey] = raw*scale + offset
+		}
+	}
+	return dataItemMap, rows.Err()
 }

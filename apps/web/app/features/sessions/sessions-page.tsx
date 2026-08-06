@@ -4,7 +4,7 @@ import { RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "../../components/ui/sonner";
 import { Button } from "../../components/ui/button";
-import { api, csrfToken, formatDate } from "../../lib/api";
+import { api, errorMessage, csrfToken, formatDate } from "../../lib/api";
 import type { Session } from "../../lib/types";
 
 export function SessionsPage() {
@@ -20,7 +20,7 @@ export function SessionsPage() {
       if (!response.ok) throw new Error("ไม่สามารถโหลดเซสชันได้");
       setSessions((await response.json()) as Session[]);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+      setError(errorMessage(cause));
     } finally {
       setLoading(false);
     }

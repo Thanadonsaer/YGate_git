@@ -1,12 +1,12 @@
 "use client";
 
-import { ArrowLeft, Pencil, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { ArrowLeft, Download, Pencil, Plus, RefreshCw, Search, Trash2, Upload } from "lucide-react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody } from "../../components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../../components/ui/select";
 import { toast } from "../../components/ui/sonner";
 import { iconButtonClass, inputClass, labelClass, primaryButtonClass, secondaryButtonClass } from "../../components/ui";
-import { api, csrfToken } from "../../lib/api";
+import { api, errorMessage, csrfToken, downloadBlob } from "../../lib/api";
 import { MIDDLEWARE_DATA_TYPES, type DeviceModelOption, type DeviceModelRegisterMetadata } from "../../lib/types";
 
 export function RegisterMetadataPage() {
@@ -28,7 +28,7 @@ export function RegisterMetadataPage() {
       if (!response.ok) throw new Error("ไม่สามารถโหลด Device Model ได้");
       setModels((await response.json()) as DeviceModelOption[]);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+      setError(errorMessage(cause));
     } finally {
       setLoading(false);
     }
@@ -46,7 +46,7 @@ export function RegisterMetadataPage() {
       if (!response.ok) throw new Error(response.status === 404 ? "ไม่พบ Device Model" : "ไม่สามารถโหลด Address Metadata ได้");
       setItems((await response.json()) as DeviceModelRegisterMetadata[]);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+      setError(errorMessage(cause));
     } finally {
       setLoading(false);
     }
@@ -54,6 +54,41 @@ export function RegisterMetadataPage() {
 
   useEffect(() => { void loadModels(); }, [loadModels]);
   useEffect(() => { void loadItems(selectedModelId); }, [loadItems, selectedModelId]);
+
+  const importInputRef = useRef<HTMLInputElement>(null);
+
+  async function exportCSV() {
+    const path = selectedModelId
+      ? `/api/v1/device-models/${encodeURIComponent(selectedModelId)}/register-metadata/export`
+      : "/api/v1/device-models/register-metadata/export-all";
+    const response = await api(path);
+    if (!response.ok) { toast.error("ดาวน์โหลด CSV ไม่สำเร็จ"); return; }
+    downloadBlob(await response.blob(), "register-metadata.csv");
+  }
+
+  async function downloadTemplate() {
+    const response = await api("/api/v1/device-models/register-metadata/import-template");
+    if (!response.ok) { toast.error("ดาวน์โหลด Template ไม่สำเร็จ"); return; }
+    downloadBlob(await response.blob(), "register-metadata-template.csv");
+  }
+
+  async function importCSVFile(file: File) {
+    const formData = new FormData();
+    formData.append("file", file);
+    try {
+      const response = await api("/api/v1/device-models/register-metadata/import", { method: "POST", headers: { "X-CSRF-Token": csrfToken() }, body: formData });
+      if (!response.ok) throw new Error("Import CSV ไม่สำเร็จ — ตรวจรูปแบบไฟล์");
+      const result = (await response.json()) as { deviceModelsCreated: number; rowsUpserted: number; rowsSkipped: number; errors?: string[] };
+      toast.success(
+        `Import สำเร็จ: Model ใหม่ ${result.deviceModelsCreated}, Register ${result.rowsUpserted} แถว`
+        + (result.rowsSkipped > 0 ? `, ข้าม ${result.rowsSkipped} แถว (${(result.errors ?? []).slice(0, 2).join("; ")})` : ""),
+      );
+      await loadModels();
+      if (selectedModelId) await loadItems(selectedModelId);
+    } catch (cause) {
+      toast.error(errorMessage(cause));
+    }
+  }
 
   const selectedModel = models.find((model) => model.id === selectedModelId);
   const normalizedQuery = query.trim().toLocaleLowerCase();
@@ -139,6 +174,26 @@ export function RegisterMetadataPage() {
           <button className={iconButtonClass} type="button" onClick={() => void (selectedModel ? loadItems(selectedModel.id) : loadModels())} title="รีเฟรช" aria-label="รีเฟรช">
             <RefreshCw size={18} />
           </button>
+          <button className={secondaryButtonClass} type="button" onClick={() => void exportCSV()} title={selectedModel ? "Export CSV (Model นี้)" : "Export CSV (ทุก Model)"}>
+            <Download size={16} /> Export CSV
+          </button>
+          <button className={secondaryButtonClass} type="button" onClick={() => void downloadTemplate()} title="ดาวน์โหลด Template เปล่า">
+            Template
+          </button>
+          <button className={secondaryButtonClass} type="button" onClick={() => importInputRef.current?.click()} title="Import CSV (อัปเดตทับของเดิม)">
+            <Upload size={16} /> Import CSV
+          </button>
+          <input
+            ref={importInputRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="hidden"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) void importCSVFile(file);
+              event.target.value = "";
+            }}
+          />
           <button className={primaryButtonClass} type="button" onClick={() => selectedModel ? setAddressDialog("create") : setModelDialog("create")}>
             <Plus size={17} /> {selectedModel ? "เพิ่ม Address" : "เพิ่ม Model"}
           </button>
@@ -212,13 +267,15 @@ export function RegisterMetadataPage() {
         {!loading && rows.length === 0 && <div className="table-state">{query ? "ไม่พบข้อมูลที่ตรงกับคำค้น" : selectedModel ? "ยังไม่มี Address Metadata สำหรับ Model นี้" : "ยังไม่มี Device Model"}</div>}
       </section>
 
-      {modelDialog && <DeviceModelDialog model={modelDialog === "create" ? null : modelDialog} onClose={() => setModelDialog(null)} onSaved={modelSaved} />}
+      {modelDialog && <DeviceModelDialog model={modelDialog === "create" ? null : modelDialog} models={models} onClose={() => setModelDialog(null)} onSaved={modelSaved} />}
       {addressDialog && selectedModel && <AddressMetadataDialog model={selectedModel} item={addressDialog === "create" ? null : addressDialog} onClose={() => setAddressDialog(null)} onSaved={addressSaved} />}
     </div>
   );
 }
 
-function DeviceModelDialog({ model, onClose, onSaved }: { model: DeviceModelOption | null; onClose: () => void; onSaved: (model: DeviceModelOption) => void }) {
+const NEW_DEVICE_TYPE = "__new__";
+
+function DeviceModelDialog({ model, models, onClose, onSaved }: { model: DeviceModelOption | null; models: DeviceModelOption[]; onClose: () => void; onSaved: (model: DeviceModelOption) => void }) {
   const [manufacturer, setManufacturer] = useState(model?.manufacturer ?? "");
   const [deviceType, setDeviceType] = useState(model?.deviceType ?? "");
   const [modelName, setModelName] = useState(model?.model ?? "");
@@ -226,6 +283,26 @@ function DeviceModelDialog({ model, onClose, onSaved }: { model: DeviceModelOpti
   const [isActive, setIsActive] = useState(model?.isActive ?? true);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+
+  const deviceTypeOptions = useMemo(() => {
+    const bySourceType = new Map<string, number | null>();
+    for (const item of models) if (!bySourceType.has(item.deviceType)) bySourceType.set(item.deviceType, item.sourceTypeId ?? null);
+    return [...bySourceType.entries()].sort(([a], [b]) => a.localeCompare(b));
+  }, [models]);
+  const [customDeviceType, setCustomDeviceType] = useState(!deviceTypeOptions.some(([type]) => type === deviceType));
+
+  function selectDeviceType(value: string) {
+    if (value === NEW_DEVICE_TYPE) {
+      setCustomDeviceType(true);
+      setDeviceType("");
+      setSourceTypeId("");
+      return;
+    }
+    setCustomDeviceType(false);
+    setDeviceType(value);
+    const mapped = deviceTypeOptions.find(([type]) => type === value)?.[1];
+    setSourceTypeId(mapped == null ? "" : String(mapped));
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -240,7 +317,7 @@ function DeviceModelDialog({ model, onClose, onSaved }: { model: DeviceModelOpti
       if (!response.ok) throw new Error(response.status === 409 ? "Brand/ชนิด/รุ่นนี้มีอยู่แล้ว" : "ไม่สามารถบันทึก Device Model ได้");
       onSaved((await response.json()) as DeviceModelOption);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+      setError(errorMessage(cause));
     } finally {
       setPending(false);
     }
@@ -255,9 +332,30 @@ function DeviceModelDialog({ model, onClose, onSaved }: { model: DeviceModelOpti
         <DialogBody>
           <form className="grid gap-4 sm:grid-cols-2" onSubmit={submit}>
             <label className={labelClass}>Brand<input className={inputClass} autoFocus value={manufacturer} onChange={(event) => setManufacturer(event.target.value)} maxLength={200} required /></label>
-            <label className={labelClass}>ชนิดอุปกรณ์<input className={inputClass} value={deviceType} onChange={(event) => setDeviceType(event.target.value)} maxLength={100} required /></label>
+            <label className={labelClass}>
+              ชนิดอุปกรณ์
+              {customDeviceType
+                ? (
+                  <span className="flex gap-2">
+                    <input className={inputClass} value={deviceType} onChange={(event) => setDeviceType(event.target.value)} maxLength={100} placeholder="ชนิดอุปกรณ์ใหม่" required autoFocus />
+                    {deviceTypeOptions.length > 0 && <button type="button" className={`${secondaryButtonClass} shrink-0 text-xs`} onClick={() => selectDeviceType(deviceTypeOptions[0][0])}>เลือกจากรายการ</button>}
+                  </span>
+                )
+                : (
+                  <Select value={deviceType} onValueChange={selectDeviceType}>
+                    <SelectTrigger aria-label="ชนิดอุปกรณ์"><SelectValue placeholder="เลือกชนิดอุปกรณ์" /></SelectTrigger>
+                    <SelectContent>
+                      {deviceTypeOptions.map(([type]) => <SelectItem key={type} value={type}>{type}</SelectItem>)}
+                      <SelectItem value={NEW_DEVICE_TYPE}>+ เพิ่มชนิดใหม่</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+            </label>
             <label className={`${labelClass} sm:col-span-2`}>รุ่น<input className={inputClass} value={modelName} onChange={(event) => setModelName(event.target.value)} maxLength={200} required /></label>
-            <label className={labelClass}>Source Type ID<input className={inputClass} type="number" min="0" value={sourceTypeId} onChange={(event) => setSourceTypeId(event.target.value)} /></label>
+            <label className={labelClass}>
+              Source Type ID
+              <input className={inputClass} type="number" min="0" value={sourceTypeId} onChange={(event) => setSourceTypeId(event.target.value)} readOnly={!customDeviceType && deviceTypeOptions.some(([type]) => type === deviceType)} />
+            </label>
             <label className="flex items-center gap-2 self-end text-sm font-bold text-slate-800"><input className="h-4 w-4 accent-brand" type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} /> เปิดใช้งาน</label>
             {error && <p className="rounded-md bg-rose-50 px-3 py-2 text-sm font-bold text-danger sm:col-span-2">{error}</p>}
             <div className="flex justify-end gap-2 sm:col-span-2"><button type="button" className={secondaryButtonClass} onClick={onClose} disabled={pending}>ยกเลิก</button><button className={primaryButtonClass} disabled={pending}>{pending ? "กำลังบันทึก" : "บันทึก"}</button></div>
@@ -304,7 +402,7 @@ function AddressMetadataDialog({ model, item, onClose, onSaved }: { model: Devic
       if (!response.ok) throw new Error(response.status === 404 ? "ไม่พบ Device Model" : "Address Metadata ไม่ถูกต้องหรือไม่สามารถบันทึกได้");
       onSaved((await response.json()) as DeviceModelRegisterMetadata);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+      setError(errorMessage(cause));
     } finally {
       setPending(false);
     }

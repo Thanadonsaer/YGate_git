@@ -52,7 +52,7 @@ import {
   Zap,
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import { api, csrfToken, formatDate } from "../../lib/api";
+import { api, errorMessage, csrfToken, formatDate } from "../../lib/api";
 import { useRealtimeSocket } from "../../lib/realtime";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody } from "../../components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../../components/ui/select";
@@ -143,7 +143,7 @@ export function ScadaPage() {
       setCreatePlantID((current) => current || nextPlants[0]?.id || "");
       setScreens((await screenResponse.json()) as ScadaScreenSummary[]);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+      setError(errorMessage(cause));
     } finally {
       setLoading(false);
     }
@@ -183,7 +183,7 @@ export function ScadaPage() {
       setCanvasEpoch((value) => value + 1);
       setScreens((current) => current.map((item) => item.id === next.id ? next : item));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+      setError(errorMessage(cause));
     } finally {
       setLoading(false);
     }

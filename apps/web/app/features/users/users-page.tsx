@@ -2,7 +2,7 @@
 
 import { CheckCircle2, KeyRound, Pencil, Plus, RefreshCw, RotateCcw, Save, Trash2, UserX } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { api, csrfToken, formatDate } from "../../lib/api";
+import { api, errorMessage, csrfToken, formatDate } from "../../lib/api";
 import type { ManagedUser, Role } from "../../lib/types";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody } from "../../components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../../components/ui/select";
@@ -27,7 +27,7 @@ export function UsersPage({ currentUserId, defaultOrganizationId }: { currentUse
       setUsers((await userResponse.json()) as ManagedUser[]);
       setRoles((await roleResponse.json()) as Role[]);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+      setError(errorMessage(cause));
     } finally {
       setLoading(false);
     }
@@ -43,7 +43,7 @@ export function UsersPage({ currentUserId, defaultOrganizationId }: { currentUse
       body: JSON.stringify({ isActive }),
     });
     if (response.ok) { toast.success(isActive ? `เปิดใช้งาน ${target.displayName} แล้ว` : `ปิดใช้งาน ${target.displayName} แล้ว`); await loadUsers(); }
-    else setError(response.status === 403 ? "บัญชีนี้ไม่มีสิทธิ์เปลี่ยนสถานะผู้ใช้" : "ไม่สามารถเปลี่ยนสถานะผู้ใช้ได้");
+    else setError(response.status === 403 ? "บัญชีนี้ไม่มีสิทธิ์เปลี่ยนสถานะผู้ใช้" : response.status === 400 ? "ต้องยืนยันอีเมลและกำหนด Role ก่อนเปิดใช้งาน User" : "ไม่สามารถเปลี่ยนสถานะผู้ใช้ได้");
   }
 
   async function unlockUser(target: ManagedUser) {
@@ -132,7 +132,7 @@ function UserEditor({ user, roles, defaultOrganizationId, onClose, onSaved }: { 
       if (!response.ok) throw new Error(response.status === 409 ? "อีเมลหรือ username นี้มีอยู่แล้ว" : response.status === 403 ? "บัญชีนี้ไม่มีสิทธิ์จัดการ User/Role" : "ไม่สามารถบันทึกผู้ใช้ได้");
       onSaved();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+      setError(errorMessage(cause));
     } finally {
       setPending(false);
     }
@@ -180,7 +180,7 @@ function PasswordResetDialog({ user, onClose, onSaved }: { user: ManagedUser; on
       if (!response.ok) throw new Error(response.status === 403 ? "บัญชีนี้ไม่มีสิทธิ์ Reset Password" : "รหัสผ่านไม่ผ่าน policy หรือบันทึกไม่สำเร็จ");
       onSaved();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด");
+      setError(errorMessage(cause));
     } finally {
       setPending(false);
     }

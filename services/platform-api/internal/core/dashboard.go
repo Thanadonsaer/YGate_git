@@ -59,11 +59,24 @@ func (s *Service) DashboardOverview(ctx context.Context, principal auth.Principa
 	}
 	overview := DashboardOverview{GeneratedAt: now, StaleAfterSeconds: int64(staleAfter / time.Second), PlantCount: int64(len(rows)), Plants: make([]DashboardPlantStatus, 0, len(rows))}
 	for _, row := range rows {
+		// row.LastObservedAt is an untyped interface{}, not a concrete
+		// pgtype.Timestamptz -- sqlc's nullability inference degrades to
+		// interface{} for this max(tl.observed_at) aggregate once its JOIN
+		// spans 3 schemas (plant.plant/plant.device/telemetry.telemetry_latest),
+		// a known sqlc analyzer limitation with cross-schema joins. pgx's
+		// TimestamptzCodec.DecodeValue underneath always decodes a finite,
+		// non-NULL timestamptz into a concrete time.Time (nil for SQL NULL),
+		// so a plain type assertion recovers the same value timePointer used
+		// to produce from a typed pgtype.Timestamptz.
+		var lastObservedAt *time.Time
+		if observedAt, ok := row.LastObservedAt.(time.Time); ok {
+			lastObservedAt = &observedAt
+		}
 		plant := DashboardPlantStatus{
 			PlantID: uuidString(row.PlantID), Code: row.Code, Name: row.Name, Timezone: row.Timezone, IsActive: row.IsActive,
 			DeviceCount: row.DeviceCount, ActiveDeviceCount: row.ActiveDeviceCount, ReportingDeviceCount: row.ReportingDeviceCount,
 			StaleDeviceCount: row.StaleDeviceCount, OfflineDeviceCount: row.OfflineDeviceCount,
-			LastObservedAt: timePointer(row.LastObservedAt),
+			LastObservedAt: lastObservedAt,
 		}
 		plant.CommunicationStatus = dashboardCommunicationStatus(plant)
 		overview.Plants = append(overview.Plants, plant)

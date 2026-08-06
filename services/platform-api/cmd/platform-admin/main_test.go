@@ -15,7 +15,7 @@ func TestBootstrapInputFromEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if input.email != "admin@example.com" || input.username != "admin" || input.organizationCode != "ORG-001" || input.role != "Platform Admin" {
+	if input.email != "admin@example.com" || input.username != "admin" || input.organizationCode != "ORG-001" || input.role != "System Admin" {
 		t.Fatalf("input=%+v", input)
 	}
 }

@@ -37,13 +37,13 @@ func TestAlarmRuleAndEventLifecycleAgainstPostgreSQL(t *testing.T) {
 	if _, err = pool.Exec(ctx, "INSERT INTO organization(id,code,name) VALUES($1,$2,$3)", orgID, "TEST-ALARMS-A", "Test Alarms Organization"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = pool.Exec(ctx, `INSERT INTO plant(id,organization_id,code,name,timezone) VALUES($1,$2,'ALARM-PLANT','Alarm Plant','UTC')`, plantID, orgID); err != nil {
+	if _, err = pool.Exec(ctx, `INSERT INTO plant.plant(id,organization_id,code,name,timezone) VALUES($1,$2,'ALARM-PLANT','Alarm Plant','UTC')`, plantID, orgID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = pool.Exec(ctx, `INSERT INTO device_model(id,organization_id,manufacturer,model,device_type) VALUES($1,$2,'Test','Model-1','INVERTER')`, deviceModelID, orgID); err != nil {
+	if _, err = pool.Exec(ctx, `INSERT INTO plant.device_model(id,organization_id,manufacturer,model,device_type) VALUES($1,$2,'Test','Model-1','INVERTER')`, deviceModelID, orgID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = pool.Exec(ctx, `INSERT INTO device(id,organization_id,plant_id,device_model_id,external_id,name) VALUES($1,$2,$3,$4,'INV-1','Inverter 1')`, deviceID, orgID, plantID, deviceModelID); err != nil {
+	if _, err = pool.Exec(ctx, `INSERT INTO plant.device(id,organization_id,plant_id,device_model_id,external_id,name) VALUES($1,$2,$3,$4,'INV-1','Inverter 1')`, deviceID, orgID, plantID, deviceModelID); err != nil {
 		t.Fatal(err)
 	}
 	for _, user := range []struct {
@@ -56,10 +56,10 @@ func TestAlarmRuleAndEventLifecycleAgainstPostgreSQL(t *testing.T) {
 		{platformAdminID, mustUUID(t, "30000000-0000-4000-8000-000000000021"), mustUUID(t, "00000000-0000-4000-8000-000000000201"), nil, "alarms-admin@test.invalid"},
 		{viewerID, mustUUID(t, "30000000-0000-4000-8000-000000000022"), mustUUID(t, "00000000-0000-4000-8000-000000000206"), orgID, "alarms-viewer@test.invalid"},
 	} {
-		if _, err = pool.Exec(ctx, `INSERT INTO app_user(id,organization_id,email,display_name,password_hash) VALUES($1,$2,$3,$3,'unused')`, user.id, orgID, user.email); err != nil {
+		if _, err = pool.Exec(ctx, `INSERT INTO auth.app_user(id,organization_id,email,display_name,password_hash) VALUES($1,$2,$3,$3,'unused')`, user.id, orgID, user.email); err != nil {
 			t.Fatal(err)
 		}
-		if _, err = pool.Exec(ctx, `INSERT INTO user_role(id,organization_id,user_id,role_id) VALUES($1,$2,$3,$4)`, user.assignmentID, user.organizationID, user.id, user.role); err != nil {
+		if _, err = pool.Exec(ctx, `INSERT INTO auth.user_role(id,organization_id,user_id,role_id) VALUES($1,$2,$3,$4)`, user.assignmentID, user.organizationID, user.id, user.role); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -70,18 +70,21 @@ func TestAlarmRuleAndEventLifecycleAgainstPostgreSQL(t *testing.T) {
 
 	minValue, maxValue := 0.0, 50.0
 	rule, err := service.CreateAlarmRule(ctx, admin, uuidString(plantID), CreateAlarmRuleInput{
-		DeviceID: uuidString(deviceID), PointKey: "active_power", Label: "High power", MinValue: &minValue, MaxValue: &maxValue, Severity: "major",
+		DeviceID: uuidString(deviceID), Label: "High power", Severity: "major",
+		Conditions: []ConditionInput{{PointKey: "active_power", MinValue: &minValue, MaxValue: &maxValue}},
 	}, nil)
-	if err != nil || rule.Severity != "major" || !rule.IsActive {
+	if err != nil || rule.Severity != "major" || !rule.IsActive || len(rule.Conditions) != 1 {
 		t.Fatalf("rule=%+v err=%v", rule, err)
 	}
 	if _, err = service.CreateAlarmRule(ctx, viewer, uuidString(plantID), CreateAlarmRuleInput{
-		DeviceID: uuidString(deviceID), PointKey: "x", Label: "Denied", Severity: "warning", MaxValue: &maxValue,
+		DeviceID: uuidString(deviceID), Label: "Denied", Severity: "warning",
+		Conditions: []ConditionInput{{PointKey: "x", MaxValue: &maxValue}},
 	}, nil); !errors.Is(err, ErrForbidden) {
 		t.Fatalf("viewer create error = %v", err)
 	}
 	if _, err = service.CreateAlarmRule(ctx, admin, uuidString(plantID), CreateAlarmRuleInput{
-		DeviceID: uuidString(mustUUID(t, "30000000-0000-4000-8000-000000000099")), PointKey: "x", Label: "Bad device", Severity: "warning", MaxValue: &maxValue,
+		DeviceID: uuidString(mustUUID(t, "30000000-0000-4000-8000-000000000099")), Label: "Bad device", Severity: "warning",
+		Conditions: []ConditionInput{{PointKey: "x", MaxValue: &maxValue}},
 	}, nil); !errors.Is(err, ErrAlarmRuleInvalid) {
 		t.Fatalf("unknown device error = %v", err)
 	}
@@ -92,7 +95,8 @@ func TestAlarmRuleAndEventLifecycleAgainstPostgreSQL(t *testing.T) {
 	}
 
 	updated, err := service.UpdateAlarmRule(ctx, admin, uuidString(plantID), rule.ID, UpdateAlarmRuleInput{
-		Label: "High power v2", Severity: "critical", MaxValue: &maxValue, IsActive: false,
+		Label: "High power v2", Severity: "critical", IsActive: false,
+		Conditions: []ConditionInput{{PointKey: "active_power", MaxValue: &maxValue}},
 	}, nil)
 	if err != nil || updated.Label != "High power v2" || updated.Severity != "critical" || updated.IsActive {
 		t.Fatalf("updated=%+v err=%v", updated, err)
@@ -102,8 +106,8 @@ func TestAlarmRuleAndEventLifecycleAgainstPostgreSQL(t *testing.T) {
 	// the event list/ack surface without duplicating the ingestion package's own test.
 	var eventID int64
 	if err = pool.QueryRow(ctx, `
-INSERT INTO alarm_event (organization_id, plant_id, device_id, alarm_rule_id, point_key, severity, value, threshold_max)
-VALUES ($1,$2,$3,$4,'active_power','critical',75,50) RETURNING id`, orgID, plantID, deviceID, mustUUID(t, rule.ID)).Scan(&eventID); err != nil {
+INSERT INTO alarm.alarm_event (organization_id, plant_id, device_id, alarm_rule_id, severity, condition_snapshot)
+VALUES ($1,$2,$3,$4,'critical','[{"pointKey":"active_power","value":75,"maxValue":50,"breached":true}]') RETURNING id`, orgID, plantID, deviceID, mustUUID(t, rule.ID)).Scan(&eventID); err != nil {
 		t.Fatal(err)
 	}
 

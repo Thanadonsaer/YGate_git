@@ -42,7 +42,7 @@ func TestAuthenticationLifecycleAgainstPostgreSQL(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err = pool.Exec(ctx, `INSERT INTO app_user(id,organization_id,email,username,display_name,password_hash)
+	if _, err = pool.Exec(ctx, `INSERT INTO auth.app_user(id,organization_id,email,username,display_name,password_hash)
 		VALUES($1,$2,$3,$4,$5,$6)`, userID, organizationID, email, username, "Integration Operator", passwordHash); err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestAuthenticationLifecycleAgainstPostgreSQL(t *testing.T) {
 		t.Fatalf("login result has no permissions field: %+v", result.User)
 	}
 	var storedTokenHash, storedCSRFHash []byte
-	if err = pool.QueryRow(ctx, "SELECT token_hash,csrf_hash FROM user_session WHERE user_id=$1", userID).Scan(&storedTokenHash, &storedCSRFHash); err != nil {
+	if err = pool.QueryRow(ctx, "SELECT token_hash,csrf_hash FROM auth.user_session WHERE user_id=$1", userID).Scan(&storedTokenHash, &storedCSRFHash); err != nil {
 		t.Fatal(err)
 	}
 	if !hashesEqual(storedTokenHash, result.Token) || !hashesEqual(storedCSRFHash, result.CSRFToken) {
@@ -131,7 +131,7 @@ func TestAuthenticationLifecycleAgainstPostgreSQL(t *testing.T) {
 		t.Fatalf("known account reset token=%q err=%v", resetToken, err)
 	}
 	var storedResetHash []byte
-	if err = pool.QueryRow(ctx, "SELECT token_hash FROM password_reset_token WHERE user_id=$1 AND used_at IS NULL", userID).Scan(&storedResetHash); err != nil {
+	if err = pool.QueryRow(ctx, "SELECT token_hash FROM auth.password_reset_token WHERE user_id=$1 AND used_at IS NULL", userID).Scan(&storedResetHash); err != nil {
 		t.Fatal(err)
 	}
 	if !hashesEqual(storedResetHash, resetToken) {
@@ -173,7 +173,7 @@ func TestPermissionsReflectsRoleGrantsAgainstPostgreSQL(t *testing.T) {
 	if _, err = pool.Exec(ctx, "INSERT INTO organization(id,code,name) VALUES($1,$2,$3)", organizationID, "PERM-"+suffix, "Permissions Integration"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = pool.Exec(ctx, `INSERT INTO app_user(id,organization_id,email,username,display_name,password_hash)
+	if _, err = pool.Exec(ctx, `INSERT INTO auth.app_user(id,organization_id,email,username,display_name,password_hash)
 		VALUES($1,$2,$3,$4,$5,'unused')`, userID, organizationID, "perm-"+suffix+"@example.com", "perm-"+suffix, "Permissions Viewer"); err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +188,7 @@ func TestPermissionsReflectsRoleGrantsAgainstPostgreSQL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = pool.Exec(ctx, `INSERT INTO user_role(id,organization_id,user_id,role_id) VALUES($1,$2,$3,$4)`,
+	if _, err = pool.Exec(ctx, `INSERT INTO auth.user_role(id,organization_id,user_id,role_id) VALUES($1,$2,$3,$4)`,
 		assignmentID, organizationID, userID, viewerRoleID); err != nil {
 		t.Fatal(err)
 	}

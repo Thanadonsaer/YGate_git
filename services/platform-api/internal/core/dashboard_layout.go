@@ -11,14 +11,42 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"ygate/platform-api/internal/auth"
 	"ygate/platform-api/internal/database/dbgen"
 )
 
-const dashboardRegistryVersion = 2
+// dashboardRowFields and publishedDashboardRowFields carry just the columns
+// dashboardLayoutFromRow/publishedDashboardLayoutFromRow need. Before the
+// schema-qualification migration, Get/GetForUpdate/Create/Update/Publish
+// UserDashboard's Row types were byte-identical, so sqlc emitted a single
+// shared Go type via a `type X = Y` alias and one function worked across all
+// of them. Once the underlying tables carry an explicit schema qualifier,
+// sqlc's struct-reuse heuristic no longer fires, so each query now has its
+// own distinct (but still structurally identical) Row struct -- callers
+// adapt their specific dbgen row into this shared shape instead.
+type dashboardRowFields struct {
+	ID            pgtype.UUID
+	Version       int32
+	Layouts       []byte
+	WidgetConfigs []byte
+	UpdatedAt     pgtype.Timestamptz
+}
+
+type publishedDashboardRowFields struct {
+	ID                     pgtype.UUID
+	PublishedVersion       int32
+	PublishedFromVersion   int32
+	PublishedLayouts       []byte
+	PublishedWidgetConfigs []byte
+	PublishedAt            pgtype.Timestamptz
+}
+
+const dashboardRegistryVersion = 3
 
 const timeseriesWidgetID = "timeseries-line"
+const energyWidgetID = "energy-line"
 
 var ErrDashboardVersionConflict = errors.New("dashboard layout version conflict")
 
@@ -99,6 +127,7 @@ var dashboardWidgets = []DashboardWidget{
 	{ID: "attention-device-count", Type: "attention-device-count", Title: "Needs attention"},
 	{ID: "plant-status", Type: "plant-status", Title: "Plant status"},
 	{ID: timeseriesWidgetID, Type: "timeseries.line", Title: "Timeseries"},
+	{ID: energyWidgetID, Type: "timeseries.line", Title: "Energy production"},
 }
 
 var requiredDashboardWidgetIDs = []string{"plant-count", "active-device-count", "reporting-device-count", "attention-device-count", "plant-status"}
@@ -177,26 +206,36 @@ func ValidateDashboardLayouts(layouts DashboardResponsiveLayouts) error {
 	return nil
 }
 
+var chartWidgetIDs = []string{timeseriesWidgetID, energyWidgetID}
+
 func ValidateDashboardWidgetConfigs(layouts DashboardResponsiveLayouts, configs DashboardWidgetConfigs) error {
-	if len(configs) > 1 {
+	if len(configs) > len(chartWidgetIDs) {
 		return ErrInvalid
 	}
 	for id := range configs {
-		if id != timeseriesWidgetID {
+		if id != timeseriesWidgetID && id != energyWidgetID {
 			return ErrInvalid
 		}
 	}
-	config, configured := configs[timeseriesWidgetID]
-	chartPresent := false
-	for _, item := range layouts["lg"] {
-		chartPresent = chartPresent || item.I == timeseriesWidgetID
+	for _, widgetID := range chartWidgetIDs {
+		config, configured := configs[widgetID]
+		chartPresent := false
+		for _, item := range layouts["lg"] {
+			chartPresent = chartPresent || item.I == widgetID
+		}
+		if chartPresent != configured {
+			return ErrInvalid
+		}
+		if configured {
+			if err := validateChartWidgetConfig(config); err != nil {
+				return err
+			}
+		}
 	}
-	if chartPresent != configured {
-		return ErrInvalid
-	}
-	if !configured {
-		return nil
-	}
+	return nil
+}
+
+func validateChartWidgetConfig(config DashboardWidgetConfig) error {
 	if config.Version != 1 || strings.TrimSpace(config.DataBinding.PlantID) != config.DataBinding.PlantID || strings.TrimSpace(config.DataBinding.DeviceID) != config.DataBinding.DeviceID || strings.TrimSpace(config.DataBinding.PointKey) != config.DataBinding.PointKey || config.DataBinding.PointKey == "" || len(config.DataBinding.PointKey) > 200 || len(config.Display.Unit) > 20 || config.Display.Decimals < 0 || config.Display.Decimals > 6 {
 		return ErrInvalid
 	}
@@ -237,7 +276,7 @@ func (s *Service) DashboardLayout(ctx context.Context, principal auth.Principal)
 	if err != nil {
 		return DashboardLayout{}, fmt.Errorf("get dashboard layout: %w", err)
 	}
-	result, err := dashboardLayoutFromRow(row)
+	result, err := dashboardLayoutFromRow(dashboardRowFields{ID: row.ID, Version: row.Version, Layouts: row.Layouts, WidgetConfigs: row.WidgetConfigs, UpdatedAt: row.UpdatedAt})
 	result.CanEdit, result.CanPublish = canEdit, canPublish
 	return result, err
 }
@@ -257,7 +296,10 @@ func (s *Service) PublishedDashboardLayout(ctx context.Context, principal auth.P
 	if err != nil {
 		return PublishedDashboardLayout{}, fmt.Errorf("get published dashboard layout: %w", err)
 	}
-	return publishedDashboardLayoutFromRow(row)
+	return publishedDashboardLayoutFromRow(publishedDashboardRowFields{
+		ID: row.ID, PublishedVersion: row.PublishedVersion, PublishedFromVersion: row.PublishedFromVersion,
+		PublishedLayouts: row.PublishedLayouts, PublishedWidgetConfigs: row.PublishedWidgetConfigs, PublishedAt: row.PublishedAt,
+	})
 }
 
 func (s *Service) SaveDashboardLayout(ctx context.Context, principal auth.Principal, input UpdateDashboardLayoutInput, sourceIP *netip.Addr) (DashboardLayout, error) {
@@ -293,8 +335,8 @@ func (s *Service) SaveDashboardLayout(ctx context.Context, principal auth.Princi
 		return DashboardLayout{}, ErrForbidden
 	}
 
-	current, err := q.GetUserDashboardForUpdate(ctx, dbgen.GetUserDashboardParams{OrganizationID: principal.OrganizationID, OwnerUserID: principal.UserID})
-	var row dbgen.GetUserDashboardRow
+	current, err := q.GetUserDashboardForUpdate(ctx, dbgen.GetUserDashboardForUpdateParams{OrganizationID: principal.OrganizationID, OwnerUserID: principal.UserID})
+	var row dashboardRowFields
 	action := "dashboard.updated"
 	var before []byte
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -305,7 +347,9 @@ func (s *Service) SaveDashboardLayout(ctx context.Context, principal auth.Princi
 		if idErr != nil {
 			return DashboardLayout{}, idErr
 		}
-		row, err = q.CreateUserDashboard(ctx, dbgen.CreateUserDashboardParams{ID: id, OrganizationID: principal.OrganizationID, OwnerUserID: principal.UserID, Layouts: layoutJSON, WidgetConfigs: configJSON})
+		created, createErr := q.CreateUserDashboard(ctx, dbgen.CreateUserDashboardParams{ID: id, OrganizationID: principal.OrganizationID, OwnerUserID: principal.UserID, Layouts: layoutJSON, WidgetConfigs: configJSON})
+		err = createErr
+		row = dashboardRowFields{ID: created.ID, Version: created.Version, Layouts: created.Layouts, WidgetConfigs: created.WidgetConfigs, UpdatedAt: created.UpdatedAt}
 		action = "dashboard.created"
 	} else if err != nil {
 		return DashboardLayout{}, fmt.Errorf("lock dashboard layout: %w", err)
@@ -314,7 +358,9 @@ func (s *Service) SaveDashboardLayout(ctx context.Context, principal auth.Princi
 			return DashboardLayout{}, ErrDashboardVersionConflict
 		}
 		before = current.Layouts
-		row, err = q.UpdateUserDashboard(ctx, dbgen.UpdateUserDashboardParams{Layouts: layoutJSON, WidgetConfigs: configJSON, ID: current.ID})
+		updated, updateErr := q.UpdateUserDashboard(ctx, dbgen.UpdateUserDashboardParams{Layouts: layoutJSON, WidgetConfigs: configJSON, ID: current.ID})
+		err = updateErr
+		row = dashboardRowFields{ID: updated.ID, Version: updated.Version, Layouts: updated.Layouts, WidgetConfigs: updated.WidgetConfigs, UpdatedAt: updated.UpdatedAt}
 	}
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -367,14 +413,17 @@ func (s *Service) PublishDashboardLayout(ctx context.Context, principal auth.Pri
 	if !allowed {
 		return PublishedDashboardLayout{}, ErrForbidden
 	}
-	current, err := q.GetUserDashboardForUpdate(ctx, dbgen.GetUserDashboardParams{OrganizationID: principal.OrganizationID, OwnerUserID: principal.UserID})
+	current, err := q.GetUserDashboardForUpdate(ctx, dbgen.GetUserDashboardForUpdateParams{OrganizationID: principal.OrganizationID, OwnerUserID: principal.UserID})
 	if errors.Is(err, pgx.ErrNoRows) || err == nil && (current.Version != input.Version || current.PublishedVersion != input.PublishedVersion) {
 		return PublishedDashboardLayout{}, ErrDashboardVersionConflict
 	}
 	if err != nil {
 		return PublishedDashboardLayout{}, fmt.Errorf("lock dashboard for publish: %w", err)
 	}
-	before, err := publishedDashboardLayoutFromRow(current)
+	before, err := publishedDashboardLayoutFromRow(publishedDashboardRowFields{
+		ID: current.ID, PublishedVersion: current.PublishedVersion, PublishedFromVersion: current.PublishedFromVersion,
+		PublishedLayouts: current.PublishedLayouts, PublishedWidgetConfigs: current.PublishedWidgetConfigs, PublishedAt: current.PublishedAt,
+	})
 	if err != nil {
 		return PublishedDashboardLayout{}, err
 	}
@@ -382,7 +431,10 @@ func (s *Service) PublishDashboardLayout(ctx context.Context, principal auth.Pri
 	if err != nil {
 		return PublishedDashboardLayout{}, fmt.Errorf("publish dashboard layout: %w", err)
 	}
-	result, err := publishedDashboardLayoutFromRow(row)
+	result, err := publishedDashboardLayoutFromRow(publishedDashboardRowFields{
+		ID: row.ID, PublishedVersion: row.PublishedVersion, PublishedFromVersion: row.PublishedFromVersion,
+		PublishedLayouts: row.PublishedLayouts, PublishedWidgetConfigs: row.PublishedWidgetConfigs, PublishedAt: row.PublishedAt,
+	})
 	if err != nil {
 		return PublishedDashboardLayout{}, err
 	}
@@ -401,7 +453,7 @@ func (s *Service) PublishDashboardLayout(ctx context.Context, principal auth.Pri
 	return result, nil
 }
 
-func dashboardLayoutFromRow(row dbgen.GetUserDashboardRow) (DashboardLayout, error) {
+func dashboardLayoutFromRow(row dashboardRowFields) (DashboardLayout, error) {
 	var layouts DashboardResponsiveLayouts
 	var configs DashboardWidgetConfigs
 	if err := json.Unmarshal(row.Layouts, &layouts); err != nil || json.Unmarshal(row.WidgetConfigs, &configs) != nil || ValidateDashboardLayouts(layouts) != nil || ValidateDashboardWidgetConfigs(layouts, configs) != nil {
@@ -416,7 +468,7 @@ func dashboardLayoutResponse(id *string, version int32, layouts DashboardRespons
 	return DashboardLayout{ID: id, Version: version, RegistryVersion: dashboardRegistryVersion, Widgets: append([]DashboardWidget(nil), dashboardWidgets...), Layouts: layouts, WidgetConfigs: configs, CanEdit: canEdit, CanPublish: canPublish, UpdatedAt: updatedAt}
 }
 
-func publishedDashboardLayoutFromRow(row dbgen.GetUserDashboardRow) (PublishedDashboardLayout, error) {
+func publishedDashboardLayoutFromRow(row publishedDashboardRowFields) (PublishedDashboardLayout, error) {
 	id := uuidString(row.ID)
 	if len(row.PublishedLayouts) == 0 {
 		return publishedDashboardLayoutResponse(&id, 0, 0, DefaultDashboardLayouts(), DashboardWidgetConfigs{}, nil), nil

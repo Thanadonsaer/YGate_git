@@ -60,7 +60,7 @@ func (s *Service) UpdateOwnProfile(ctx context.Context, principal auth.Principal
 	if input.Username != "" {
 		username = input.Username
 	}
-	if _, err = tx.Exec(ctx, `UPDATE app_user SET email=$2, username=$3, display_name=$4, updated_at=now() WHERE id=$1`, principal.UserID, input.Email, username, input.DisplayName); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE auth.app_user SET email=$2, username=$3, display_name=$4, updated_at=now() WHERE id=$1`, principal.UserID, input.Email, username, input.DisplayName); err != nil {
 		return SelfProfile{}, mapUserWriteError(err)
 	}
 	after, err := getSelfProfile(ctx, tx, principal.UserID, false)
@@ -92,7 +92,7 @@ func (s *Service) UpdateOwnProfile(ctx context.Context, principal auth.Principal
 }
 
 func getSelfProfile(ctx context.Context, querier rowQuerier, userID pgtype.UUID, lock bool) (SelfProfile, error) {
-	query := `SELECT id, organization_id, email, COALESCE(username,''), display_name, updated_at FROM app_user WHERE id=$1`
+	query := `SELECT id, organization_id, email, COALESCE(username,''), display_name, updated_at FROM auth.app_user WHERE id=$1`
 	if lock {
 		query += " FOR UPDATE"
 	}

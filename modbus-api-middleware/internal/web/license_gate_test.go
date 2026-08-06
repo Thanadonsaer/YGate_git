@@ -13,7 +13,7 @@ func TestLicenseGateBlocksUntilActivated(t *testing.T) {
 
 	web := httptest.NewRecorder()
 	h.ServeHTTP(web, httptest.NewRequest(http.MethodGet, "/", nil))
-	if web.Code != http.StatusForbidden {
+	if web.Code != http.StatusFound || web.Header().Get("Location") != "/activate" {
 		t.Fatalf("web status=%d body=%q", web.Code, web.Body.String())
 	}
 

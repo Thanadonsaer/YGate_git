@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { Dropdown } from "primereact/dropdown";
-import { Check } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
 import { collectByType } from "./collect-children";
 import { cn } from "../../lib/cn";
 
@@ -59,6 +59,7 @@ function Select({
       optionDisabled="disabled"
       placeholder={values[0]?.props.placeholder}
       ariaLabel={triggers[0]?.props["aria-label"]}
+      dropdownIcon={<ChevronDown size={16} />}
       itemTemplate={(option: Option) => (
         <span className="relative flex w-full items-center gap-2 pl-6">
           {option.value === value && <Check size={14} className="absolute left-0 text-brand" />}
@@ -66,8 +67,21 @@ function Select({
         </span>
       )}
       unstyled
-      className={cn("flex h-10 w-full items-center gap-2 rounded-[var(--radius-sm)] border border-line bg-surface px-3 text-sm text-ink", triggers[0]?.props.className)}
+      className={cn("flex h-10 w-full items-center gap-2 rounded-[var(--radius-sm)] border border-line bg-surface px-3 text-sm text-ink outline-none transition focus-within:border-focus focus-within:ring-4 focus-within:ring-focus/15 data-[p-disabled=true]:cursor-not-allowed data-[p-disabled=true]:opacity-48", triggers[0]?.props.className)}
       panelClassName="rounded-[var(--radius-sm)] border border-line bg-surface shadow-[var(--shadow-lg)]"
+      pt={{
+        input: { className: "flex-1 min-w-0 truncate text-left outline-none" },
+        trigger: { className: "ml-auto flex shrink-0 items-center text-ink-soft" },
+        wrapper: { className: "max-h-96 overflow-y-auto" },
+        list: { className: "flex flex-col gap-0.5 p-1" },
+        item: (options: { context: { focused: boolean; disabled: boolean } }) => ({
+          className: cn(
+            "relative flex w-full cursor-pointer select-none items-center rounded-[var(--radius-sm)] py-2 pr-2 text-sm text-ink outline-none",
+            options.context.focused && "bg-canvas",
+            options.context.disabled && "pointer-events-none opacity-48",
+          ),
+        }),
+      }}
     />
   );
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"ygate/platform-api/internal/database/dbgen"
+	"ygate/platform-api/internal/notify"
 )
 
 var (
@@ -71,10 +72,11 @@ type Result struct {
 type Service struct {
 	pool    *pgxpool.Pool
 	queries *dbgen.Queries
+	mailer  *notify.Mailer
 }
 
-func New(pool *pgxpool.Pool) *Service {
-	return &Service{pool: pool, queries: dbgen.New(pool)}
+func New(pool *pgxpool.Pool, mailer *notify.Mailer) *Service {
+	return &Service{pool: pool, queries: dbgen.New(pool), mailer: mailer}
 }
 
 func (s *Service) Authenticate(ctx context.Context, presentedKey string) (Client, error) {
@@ -133,6 +135,7 @@ func (s *Service) Ingest(ctx context.Context, client Client, idempotencyKey stri
 	}
 
 	result := Result{IngestionID: uuidString(batchID), Status: "accepted", Errors: []RecordError{}}
+	var breaches []alarmBreach
 	for index, reading := range batch.Data {
 		normalized, validationErr := validateReading(reading, client.Name, now)
 		if validationErr != nil {
@@ -153,6 +156,7 @@ func (s *Service) Ingest(ctx context.Context, client Client, idempotencyKey stri
 		result.DuplicateCount += outcome.duplicate
 		result.OnboardedPlantCount += outcome.plants
 		result.OnboardedDeviceCount += outcome.devices
+		breaches = append(breaches, outcome.breaches...)
 	}
 	errorsJSON, _ := json.Marshal(result.Errors)
 	if err = q.CompleteIngestBatch(ctx, dbgen.CompleteIngestBatchParams{
@@ -167,6 +171,11 @@ func (s *Service) Ingest(ctx context.Context, client Client, idempotencyKey stri
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return Result{}, fmt.Errorf("commit ingestion: %w", err)
+	}
+	// Notify only after the events are durably committed, and off the request
+	// path: SMTP latency/failures must never slow down or fail ingestion.
+	if s.mailer.Enabled() && len(breaches) > 0 {
+		go s.notifyAlarmBreaches(client.OrganizationID, breaches)
 	}
 	return result, nil
 }
@@ -216,7 +225,10 @@ func validateReading(reading Reading, clientName string, now time.Time) (normali
 	return normalizedReading{Reading: reading, ObservedAt: observedAt, DeviceType: deviceType}, nil
 }
 
-type ingestOutcome struct{ accepted, duplicate, plants, devices int32 }
+type ingestOutcome struct {
+	accepted, duplicate, plants, devices int32
+	breaches                             []alarmBreach
+}
 type recordFailure struct{ Code, Message string }
 
 func ingestReading(ctx context.Context, tx pgx.Tx, q *dbgen.Queries, client Client, batchID pgtype.UUID, reading normalizedReading) (ingestOutcome, *recordFailure, error) {
@@ -297,33 +309,54 @@ func ingestReading(ctx context.Context, tx pgx.Tx, q *dbgen.Queries, client Clie
 		return outcome, nil, err
 	}
 
-	dataItemMap, _ := json.Marshal(reading.DataItemMap)
-	readingID, err := newUUID()
+	externalKey := reading.PlantCode + ":" + reading.DevDn + ":" + reading.ObservedAt.Format(time.RFC3339Nano)
+	duplicate, err := recordTelemetryReading(ctx, tx, q, client, batchID, plant, device, reading.GatewayID, externalKey, reading.ObservedAt, reading.DataItemMap, &outcome)
 	if err != nil {
 		return outcome, nil, err
 	}
-	externalKey := reading.PlantCode + ":" + reading.DevDn + ":" + reading.ObservedAt.Format(time.RFC3339Nano)
-	insertedID, err := q.InsertTelemetryReading(ctx, dbgen.InsertTelemetryReadingParams{
-		ID: readingID, OrganizationID: client.OrganizationID, PlantID: plant.ID, DeviceID: device.ID,
-		MiddlewareClientID: client.ID, IngestBatchID: batchID, GatewayID: reading.GatewayID,
-		ExternalKey: externalKey, ObservedAt: pgtype.Timestamptz{Time: reading.ObservedAt, Valid: true},
-		DataItemMap: dataItemMap, ParameterCount: int32(len(reading.DataItemMap)),
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
+	if duplicate {
 		outcome.duplicate++
 		return outcome, nil, nil
 	}
-	if err != nil {
-		return outcome, nil, fmt.Errorf("insert telemetry reading: %w", err)
-	}
-	if err = q.UpsertTelemetryLatest(ctx, insertedID); err != nil {
-		return outcome, nil, fmt.Errorf("upsert latest telemetry: %w", err)
-	}
-	if err = evaluateAlarms(ctx, tx, client.OrganizationID, plant.ID, device.ID, reading.DataItemMap, reading.ObservedAt); err != nil {
-		return outcome, nil, fmt.Errorf("evaluate alarms: %w", err)
-	}
 	outcome.accepted++
 	return outcome, nil, nil
+}
+
+// recordTelemetryReading writes a named-parameter reading (dataItemMap
+// already scaled/labelled) to telemetry_reading, refreshes telemetry_latest,
+// and evaluates alarms against it -- the shared tail both the v1 dataItemMap
+// ingest path (ingestReading, above) and the v2 raw-register path
+// (ingestRawReading, raw_service.go) funnel into once they've each produced
+// a dataItemMap by their own means. Breaches are appended onto outcome so
+// callers keep accumulating across a batch the same way they already did
+// inline before this was extracted.
+func recordTelemetryReading(ctx context.Context, tx pgx.Tx, q *dbgen.Queries, client Client, batchID pgtype.UUID, plant dbgen.GetIngestionPlantRow, device dbgen.GetIngestionDeviceRow, gatewayID, externalKey string, observedAt time.Time, dataItemMap map[string]float64, outcome *ingestOutcome) (duplicate bool, err error) {
+	encoded, _ := json.Marshal(dataItemMap)
+	readingID, err := newUUID()
+	if err != nil {
+		return false, err
+	}
+	insertedID, err := q.InsertTelemetryReading(ctx, dbgen.InsertTelemetryReadingParams{
+		ID: readingID, OrganizationID: client.OrganizationID, PlantID: plant.ID, DeviceID: device.ID,
+		MiddlewareClientID: client.ID, IngestBatchID: batchID, GatewayID: gatewayID,
+		ExternalKey: externalKey, ObservedAt: pgtype.Timestamptz{Time: observedAt, Valid: true},
+		DataItemMap: encoded, ParameterCount: int32(len(dataItemMap)),
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return true, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("insert telemetry reading: %w", err)
+	}
+	if err = q.UpsertTelemetryLatest(ctx, insertedID); err != nil {
+		return false, fmt.Errorf("upsert latest telemetry: %w", err)
+	}
+	breaches, err := evaluateAlarms(ctx, tx, client.OrganizationID, plant.ID, device.ID, plant.Code, plant.Name, device.Name, dataItemMap, observedAt)
+	if err != nil {
+		return false, fmt.Errorf("evaluate alarms: %w", err)
+	}
+	outcome.breaches = append(outcome.breaches, breaches...)
+	return false, nil
 }
 
 func ensureModelRegisterMetadata(ctx context.Context, tx pgx.Tx, q *dbgen.Queries, client Client, modelID pgtype.UUID, items map[string]string, source string) error {
@@ -340,7 +373,7 @@ func ensureModelRegisterMetadata(ctx context.Context, tx pgx.Tx, q *dbgen.Querie
 		}
 		dataType := metadataDataType(items[key])
 		result, err := tx.Exec(ctx, `
-INSERT INTO device_model_register_metadata (
+INSERT INTO plant.device_model_register_metadata (
     id, organization_id, device_model_id, address_key, display_name, data_type, notes
 ) VALUES ($1,$2,$3,$4,$4,$5,$6)
 ON CONFLICT (organization_id, device_model_id, address_key) DO NOTHING`,

@@ -286,8 +286,8 @@ func (s *Service) ScadaScreens(ctx context.Context, principal auth.Principal, pl
 	rows, err := s.pool.Query(ctx, `
 SELECT s.id, s.organization_id, s.plant_id, p.code, p.name, s.name,
        s.draft_version, s.published_version, s.updated_at
-FROM scada_screen s
-JOIN plant p ON p.organization_id=s.organization_id AND p.id=s.plant_id
+FROM scada.scada_screen s
+JOIN plant.plant p ON p.organization_id=s.organization_id AND p.id=s.plant_id
 WHERE ($2::uuid IS NULL OR s.plant_id=$2)
   AND EXISTS (`+scadaPermissionExistsSQL+`)
 ORDER BY p.name, s.name
@@ -330,7 +330,7 @@ func (s *Service) CreateScadaScreen(ctx context.Context, principal auth.Principa
 	designJSON, _ := json.Marshal(design)
 	var updatedAt pgtype.Timestamptz
 	if err = tx.QueryRow(ctx, `
-INSERT INTO scada_screen(id, organization_id, plant_id, name, draft_design, created_by, updated_by)
+INSERT INTO scada.scada_screen(id, organization_id, plant_id, name, draft_design, created_by, updated_by)
 VALUES($1,$2,$3,$4,$5,$6,$6)
 RETURNING updated_at`, id, organizationID, plantID, input.Name, designJSON, principal.UserID).Scan(&updatedAt); err != nil {
 		return ScadaScreen{}, mapScadaWriteError(err)
@@ -390,7 +390,7 @@ func (s *Service) SaveScadaScreen(ctx context.Context, principal auth.Principal,
 	var version int32
 	var updatedAt pgtype.Timestamptz
 	if err = tx.QueryRow(ctx, `
-UPDATE scada_screen
+UPDATE scada.scada_screen
 SET name=$2, draft_design=$3, draft_version=draft_version+1, updated_by=$4, updated_at=now()
 WHERE id=$1
 RETURNING draft_version, updated_at`, id, input.Name, designJSON, principal.UserID).Scan(&version, &updatedAt); err != nil {
@@ -429,7 +429,7 @@ func (s *Service) PublishScadaScreen(ctx context.Context, principal auth.Princip
 		return PublishedScadaScreen{}, ErrScadaVersionConflict
 	}
 	var version int32
-	if err = tx.QueryRow(ctx, `SELECT COALESCE(max(version),0)+1 FROM scada_screen_publication WHERE screen_id=$1`, id).Scan(&version); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT COALESCE(max(version),0)+1 FROM scada.scada_screen_publication WHERE screen_id=$1`, id).Scan(&version); err != nil {
 		return PublishedScadaScreen{}, fmt.Errorf("next scada publication version: %w", err)
 	}
 	publicationID, err := newUUID()
@@ -438,12 +438,12 @@ func (s *Service) PublishScadaScreen(ctx context.Context, principal auth.Princip
 	}
 	var publishedAt pgtype.Timestamptz
 	if err = tx.QueryRow(ctx, `
-INSERT INTO scada_screen_publication(id, organization_id, plant_id, screen_id, version, source_draft_version, design, published_by)
+INSERT INTO scada.scada_screen_publication(id, organization_id, plant_id, screen_id, version, source_draft_version, design, published_by)
 VALUES($1,$2,$3,$4,$5,$6,$7,$8)
 RETURNING published_at`, publicationID, stored.OrgID, stored.PlantID, id, version, stored.Summary.DraftVersion, stored.Raw, principal.UserID).Scan(&publishedAt); err != nil {
 		return PublishedScadaScreen{}, fmt.Errorf("insert scada publication: %w", err)
 	}
-	if _, err = tx.Exec(ctx, `UPDATE scada_screen SET published_version=$2, updated_by=$3, updated_at=now() WHERE id=$1`, id, version, principal.UserID); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE scada.scada_screen SET published_version=$2, updated_by=$3, updated_at=now() WHERE id=$1`, id, version, principal.UserID); err != nil {
 		return PublishedScadaScreen{}, fmt.Errorf("select scada publication: %w", err)
 	}
 	stored.Summary.PublishedVersion = version
@@ -483,7 +483,7 @@ func (s *Service) ScadaScreenVersions(ctx context.Context, principal auth.Princi
 	}
 	rows, err := s.pool.Query(ctx, `
 SELECT version, source_draft_version, published_by, published_at
-FROM scada_screen_publication
+FROM scada.scada_screen_publication
 WHERE screen_id=$1
 ORDER BY version DESC
 LIMIT 100`, id)
@@ -526,7 +526,7 @@ func (s *Service) RollbackScadaScreen(ctx context.Context, principal auth.Princi
 	if err != nil {
 		return PublishedScadaScreen{}, err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE scada_screen SET published_version=$2, updated_by=$3, updated_at=now() WHERE id=$1`, id, input.TargetVersion, principal.UserID); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE scada.scada_screen SET published_version=$2, updated_by=$3, updated_at=now() WHERE id=$1`, id, input.TargetVersion, principal.UserID); err != nil {
 		return PublishedScadaScreen{}, fmt.Errorf("rollback scada publication: %w", err)
 	}
 	before := map[string]int32{"publishedVersion": stored.Summary.PublishedVersion}
@@ -568,17 +568,17 @@ func (s *Service) HardDeleteScadaScreen(ctx context.Context, principal auth.Prin
 	if err = auditScada(ctx, s.queries.WithTx(tx), principal, stored.OrgID, id, "scada_screen.hard_deleted", screenFromStored(stored), map[string]bool{"hardDeleted": true}, sourceIP); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, `DELETE FROM scada_screen WHERE id=$1`, id); err != nil {
+	if _, err = tx.Exec(ctx, `DELETE FROM scada.scada_screen WHERE id=$1`, id); err != nil {
 		return fmt.Errorf("hard delete scada screen: %w", err)
 	}
 	return commitHardDelete(ctx, tx, "scada screen")
 }
 
 const scadaPermissionExistsSQL = `
-SELECT 1 FROM user_role ur
-JOIN role r ON r.id=ur.role_id
-JOIN role_permission rp ON rp.role_id=ur.role_id
-JOIN permission pm ON pm.id=rp.permission_id
+SELECT 1 FROM auth.user_role ur
+JOIN auth.role r ON r.id=ur.role_id
+JOIN auth.role_permission rp ON rp.role_id=ur.role_id
+JOIN auth.permission pm ON pm.id=rp.permission_id
 WHERE ur.user_id=$1
   AND pm.action=$3 AND pm.resource_type='scada_screen'
   AND (r.organization_id IS NULL OR r.organization_id=ur.organization_id)
@@ -591,13 +591,13 @@ func authorizedScadaPlant(ctx context.Context, querier rowQuerier, principal aut
 	var code, name string
 	err := querier.QueryRow(ctx, `
 SELECT p.organization_id, p.code, p.name
-FROM plant p
+FROM plant.plant p
 WHERE p.id=$2
   AND EXISTS (
-      SELECT 1 FROM user_role ur
-      JOIN role r ON r.id=ur.role_id
-      JOIN role_permission rp ON rp.role_id=ur.role_id
-      JOIN permission pm ON pm.id=rp.permission_id
+      SELECT 1 FROM auth.user_role ur
+      JOIN auth.role r ON r.id=ur.role_id
+      JOIN auth.role_permission rp ON rp.role_id=ur.role_id
+      JOIN auth.permission pm ON pm.id=rp.permission_id
       WHERE ur.user_id=$1 AND pm.action=$3 AND pm.resource_type='scada_screen'
         AND (r.organization_id IS NULL OR r.organization_id=ur.organization_id)
         AND (rp.organization_id IS NULL OR rp.organization_id=ur.organization_id)
@@ -618,8 +618,8 @@ func getAuthorizedScadaScreen(ctx context.Context, querier rowQuerier, principal
 	query := `
 SELECT s.id, s.organization_id, s.plant_id, p.code, p.name, s.name, s.draft_design,
        s.draft_version, s.published_version, s.updated_at
-FROM scada_screen s
-JOIN plant p ON p.organization_id=s.organization_id AND p.id=s.plant_id
+FROM scada.scada_screen s
+JOIN plant.plant p ON p.organization_id=s.organization_id AND p.id=s.plant_id
 WHERE s.id=$2 AND EXISTS (` + scadaPermissionExistsSQL + `)`
 	if lock {
 		query += " FOR UPDATE OF s"
@@ -631,8 +631,8 @@ func getScadaScreenByID(ctx context.Context, querier rowQuerier, id pgtype.UUID,
 	query := `
 SELECT s.id, s.organization_id, s.plant_id, p.code, p.name, s.name, s.draft_design,
        s.draft_version, s.published_version, s.updated_at
-FROM scada_screen s
-JOIN plant p ON p.organization_id=s.organization_id AND p.id=s.plant_id
+FROM scada.scada_screen s
+JOIN plant.plant p ON p.organization_id=s.organization_id AND p.id=s.plant_id
 WHERE s.id=$1`
 	if lock {
 		query += " FOR UPDATE OF s"
@@ -692,10 +692,10 @@ func hasScadaScopePermission(ctx context.Context, querier rowQuerier, principal 
 	var allowed bool
 	err := querier.QueryRow(ctx, `
 SELECT EXISTS (
-    SELECT 1 FROM user_role ur
-    JOIN role r ON r.id=ur.role_id
-    JOIN role_permission rp ON rp.role_id=ur.role_id
-    JOIN permission pm ON pm.id=rp.permission_id
+    SELECT 1 FROM auth.user_role ur
+    JOIN auth.role r ON r.id=ur.role_id
+    JOIN auth.role_permission rp ON rp.role_id=ur.role_id
+    JOIN auth.permission pm ON pm.id=rp.permission_id
     WHERE ur.user_id=$1 AND pm.action=$2 AND pm.resource_type='scada_screen'
       AND (r.organization_id IS NULL OR r.organization_id=ur.organization_id)
       AND (rp.organization_id IS NULL OR rp.organization_id=ur.organization_id)
@@ -717,7 +717,7 @@ func validateScadaBindings(ctx context.Context, querier rowQuerier, organization
 		seen[rawDeviceID] = true
 		deviceID, _ := parseUUID(rawDeviceID)
 		var exists bool
-		if err := querier.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM device WHERE organization_id=$1 AND plant_id=$2 AND id=$3)`, organizationID, plantID, deviceID).Scan(&exists); err != nil {
+		if err := querier.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM plant.device WHERE organization_id=$1 AND plant_id=$2 AND id=$3)`, organizationID, plantID, deviceID).Scan(&exists); err != nil {
 			return fmt.Errorf("validate scada binding device: %w", err)
 		}
 		if !exists {
@@ -749,7 +749,7 @@ func getScadaPublication(ctx context.Context, querier rowQuerier, stored storedS
 	var sourceVersion int32
 	var raw []byte
 	var publishedAt pgtype.Timestamptz
-	err := querier.QueryRow(ctx, `SELECT source_draft_version, design, published_at FROM scada_screen_publication WHERE screen_id=$1 AND version=$2`, stored.ID, version).Scan(&sourceVersion, &raw, &publishedAt)
+	err := querier.QueryRow(ctx, `SELECT source_draft_version, design, published_at FROM scada.scada_screen_publication WHERE screen_id=$1 AND version=$2`, stored.ID, version).Scan(&sourceVersion, &raw, &publishedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return PublishedScadaScreen{}, ErrScadaNotFound
 	}
