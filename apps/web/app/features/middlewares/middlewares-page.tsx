@@ -168,7 +168,7 @@ function MiddlewareEditor({ gateway, defaultOrganizationId, onClose, onSaved }: 
             <label className="full-field">ชื่อ Site<input value={siteName} onChange={(event) => setSiteName(event.target.value)} maxLength={200} placeholder="เช่น VT1 - Vientiane Solar" /></label>
             {!gateway && <label className="full-field">Organization ID<input value={organizationId} onChange={(event) => setOrganizationId(event.target.value)} required /></label>}
             <label>ส่งข้อมูลทุก (นาที)<input type="number" min="1" max="60" value={pollIntervalMinutes} onChange={(event) => setPollIntervalMinutes(event.target.value)} /></label>
-            <label className="toggle-field full-field"><input type="checkbox" checked={apiPollingEnabled} onChange={(event) => setApiPollingEnabled(event.target.checked)} /> เปิดใช้งาน API Polling (ส่ง telemetry ผ่าน REST API)</label>
+            <label className="toggle-field full-field"><input type="checkbox" checked={apiPollingEnabled} onChange={(event) => setApiPollingEnabled(event.target.checked)} /> เปิดใช้งาน Telemetry Pull (platform ดึงข้อมูลผ่าน WebSocket)</label>
             <label className="toggle-field full-field"><input type="checkbox" checked={autoOnboard} onChange={(event) => setAutoOnboard(event.target.checked)} /> Auto onboard Plant/Device</label>
             {gateway && <label className="toggle-field full-field"><input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} /> เปิดใช้งาน Middleware</label>}
             {error && <p className="form-message error full-field">{error}</p>}
