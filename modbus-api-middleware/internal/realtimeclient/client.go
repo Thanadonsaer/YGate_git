@@ -247,6 +247,38 @@ func (c *Client) handleCommand(ctx context.Context, conn *websocket.Conn, msg en
 		} else {
 			result.Ok, result.Data = true, data
 		}
+	case "telemetry.drain":
+		var req struct {
+			BatchSize int `json:"batchSize"`
+		}
+		_ = json.Unmarshal(msg.Data, &req)
+		if req.BatchSize <= 0 || req.BatchSize > 500 {
+			req.BatchSize = 20
+		}
+		events, err := c.Store.Ready(req.BatchSize)
+		if err != nil {
+			result.Ok, result.Error = false, err.Error()
+		} else {
+			ids := make([]int64, len(events))
+			readings := make([]json.RawMessage, len(events))
+			for i, e := range events {
+				ids[i] = e.ID
+				readings[i] = json.RawMessage(e.Payload)
+			}
+			data, _ := json.Marshal(map[string]any{"ids": ids, "readings": readings})
+			result.Ok, result.Data = true, data
+		}
+	case "telemetry.ack":
+		var req struct {
+			IDs []int64 `json:"ids"`
+		}
+		if err := json.Unmarshal(msg.Data, &req); err != nil {
+			result.Ok, result.Error = false, err.Error()
+		} else if err := c.Store.Delivered(req.IDs); err != nil {
+			result.Ok, result.Error = false, err.Error()
+		} else {
+			result.Ok = true
+		}
 	case "update.stage":
 		if err := c.stageUpdate(ctx, msg); err != nil {
 			result.Ok, result.Error = false, err.Error()
