@@ -59,11 +59,7 @@ func gatewayRealtimeHandler(ingestionService *ingestion.Service, registryService
 		out, resolve, unregister := hub.Register(gatewayID)
 		defer unregister()
 
-		if pollIntervalSeconds, apiPollingEnabled, err := ingestionService.MiddlewareClientPullConfig(ctx, client.ID); err != nil {
-			log.Printf("telemetry pull: read pull config for %s: %v", gatewayID, err)
-		} else if apiPollingEnabled {
-			go telemetrypull.Run(ctx, hub, ingestionService, client, gatewayID, time.Duration(pollIntervalSeconds)*time.Second)
-		}
+		go telemetrypull.Run(ctx, hub, ingestionService, client, gatewayID)
 
 		incoming := make(chan []byte, 8)
 		readDone := make(chan struct{})

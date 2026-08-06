@@ -206,8 +206,12 @@ func run(ctx context.Context) error {
 
 func runPollScan(ctx context.Context, svc *app.Service, gatewayID string) {
 	for {
-		if err := svc.PollEnabledConnections(gatewayID, log.Printf); err != nil {
-			log.Printf("poll scan: %v", err)
+		if cfg, err := svc.Store.GatewayConfig(); err != nil {
+			log.Printf("poll scan: read gateway config: %v", err)
+		} else if cfg.APIPollingEnabled {
+			if err := svc.PollEnabledConnections(gatewayID, log.Printf); err != nil {
+				log.Printf("poll scan: %v", err)
+			}
 		}
 		timer := time.NewTimer(svc.PollInterval())
 		select {

@@ -16,6 +16,10 @@ import (
 type stubIngester struct {
 	calls []ingestion.RawBatch
 	err   error
+
+	pollIntervalSeconds int32
+	apiPollingEnabled   bool
+	pullConfigErr       error
 }
 
 func (s *stubIngester) IngestRaw(ctx context.Context, client ingestion.Client, idempotencyKey string, raw []byte, batch ingestion.RawBatch, now time.Time) (ingestion.Result, error) {
@@ -24,6 +28,10 @@ func (s *stubIngester) IngestRaw(ctx context.Context, client ingestion.Client, i
 		return ingestion.Result{}, s.err
 	}
 	return ingestion.Result{Status: "accepted", AcceptedCount: int32(len(batch.Data))}, nil
+}
+
+func (s *stubIngester) MiddlewareClientPullConfig(ctx context.Context, clientID pgtype.UUID) (int32, bool, error) {
+	return s.pollIntervalSeconds, s.apiPollingEnabled, s.pullConfigErr
 }
 
 func TestPullOnceDrainsIngestsThenAcks(t *testing.T) {
@@ -119,6 +127,47 @@ func TestPullOnceSkipsAckWhenIngestErrors(t *testing.T) {
 
 	if len(ingest.calls) != 1 {
 		t.Fatalf("ingest.calls = %+v, want exactly 1 call", ingest.calls)
+	}
+}
+
+func TestRunPullsImmediatelyOnceEnabledAndSkipsWhileDisabled(t *testing.T) {
+	hub := gatewayhub.New()
+	out, resolve, unregister := hub.Register("gw-1")
+	defer unregister()
+
+	reading, _ := json.Marshal(map[string]any{
+		"gatewayId": "gw-1", "devDn": "dev-1", "plantCode": "P1", "devTypeId": 1,
+		"collectTime": time.Now().UnixMilli(), "registerAddressMap": map[string]float64{"40001": 1},
+	})
+
+	ingest := &stubIngester{apiPollingEnabled: true, pollIntervalSeconds: 3600} // interval large enough that only an immediate first pull would complete in time
+	client := ingestion.Client{ID: pgtype.UUID{Bytes: [16]byte{1}, Valid: true}, OrganizationID: pgtype.UUID{Bytes: [16]byte{2}, Valid: true}}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	go Run(ctx, hub, ingest, client, "gw-1")
+
+	drainPayload := <-out
+	var drainReq struct {
+		CommandID string `json:"commandId"`
+		Kind      string `json:"kind"`
+	}
+	_ = json.Unmarshal(drainPayload, &drainReq)
+	if drainReq.Kind != "telemetry.drain" {
+		t.Fatalf("first command kind = %q, want telemetry.drain", drainReq.Kind)
+	}
+	drainResultData, _ := json.Marshal(map[string]any{"ids": []int64{1}, "readings": []json.RawMessage{reading}})
+	resolve(drainReq.CommandID, mustMarshal(map[string]any{"ok": true, "data": json.RawMessage(drainResultData)}))
+
+	ackPayload := <-out
+	var ackReq struct {
+		CommandID string `json:"commandId"`
+	}
+	_ = json.Unmarshal(ackPayload, &ackReq)
+	resolve(ackReq.CommandID, mustMarshal(map[string]any{"ok": true}))
+
+	if len(ingest.calls) != 1 {
+		t.Fatalf("ingest.calls = %d, want exactly 1 (immediate first pull, no wait for the 3600s interval)", len(ingest.calls))
 	}
 }
 
