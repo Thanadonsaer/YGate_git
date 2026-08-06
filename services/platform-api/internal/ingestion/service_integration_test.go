@@ -212,6 +212,38 @@ func TestIngestionAutoOnboardingAndIdempotencyAgainstPostgreSQL(t *testing.T) {
 	}
 }
 
+func TestMiddlewareClientPullConfigReadsPollIntervalAndApiPolling(t *testing.T) {
+	databaseURL := os.Getenv("PLATFORM_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("PLATFORM_TEST_DATABASE_URL is not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	pool := disposablePool(t, ctx, databaseURL)
+	defer pool.Close()
+
+	organizationID, _ := newUUID()
+	clientID, _ := newUUID()
+	key := "ygm_" + strings.Repeat("c", 43)
+	keyHash := sha256.Sum256([]byte(key))
+	if _, err := pool.Exec(ctx, "INSERT INTO organization(id,code,name) VALUES($1,'YGATE-PULLCFG-TEST','Pull Config Test')", organizationID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO auth.middleware_client(id,organization_id,name,key_prefix,key_hash,auto_onboard) VALUES($1,$2,'Pull Gateway','ygm_cccccccc',$3,true)`, clientID, organizationID, keyHash[:]); err != nil {
+		t.Fatal(err)
+	}
+
+	service := New(pool, nil)
+	pollIntervalSeconds, apiPollingEnabled, err := service.MiddlewareClientPullConfig(ctx, clientID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pollIntervalSeconds < 5 || pollIntervalSeconds > 3600 {
+		t.Fatalf("pollIntervalSeconds=%d out of the DB CHECK constraint range", pollIntervalSeconds)
+	}
+	_ = apiPollingEnabled
+}
+
 func disposablePool(t *testing.T, ctx context.Context, databaseURL string) *pgxpool.Pool {
 	t.Helper()
 	parsed, err := url.Parse(databaseURL)

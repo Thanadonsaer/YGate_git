@@ -278,6 +278,24 @@ func (q *Queries) InsertTelemetryReading(ctx context.Context, arg InsertTelemetr
 	return id, err
 }
 
+const middlewareClientPullConfig = `-- name: MiddlewareClientPullConfig :one
+SELECT poll_interval_seconds, api_polling_enabled
+FROM auth.middleware_client
+WHERE id = $1
+`
+
+type MiddlewareClientPullConfigRow struct {
+	PollIntervalSeconds int32
+	ApiPollingEnabled   bool
+}
+
+func (q *Queries) MiddlewareClientPullConfig(ctx context.Context, id pgtype.UUID) (MiddlewareClientPullConfigRow, error) {
+	row := q.db.QueryRow(ctx, middlewareClientPullConfig, id)
+	var i MiddlewareClientPullConfigRow
+	err := row.Scan(&i.PollIntervalSeconds, &i.ApiPollingEnabled)
+	return i, err
+}
+
 const onboardDevice = `-- name: OnboardDevice :one
 INSERT INTO plant.device (
     id, organization_id, plant_id, device_model_id, external_id, name, source_metadata

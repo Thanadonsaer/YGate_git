@@ -110,3 +110,8 @@ INSERT INTO audit_log (
     sqlc.arg(organization_id), sqlc.arg(action), sqlc.arg(target_type),
     sqlc.arg(target_id), sqlc.arg(after_data), sqlc.arg(correlation_id)
 );
+
+-- name: MiddlewareClientPullConfig :one
+SELECT poll_interval_seconds, api_polling_enabled
+FROM auth.middleware_client
+WHERE id = sqlc.arg(id);

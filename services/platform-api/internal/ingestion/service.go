@@ -95,6 +95,14 @@ func (s *Service) Authenticate(ctx context.Context, presentedKey string) (Client
 	return Client{ID: row.ID, OrganizationID: row.OrganizationID, Name: row.Name, AutoOnboard: row.AutoOnboard}, nil
 }
 
+func (s *Service) MiddlewareClientPullConfig(ctx context.Context, clientID pgtype.UUID) (pollIntervalSeconds int32, apiPollingEnabled bool, err error) {
+	row, err := s.queries.MiddlewareClientPullConfig(ctx, clientID)
+	if err != nil {
+		return 0, false, fmt.Errorf("load middleware client pull config: %w", err)
+	}
+	return row.PollIntervalSeconds, row.ApiPollingEnabled, nil
+}
+
 func (s *Service) Ingest(ctx context.Context, client Client, idempotencyKey string, raw []byte, batch Batch, now time.Time) (Result, error) {
 	if len(batch.Data) == 0 || len(batch.Data) > 500 || !client.ID.Valid || !client.OrganizationID.Valid {
 		return Result{}, ErrInvalidBatch
