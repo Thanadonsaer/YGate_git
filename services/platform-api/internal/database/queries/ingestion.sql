@@ -79,7 +79,7 @@ INSERT INTO telemetry.telemetry_reading (
     sqlc.arg(middleware_client_id), sqlc.arg(ingest_batch_id), sqlc.arg(gateway_id),
     sqlc.arg(external_key), sqlc.arg(observed_at), sqlc.arg(data_item_map), sqlc.arg(parameter_count)
 )
-ON CONFLICT (middleware_client_id, external_key) DO NOTHING
+ON CONFLICT (middleware_client_id, external_key, observed_at) DO NOTHING
 RETURNING id;
 
 -- name: UpsertTelemetryLatest :exec

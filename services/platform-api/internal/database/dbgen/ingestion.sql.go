@@ -241,7 +241,7 @@ INSERT INTO telemetry.telemetry_reading (
     $5, $6, $7,
     $8, $9, $10, $11
 )
-ON CONFLICT (middleware_client_id, external_key) DO NOTHING
+ON CONFLICT (middleware_client_id, external_key, observed_at) DO NOTHING
 RETURNING id
 `
 
