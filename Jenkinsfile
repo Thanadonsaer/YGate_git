@@ -81,7 +81,6 @@ pipeline {
         }
 
         stage('Package') {
-            when { branch 'main' }
             steps {
                 powershell '''
                     $ErrorActionPreference = "Stop"
@@ -93,7 +92,6 @@ pipeline {
         }
 
         stage('Approve Production') {
-            when { branch 'main' }
             input {
                 message "Deploy ${env.RELEASE_SHA} to production?"
                 ok 'Deploy'
@@ -105,7 +103,6 @@ pipeline {
         }
 
         stage('Deploy Production') {
-            when { branch 'main' }
             steps {
                 powershell '''
                     $ErrorActionPreference = "Stop"
