@@ -555,6 +555,7 @@ type TelemetryTelemetryIngestBatch struct {
 	MiddlewareClientID   pgtype.UUID
 	IdempotencyKey       string
 	PayloadHash          []byte
+	RawPayload           []byte
 	AcceptedCount        int32
 	DuplicateCount       int32
 	RejectedCount        int32

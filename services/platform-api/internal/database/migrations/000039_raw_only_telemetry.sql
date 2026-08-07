@@ -131,6 +131,27 @@ DROP TABLE telemetry.telemetry_reading;
 -- payload_hash (kept) is what CreateOrGetIngestBatch actually compares to
 -- detect an idempotency-key collision on a different payload; raw_payload
 -- was never selected.
+--
+-- The column is emptied and defaulted, NOT dropped. Migrations run at
+-- service startup, so between "new binary migrated the database" and "every
+-- old binary is gone" both versions talk to this schema at once -- during a
+-- rolling deploy, a rollback, or a second instance that has not restarted
+-- yet. An older binary still INSERTs raw_payload explicitly, and against a
+-- dropped column every single ingest fails with
+--   create raw ingest batch: column "raw_payload" of relation
+--   "telemetry_ingest_batch" does not exist
+-- which takes telemetry down for as long as the mismatch lasts. Keeping the
+-- column with a '{}' default costs a few bytes per batch row and reclaims
+-- exactly the same space, because the payloads themselves are cleared here.
 -- ---------------------------------------------------------------------
 
-ALTER TABLE telemetry.telemetry_ingest_batch DROP COLUMN raw_payload;
+UPDATE telemetry.telemetry_ingest_batch
+SET raw_payload = '{}'::jsonb
+WHERE raw_payload <> '{}'::jsonb;
+
+ALTER TABLE telemetry.telemetry_ingest_batch
+    ALTER COLUMN raw_payload SET DEFAULT '{}'::jsonb;
+
+-- ponytail: the column can be dropped for real in a later release, once no
+-- binary that writes it can still be running. Until then this is the
+-- expand/contract-safe half.
