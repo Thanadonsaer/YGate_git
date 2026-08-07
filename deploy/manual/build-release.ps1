@@ -206,7 +206,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
-if (-not $EnvFile) { $EnvFile = Join-Path $PSScriptRoot "ygate.env" }
+if (-not $EnvFile) { $EnvFile = "C:\YGate\ygate.env" }
 $EnvFile = [IO.Path]::GetFullPath($EnvFile)
 if (-not (Test-Path -LiteralPath $EnvFile)) {
     Copy-Item ".\ygate.env.example" $EnvFile
@@ -220,6 +220,8 @@ Get-Command node, pm2.cmd -ErrorAction Stop | Out-Null
 $env:YGATE_ENV_FILE = $EnvFile
 & .\bin\platform-admin.exe migrate
 if ($LASTEXITCODE -ne 0) { throw "Database migration failed." }
+Write-Host "Stopping any previous YGATE processes..."
+& pm2.cmd stop ygate-platform-api ygate-api-gateway ygate-auth-service ygate-web *> $null
 & pm2.cmd startOrRestart .\ecosystem.config.cjs --update-env
 if ($LASTEXITCODE -ne 0) { throw "PM2 failed to start YGATE." }
 & pm2.cmd save
