@@ -31,6 +31,7 @@ const (
 type Ingester interface {
 	IngestRaw(ctx context.Context, client ingestion.Client, idempotencyKey string, raw []byte, batch ingestion.RawBatch, now time.Time) (ingestion.Result, error)
 	MiddlewareClientPullConfig(ctx context.Context, clientID pgtype.UUID) (pollIntervalSeconds int32, apiPollingEnabled bool, err error)
+	RecordMiddlewarePullEvent(ctx context.Context, client ingestion.Client, action string, details map[string]any) error
 }
 
 // Run loops until ctx is done. Each cycle it re-reads gatewayID's current
@@ -77,6 +78,16 @@ type drainedBatch struct {
 }
 
 func pullOnce(ctx context.Context, hub *gatewayhub.Hub, ingest Ingester, client ingestion.Client, gatewayID string) {
+	started := time.Now()
+	audit := func(action string, details map[string]any) {
+		details["gatewayId"] = gatewayID
+		details["durationMs"] = time.Since(started).Milliseconds()
+		if err := ingest.RecordMiddlewarePullEvent(ctx, client, action, details); err != nil {
+			log.Printf("telemetry pull: audit %s for %s: %v", action, gatewayID, err)
+		}
+	}
+	audit("middleware.pull.started", map[string]any{"batchSize": drainBatchSize})
+
 	drainCtx, cancel := context.WithTimeout(ctx, commandTimeout)
 	defer cancel()
 	commandID := newCommandID()
@@ -84,28 +95,56 @@ func pullOnce(ctx context.Context, hub *gatewayhub.Hub, ingest Ingester, client 
 	payload, _ := json.Marshal(map[string]any{"type": "command.request", "commandId": commandID, "kind": "telemetry.drain", "data": data})
 	raw, err := hub.RunCommand(drainCtx, gatewayID, commandID, payload)
 	if err != nil {
-		return // offline or timed out -- try again next tick, nothing was mutated
+		log.Printf("telemetry pull: drain %s failed: %v", gatewayID, err)
+		audit("middleware.pull.failed", map[string]any{"stage": "drain", "error": err.Error()})
+		return
 	}
 	var result commandResult
-	if err = json.Unmarshal(raw, &result); err != nil || !result.Ok {
-		log.Printf("telemetry pull: drain %s failed: ok=%v err=%v msg=%q", gatewayID, result.Ok, err, result.Error)
+	if err = json.Unmarshal(raw, &result); err != nil {
+		log.Printf("telemetry pull: decode drain result for %s failed: %v", gatewayID, err)
+		audit("middleware.pull.failed", map[string]any{"stage": "drain_decode", "error": err.Error()})
+		return
+	}
+	if !result.Ok {
+		log.Printf("telemetry pull: drain %s rejected: %s", gatewayID, result.Error)
+		audit("middleware.pull.failed", map[string]any{"stage": "drain", "error": result.Error})
 		return
 	}
 	var drained drainedBatch
-	if err = json.Unmarshal(result.Data, &drained); err != nil || len(drained.IDs) == 0 {
+	if err = json.Unmarshal(result.Data, &drained); err != nil {
+		log.Printf("telemetry pull: decode drained batch for %s failed: %v", gatewayID, err)
+		audit("middleware.pull.failed", map[string]any{"stage": "batch_decode", "error": err.Error()})
+		return
+	}
+	if len(drained.IDs) == 0 {
+		audit("middleware.pull.empty", map[string]any{"count": 0})
 		return
 	}
 
 	body, _ := json.Marshal(map[string]any{"schemaVersion": ingestion.RawSchemaVersion, "data": drained.Readings})
 	var batch ingestion.RawBatch
 	if err = json.Unmarshal(body, &batch); err != nil {
-		log.Printf("telemetry pull: decode drained batch for %s: %v", gatewayID, err)
+		log.Printf("telemetry pull: decode drained batch for %s failed: %v", gatewayID, err)
+		audit("middleware.pull.failed", map[string]any{"stage": "batch_decode", "error": err.Error(), "count": len(drained.IDs)})
 		return
 	}
-	if _, err = ingest.IngestRaw(ctx, client, "", body, batch, time.Now()); err != nil {
-		log.Printf("telemetry pull: ingest for %s: %v", gatewayID, err)
-		return // no ack sent -- rows stay PENDING and are redrained next tick
+	resultIngest, err := ingest.IngestRaw(ctx, client, "", body, batch, time.Now())
+	if err != nil {
+		log.Printf("telemetry pull: ingest for %s failed: %v", gatewayID, err)
+		audit("middleware.pull.failed", map[string]any{"stage": "ingest", "count": len(drained.IDs), "error": err.Error()})
+		return
 	}
+	resultDetails := map[string]any{"count": len(drained.IDs), "accepted": resultIngest.AcceptedCount, "duplicate": resultIngest.DuplicateCount, "rejected": resultIngest.RejectedCount}
+	if len(resultIngest.Errors) > 0 {
+		resultDetails["errors"] = resultIngest.Errors
+	}
+	if resultIngest.AcceptedCount == 0 && resultIngest.DuplicateCount == 0 {
+		log.Printf("telemetry pull: ingest rejected all %d readings for %s: %+v", len(drained.IDs), gatewayID, resultIngest.Errors)
+		resultDetails["stage"] = "ingest_result"
+		audit("middleware.pull.failed", resultDetails)
+		return // keep rows pending so the operator can fix the rejection and retry
+	}
+	audit("middleware.pull.succeeded", resultDetails)
 
 	ackCtx, cancelAck := context.WithTimeout(ctx, commandTimeout)
 	defer cancelAck()
@@ -113,10 +152,10 @@ func pullOnce(ctx context.Context, hub *gatewayhub.Hub, ingest Ingester, client 
 	ackData, _ := json.Marshal(map[string]any{"ids": drained.IDs})
 	ackPayload, _ := json.Marshal(map[string]any{"type": "command.request", "commandId": ackCommandID, "kind": "telemetry.ack", "data": ackData})
 	if _, err = hub.RunCommand(ackCtx, gatewayID, ackCommandID, ackPayload); err != nil {
-		log.Printf("telemetry pull: ack for %s: %v (rows will redeliver next tick)", gatewayID, err)
+		log.Printf("telemetry pull: ack for %s failed: %v (rows will redeliver next tick)", gatewayID, err)
+		audit("middleware.pull.ack_failed", map[string]any{"stage": "ack", "count": len(drained.IDs), "error": err.Error()})
 	}
 }
-
 func newCommandID() string {
 	var b [8]byte
 	_, _ = rand.Read(b[:])
