@@ -84,17 +84,25 @@ func (s *Service) UploadMiddlewarePatch(ctx context.Context, principal auth.Prin
 		ID: uuidString(id), Version: manifest.Version, OS: manifest.OS, Arch: manifest.Arch,
 		BinaryFilename: manifest.Binary, SHA256: strings.ToLower(manifest.SHA256), FileSizeBytes: int64(len(data)),
 	}
-	if _, err = s.pool.Exec(ctx, `
+	var storedID pgtype.UUID
+	err = s.pool.QueryRow(ctx, `
 INSERT INTO middleware_gateway.middleware_patch (id, version, os, arch, binary_filename, sha256, file_size_bytes, storage_path, uploaded_by)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-		id, patch.Version, patch.OS, patch.Arch, patch.BinaryFilename, patch.SHA256, patch.FileSizeBytes, storagePath, principal.UserID); err != nil {
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+ON CONFLICT (version, os, arch) DO UPDATE SET
+  binary_filename=EXCLUDED.binary_filename, sha256=EXCLUDED.sha256, file_size_bytes=EXCLUDED.file_size_bytes,
+  storage_path=EXCLUDED.storage_path, uploaded_by=EXCLUDED.uploaded_by
+RETURNING id`,
+		id, patch.Version, patch.OS, patch.Arch, patch.BinaryFilename, patch.SHA256, patch.FileSizeBytes, storagePath, principal.UserID).Scan(&storedID)
+	if err != nil {
 		_ = os.Remove(storagePath)
 		return MiddlewarePatch{}, mapMiddlewareWriteError(err)
 	}
+	patch.ID = uuidString(storedID)
+	id = storedID
 	after, _ := json.Marshal(patch)
 	_ = s.queries.CreateAuditEventFull(ctx, dbgen.CreateAuditEventFullParams{
 		ActorUserID: principal.UserID, Action: "middleware_patch.uploaded",
-		TargetType: "middleware_patch", TargetID: id, AfterData: after, SourceIp: sourceIP, CorrelationID: correlationID,
+		TargetType: "middleware_patch", TargetID: storedID, AfterData: after, SourceIp: sourceIP, CorrelationID: correlationID,
 	})
 	return patch, nil
 }

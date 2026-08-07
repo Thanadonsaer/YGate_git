@@ -86,12 +86,12 @@ pipeline {
         stage('Approve Production') {
             when { branch 'main' }
             input {
-                message "Deploy ${RELEASE_SHA} to production?"
+                message "Deploy ${env.RELEASE_SHA} to production?"
                 ok 'Deploy'
                 submitter 'ygate-production-approvers'
             }
             steps {
-                echo "Production deployment approved for ${RELEASE_SHA}"
+                echo "Production deployment approved for ${env.RELEASE_SHA}"
             }
         }
 

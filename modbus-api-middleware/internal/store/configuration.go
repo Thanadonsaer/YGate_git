@@ -364,8 +364,14 @@ func (s *Store) SaveConnection(v domain.ConnectionConfig) (domain.ConnectionConf
 		v.ConnectionID, err = r.LastInsertId()
 		return v, err
 	}
-	_, err := s.DB.Exec(`UPDATE connections SET con_name=?,con_host=?,con_port=?,unit_id=?,con_dev_set=?,dev_dn=?,device_name=?,plant_code=?,plant_name=?,enabled=? WHERE con_id=?`, v.ConnectionName, v.Host, v.Port, v.UnitID, v.DeviceSetID, v.DevDn, v.DeviceName, v.PlantCode, v.PlantName, v.Enabled, v.ConnectionID)
-	return v, err
+	r, err := s.DB.Exec(`UPDATE connections SET con_name=?,con_host=?,con_port=?,unit_id=?,con_dev_set=?,dev_dn=?,device_name=?,plant_code=?,plant_name=?,enabled=? WHERE con_id=?`, v.ConnectionName, v.Host, v.Port, v.UnitID, v.DeviceSetID, v.DevDn, v.DeviceName, v.PlantCode, v.PlantName, v.Enabled, v.ConnectionID)
+	if err != nil {
+		return v, err
+	}
+	if n, _ := r.RowsAffected(); n == 0 {
+		return v, fmt.Errorf("connection not found")
+	}
+	return v, nil
 }
 
 func normalizeConnection(v domain.ConnectionConfig) domain.ConnectionConfig {

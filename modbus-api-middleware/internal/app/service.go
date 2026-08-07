@@ -2,8 +2,10 @@ package app
 
 import (
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"strconv"
@@ -29,14 +31,13 @@ func (s *Service) PollConnection(value string) (domain.Reading, []domain.Measure
 	if err != nil {
 		return domain.Reading{}, nil, fmt.Errorf("invalid connection id")
 	}
-	cfg := s.Cache.Load()
-	connection, ok := cfg.Connections[id]
-	if !ok {
-		return domain.Reading{}, nil, fmt.Errorf("connection not found")
+	connection, err := s.localConnection(id)
+	if err != nil {
+		return domain.Reading{}, nil, err
 	}
-	set, ok := cfg.DeviceSets[connection.DeviceSetID]
-	if !ok {
-		return domain.Reading{}, nil, fmt.Errorf("device set not found")
+	set, err := s.localDeviceSet(connection.DeviceSetID)
+	if err != nil {
+		return domain.Reading{}, nil, err
 	}
 	registers := make([]domain.RegisterDefinition, 0, len(set.Addresses))
 	for _, a := range set.Addresses {
@@ -99,18 +100,10 @@ func (s *Service) PollConnection(value string) (domain.Reading, []domain.Measure
 		}
 		key := fmt.Sprintf("%d", def.RegisterAddress)
 		sample := domain.RegisterSample{FunctionCode: def.FunctionCode, RegisterAddress: def.RegisterAddress, DataType: def.DataType, RawValue: raw, Quality: "GOOD"}
-		// Deviates from ADR-0004 ("Central Platform owns scaling"): this
-		// deployment applies each address's Factor/Offset here instead, by
-		// product decision. registerAddressMap therefore carries scaled
-		// values, not raw register values — do not re-apply scale on the
-		// Central Platform side for data from this middleware. Scale 0 is
-		// treated as unset (1), since a configured factor of exactly 0
-		// would otherwise silently zero out every reading.
-		scale := def.Scale
-		if scale == 0 {
-			scale = 1
-		}
-		values[key] = raw*scale + def.Offset
+		// The Middleware sends the decoded register value unchanged.
+		// Factor/Offset belongs to Platform Register Metadata so historical
+		// Raw readings can be recalculated after configuration changes.
+		values[key] = raw
 		measurements = append(measurements, sample)
 	}
 	for _, b := range blocks {
@@ -182,15 +175,56 @@ func PrepareReadingForAPI(r domain.Reading, gatewayID string) (domain.Reading, s
 	return r, key, nil
 }
 
+// localConnection is deliberately backed by the Middleware SQLite store.
+// Local Test/Read must use the configuration edited on this machine, not a
+// potentially stale in-memory/realtime snapshot.
+func (s *Service) localConnection(id int64) (domain.ConnectionConfig, error) {
+	if s.Store != nil {
+		connection, err := s.Store.Connection(id)
+		if err == nil {
+			return connection, nil
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return domain.ConnectionConfig{}, fmt.Errorf("load local connection: %w", err)
+		}
+		return domain.ConnectionConfig{}, fmt.Errorf("connection not found")
+	}
+	if s.Cache != nil {
+		if connection, ok := s.Cache.Load().Connections[id]; ok {
+			return connection, nil
+		}
+	}
+	return domain.ConnectionConfig{}, fmt.Errorf("connection not found")
+}
+
+func (s *Service) localDeviceSet(id int64) (domain.DeviceSet, error) {
+	if s.Store != nil {
+		set, err := s.Store.DeviceSet(id)
+		if err == nil {
+			return set, nil
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return domain.DeviceSet{}, fmt.Errorf("load local device set: %w", err)
+		}
+		return domain.DeviceSet{}, fmt.Errorf("device set not found")
+	}
+	if s.Cache != nil {
+		if set, ok := s.Cache.Load().DeviceSets[id]; ok {
+			return set, nil
+		}
+	}
+	return domain.DeviceSet{}, fmt.Errorf("device set not found")
+}
+
 // ProbeConnection runs a live Modbus connect-test against connectionID.
 // Shared by the local-UI connect-test route (internal/web/server.go) and
 // the remote connectTest command relayed over the realtime channel
 // (internal/realtimeclient), so there is one probe implementation instead
 // of two copies.
 func (s *Service) ProbeConnection(connectionID int64) (modbus.ProbeInfo, time.Duration, domain.ConnectionConfig, error) {
-	connection, ok := s.Cache.Load().Connections[connectionID]
-	if !ok {
-		return modbus.ProbeInfo{}, 0, domain.ConnectionConfig{}, fmt.Errorf("connection not found")
+	connection, err := s.localConnection(connectionID)
+	if err != nil {
+		return modbus.ProbeInfo{}, 0, domain.ConnectionConfig{}, err
 	}
 	client := s.Client
 	if client == nil {

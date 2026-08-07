@@ -3,7 +3,7 @@ SELECT latest.telemetry_reading_id AS id, latest.organization_id, latest.plant_i
        d.external_id AS device_external_id, d.name AS device_name,
        latest.gateway_id, latest.observed_at, latest.received_at,
        latest.data_item_map, latest.parameter_count
-FROM telemetry.telemetry_latest latest
+FROM telemetry.raw_telemetry_latest latest
 JOIN plant.device d ON d.organization_id = latest.organization_id
              AND d.plant_id = latest.plant_id
              AND d.id = latest.device_id

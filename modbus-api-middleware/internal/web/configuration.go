@@ -315,7 +315,13 @@ func (s *Server) deviceSets(w http.ResponseWriter, r *http.Request) {
 func (s *Server) connections(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		writeJSON(w, 200, sortedConnections(s.Cache.Load()))
+		connections, err := s.Store.ConnectionsWithStatus()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		sort.Slice(connections, func(i, j int) bool { return connections[i].ConnectionName < connections[j].ConnectionName })
+		writeJSON(w, 200, connections)
 	case http.MethodPost:
 		var v domain.ConnectionConfig
 		if !decode(w, r, &v) {

@@ -14,7 +14,7 @@ import (
 )
 
 func TestWindowsUpdaterWaitsForServiceAndReportsResult(t *testing.T) {
-	for _, required := range []string{"WaitForStatus(\"Stopped\"", "Copy-Item -LiteralPath", "WaitForStatus(\"Running\"", "$ResultFile"} {
+	for _, required := range []string{"WaitForStatus(\"Stopped\"", "Copy-Item -LiteralPath", "WaitForStatus(\"Running\"", "$ResultFile", "$ExpectedVersion", "-version", "for ($attempt"} {
 		if !strings.Contains(windowsUpdaterScript, required) {
 			t.Fatalf("updater script missing %q", required)
 		}

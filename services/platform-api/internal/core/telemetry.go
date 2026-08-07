@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -52,7 +51,7 @@ const maxTelemetryHistoryRange = 31 * 24 * time.Hour
 // telemetryRowFields carries the columns telemetryFromRow needs. Before the
 // schema-qualification migration, ListLatestPlantTelemetry's and
 // ListDeviceTelemetryHistory's Row types were byte-identical, so sqlc
-// emitted a single shared Go type via a `type X = Y` alias and one function
+// emitted a single shared Go type via a 	ype X = Y` alias and one function
 // worked across both. Once the underlying tables carry an explicit schema
 // qualifier, sqlc's struct-reuse heuristic no longer fires, so each query
 // now has its own distinct (but still structurally identical) Row struct --
@@ -77,7 +76,7 @@ type telemetryRowFields struct {
 // of pgtype.UUID for this query's `(observed_at, received_at, id) < (...)`
 // tuple comparison, once the JOIN crosses the telemetry/plant schema
 // boundary -- confirmed against a live Postgres PREPARE of the exact query
-// text, which reports $9 (cursor_id) as genuinely `uuid`, not `timestamptz`.
+// text, which reports $9 (cursor_id) as genuinely `uuid`, not 	imestamptz`.
 // This isn't just a compile-time nuisance: encoding a real cursor UUID
 // through a Timestamptz-shaped Go field would send the wrong wire format for
 // the uuid OID Postgres reports at Describe time and fail at runtime (or
@@ -162,45 +161,14 @@ func (s *Service) LatestTelemetry(ctx context.Context, principal auth.Principal,
 	if err != nil {
 		return nil, fmt.Errorf("authorize telemetry: %w", err)
 	}
-	rows, err := s.queries.ListLatestPlantTelemetry(ctx, dbgen.ListLatestPlantTelemetryParams{
-		OrganizationID: plant.OrganizationID, PlantID: plant.ID,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("list latest telemetry: %w", err)
-	}
-	readings := make([]LatestTelemetry, 0, len(rows))
-	for _, row := range rows {
-		reading, decodeErr := telemetryFromRow(telemetryRowFields{
-			ID: row.ID, OrganizationID: row.OrganizationID, PlantID: row.PlantID, DeviceID: row.DeviceID,
-			DeviceExternalID: row.DeviceExternalID, DeviceName: row.DeviceName, GatewayID: row.GatewayID,
-			ObservedAt: row.ObservedAt, ReceivedAt: row.ReceivedAt, DataItemMap: row.DataItemMap, ParameterCount: row.ParameterCount,
-		})
-		if decodeErr != nil {
-			return nil, decodeErr
-		}
-		readings = append(readings, reading)
-	}
-	rawReadings, err := s.latestMappedRawTelemetry(ctx, plant.OrganizationID, plant.ID)
+	// Raw register readings are the single source of truth. Compute the display
+	// map from current Register Metadata here; never merge with the legacy
+	// telemetry_latest read model because that can overwrite raw values with an
+	// empty map when metadata is missing or was disabled.
+	readings, err := s.latestMappedRawTelemetry(ctx, plant.OrganizationID, plant.ID)
 	if err != nil {
 		return nil, err
 	}
-	byDevice := make(map[string]int, len(readings))
-	for index, reading := range readings {
-		byDevice[reading.DeviceID] = index
-	}
-	for _, reading := range rawReadings {
-		if index, ok := byDevice[reading.DeviceID]; ok {
-			readings[index] = reading
-		} else {
-			readings = append(readings, reading)
-		}
-	}
-	sort.Slice(readings, func(i, j int) bool {
-		if readings[i].DeviceName != readings[j].DeviceName {
-			return readings[i].DeviceName < readings[j].DeviceName
-		}
-		return readings[i].DeviceExternalID < readings[j].DeviceExternalID
-	})
 	return readings, nil
 }
 
@@ -214,12 +182,10 @@ WITH latest_raw AS (
 )
 SELECT raw.id, raw.organization_id, raw.plant_id, raw.device_id,
        device.external_id, device.name, raw.gateway_id, raw.observed_at, raw.received_at,
-       jsonb_object_agg(item.key, item.value::double precision * metadata.scale + metadata.value_offset)
-           FILTER (WHERE metadata.is_enabled),
-       count(*) FILTER (WHERE metadata.is_enabled)::integer
+       COALESCE(jsonb_object_agg(item.key, item.value::double precision * COALESCE(metadata.scale, 1) + COALESCE(metadata.value_offset, 0)) FILTER (WHERE COALESCE(metadata.is_enabled, true)), '{}'::jsonb),
+       count(*) FILTER (WHERE COALESCE(metadata.is_enabled, true))::integer
 FROM latest_raw raw
 JOIN plant.device ON device.organization_id=raw.organization_id AND device.plant_id=raw.plant_id AND device.id=raw.device_id
-LEFT JOIN telemetry.telemetry_latest latest ON latest.organization_id=raw.organization_id AND latest.device_id=raw.device_id
 CROSS JOIN LATERAL jsonb_each_text(raw.register_address_map) item
 LEFT JOIN LATERAL (
     SELECT scale, value_offset, is_enabled
@@ -227,21 +193,18 @@ LEFT JOIN LATERAL (
         SELECT scale, value_offset, is_enabled, 2 AS priority
         FROM plant.device_register_metadata
         WHERE organization_id=raw.organization_id AND plant_id=raw.plant_id
-          AND device_id=raw.device_id AND address_key=item.key
+          AND device_id=raw.device_id AND (address_key=item.key OR address_key=concat('reg', item.key))
         UNION ALL
         SELECT scale, value_offset, is_enabled, 1 AS priority
         FROM plant.device_model_register_metadata
         WHERE organization_id=raw.organization_id AND device_model_id=device.device_model_id
-          AND address_key=item.key
+          AND (address_key=item.key OR address_key=concat('reg', item.key))
     ) configured
     ORDER BY priority DESC
     LIMIT 1
 ) metadata ON true
-WHERE latest.device_id IS NULL
-   OR (raw.observed_at, raw.received_at, raw.id) > (latest.observed_at, latest.received_at, latest.telemetry_reading_id)
 GROUP BY raw.id, raw.organization_id, raw.plant_id, raw.device_id, device.external_id, device.name,
          raw.gateway_id, raw.observed_at, raw.received_at
-HAVING count(*) FILTER (WHERE metadata.is_enabled) > 0
 ORDER BY device.name, device.external_id, raw.device_id
 LIMIT 500`, organizationID, plantID)
 	if err != nil {
@@ -268,6 +231,45 @@ LIMIT 500`, organizationID, plantID)
 		return nil, fmt.Errorf("list latest raw telemetry: %w", err)
 	}
 	return readings, nil
+}
+
+func (s *Service) mappedRawTelemetryHistory(ctx context.Context, organizationID, plantID, deviceID pgtype.UUID, input TelemetryHistoryInput, cursor telemetryHistoryCursor, cursorID pgtype.UUID, cursorSet bool, limit int32) ([]telemetryRowFields, error) {
+	rows, err := s.pool.Query(ctx, `
+SELECT raw.id, raw.organization_id, raw.plant_id, raw.device_id, device.external_id, device.name, raw.gateway_id, raw.observed_at, raw.received_at,
+       COALESCE(jsonb_object_agg(item.key, item.value::double precision * COALESCE(metadata.scale, 1) + COALESCE(metadata.value_offset, 0)) FILTER (WHERE COALESCE(metadata.is_enabled, true)), '{}'::jsonb),
+       count(*) FILTER (WHERE COALESCE(metadata.is_enabled, true))::integer
+FROM telemetry.raw_register_reading raw
+JOIN plant.device ON device.organization_id=raw.organization_id AND device.plant_id=raw.plant_id AND device.id=raw.device_id
+CROSS JOIN LATERAL jsonb_each_text(raw.register_address_map) item
+LEFT JOIN LATERAL (
+    SELECT scale, value_offset, is_enabled
+    FROM (
+        SELECT scale, value_offset, is_enabled, 2 AS priority FROM plant.device_register_metadata WHERE organization_id=raw.organization_id AND plant_id=raw.plant_id AND device_id=raw.device_id AND (address_key=item.key OR address_key=concat('reg', item.key))
+        UNION ALL
+        SELECT scale, value_offset, is_enabled, 1 AS priority FROM plant.device_model_register_metadata WHERE organization_id=raw.organization_id AND device_model_id=device.device_model_id AND (address_key=item.key OR address_key=concat('reg', item.key))
+    ) configured ORDER BY priority DESC LIMIT 1
+) metadata ON true
+WHERE raw.organization_id=$1 AND raw.plant_id=$2 AND raw.device_id=$3 AND raw.observed_at >= $4 AND raw.observed_at < $5
+  AND (NOT $6::boolean OR (raw.observed_at, raw.received_at, raw.id) < ($7, $8, $9))
+GROUP BY raw.id, raw.organization_id, raw.plant_id, raw.device_id, device.external_id, device.name, raw.gateway_id, raw.observed_at, raw.received_at
+ORDER BY raw.observed_at DESC, raw.received_at DESC, raw.id DESC LIMIT $10`, organizationID, plantID, deviceID,
+		pgtype.Timestamptz{Time: input.From.UTC(), Valid: true}, pgtype.Timestamptz{Time: input.To.UTC(), Valid: true}, cursorSet, cursor.ObservedAt, cursor.ReceivedAt, cursorID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list mapped raw telemetry history: %w", err)
+	}
+	defer rows.Close()
+	items := make([]telemetryRowFields, 0, limit)
+	for rows.Next() {
+		var row telemetryRowFields
+		if err := rows.Scan(&row.ID, &row.OrganizationID, &row.PlantID, &row.DeviceID, &row.DeviceExternalID, &row.DeviceName, &row.GatewayID, &row.ObservedAt, &row.ReceivedAt, &row.DataItemMap, &row.ParameterCount); err != nil {
+			return nil, fmt.Errorf("scan mapped raw telemetry history: %w", err)
+		}
+		items = append(items, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read mapped raw telemetry history: %w", err)
+	}
+	return items, nil
 }
 
 func (s *Service) TelemetryHistory(ctx context.Context, principal auth.Principal, plantID, deviceID string, input TelemetryHistoryInput) (TelemetryHistoryPage, error) {
@@ -309,14 +311,10 @@ func (s *Service) TelemetryHistory(ctx context.Context, principal auth.Principal
 	} else if err != nil {
 		return TelemetryHistoryPage{}, ErrInvalid
 	}
-	rows, err := listDeviceTelemetryHistory(ctx, s.pool, listDeviceTelemetryHistoryParams{
-		OrganizationID: plant.OrganizationID, PlantID: plant.ID, DeviceID: deviceUUID,
-		FromTime: pgtype.Timestamptz{Time: input.From.UTC(), Valid: true},
-		ToTime:   pgtype.Timestamptz{Time: input.To.UTC(), Valid: true}, CursorSet: input.Cursor != "",
-		CursorObservedAt: pgtype.Timestamptz{Time: cursor.ObservedAt.UTC(), Valid: input.Cursor != ""},
-		CursorReceivedAt: pgtype.Timestamptz{Time: cursor.ReceivedAt.UTC(), Valid: input.Cursor != ""},
-		CursorID:         cursorID, PageLimit: int32(input.Limit + 1),
-	})
+	// Raw is the only telemetry history source. Legacy telemetry_reading is
+	// intentionally not used as a fallback, so a Raw-only install has one
+	// deterministic history path and metadata is always applied at read time.
+	rows, err := s.mappedRawTelemetryHistory(ctx, plant.OrganizationID, plant.ID, deviceUUID, input, cursor, cursorID, input.Cursor != "", int32(input.Limit+1))
 	if err != nil {
 		return TelemetryHistoryPage{}, fmt.Errorf("list telemetry history: %w", err)
 	}

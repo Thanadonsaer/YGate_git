@@ -46,9 +46,24 @@ func TestRawIngestionPersistsRegisterMapAgainstPostgreSQL(t *testing.T) {
 		RegisterAddressMap: map[string]float64{"40084": 321},
 	}}}
 	raw, _ := json.Marshal(batch)
-	result, err := New(pool, nil).IngestRaw(ctx, Client{ID: clientID, OrganizationID: organizationID, Name: "Raw Gateway", AutoOnboard: true}, "", raw, batch, now)
+	client := Client{ID: clientID, OrganizationID: organizationID, Name: "Raw Gateway", AutoOnboard: true}
+	result, err := New(pool, nil).IngestRaw(ctx, client, "", raw, batch, now)
 	if err != nil || result.AcceptedCount != 1 || result.OnboardedPlantCount != 1 || result.OnboardedDeviceCount != 1 {
 		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	var calculatedCount int
+	if err = pool.QueryRow(ctx, "SELECT count(*) FROM telemetry.telemetry_reading").Scan(&calculatedCount); err != nil {
+		t.Fatal(err)
+	}
+	if calculatedCount != 0 {
+		t.Fatalf("expected raw ingestion not to persist calculated telemetry, count=%d", calculatedCount)
+	}
+	second := batch
+	second.Data[0].CollectTime = now.Add(time.Minute).UnixMilli()
+	secondRaw, _ := json.Marshal(second)
+	secondResult, err := New(pool, nil).IngestRaw(ctx, client, "", secondRaw, second, now.Add(time.Minute))
+	if err != nil || secondResult.AcceptedCount != 1 || secondResult.RejectedCount != 0 {
+		t.Fatalf("second result=%+v err=%v", secondResult, err)
 	}
 
 	var stored []byte

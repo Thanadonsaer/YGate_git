@@ -1588,6 +1588,7 @@
           "Live Monitor",
           "Live Test อ่านทุก Connection ด้วย interval ของหน้านี้ ไม่ใช่รอบส่ง API",
         ],
+        update: ["Update Patch", "ติดตั้งและตรวจสอบ Middleware patch"]
       };
       function esc(v) {
         return String(v ?? "").replace(
@@ -1997,7 +1998,7 @@
         rows.innerHTML = items
           .map(
             (c) =>
-              `<tr class="${c.connectionId === state.monitorId ? "selected" : ""}"><td><b>${esc(c.connectionName)}</b></td><td><b>${esc(c.plantCode || "-")}</b><br>${esc(c.deviceName || c.devDn || "-")}</td><td>${esc(c.host)}:${c.port}<br>unit ${c.unitId || c.slaveId || 1}</td><td><span class="${c.enabled ? "ok" : "bad"}">${c.enabled ? "Enabled" : "Disabled"}</span></td><td>${latestPollText(c.connectionId)}</td><td><div class="actions"><button type="button" class="btn primary" onclick="connectTest(${c.connectionId})">Connect Test</button><button type="button" class="btn primary" onclick="readNow(${c.connectionId})">Read Now</button><button type="button" class="btn secondary" onclick="sendAPIOnce(${c.connectionId})">Send API Once</button><button type="button" class="btn secondary" onclick="selectMonitorConnection(${c.connectionId})">View</button></div></td></tr>`,
+              `<tr class="${c.connectionId === state.monitorId ? "selected" : ""}"><td><b>${esc(c.connectionName)}</b></td><td><b>${esc(c.plantCode || "-")}</b><br>${esc(c.deviceName || c.devDn || "-")}</td><td>${esc(c.host)}:${c.port}<br>unit ${c.unitId || c.slaveId || 1}</td><td><span class="${c.enabled ? "ok" : "bad"}">${c.enabled ? "Enabled" : "Disabled"}</span></td><td>${latestPollText(c.connectionId)}</td><td><div class="actions"><button type="button" class="btn primary" onclick="connectTest(${c.connectionId})">Connect Test</button><button type="button" class="btn primary" onclick="readNow(${c.connectionId})">Read Now</button><button type="button" class="btn secondary" onclick="selectMonitorConnection(${c.connectionId})">View</button></div></td></tr>`,
           )
           .join("");
         renderMonitorCurrent();
@@ -2013,7 +2014,7 @@
           (x) => x.connectionId === state.monitorId,
         );
         box.innerHTML = c
-          ? `<div class="card-head"><div><h3>${esc(c.connectionName)}</h3><p>${esc(c.plantCode || "-")} • ${esc(c.deviceName || c.devDn || "-")}</p></div><div class="actions"><button type="button" class="btn secondary" onclick="connectTest(${c.connectionId})">Connect Test</button><button type="button" class="btn primary" onclick="readNow(${c.connectionId})">Read Now</button><button type="button" class="btn secondary" onclick="sendAPIOnce(${c.connectionId})">Send API Once</button></div></div><div class="modal-body"><div class="kv"><b>Host</b><span>${esc(c.host)}:${c.port} / unit ${c.unitId || c.slaveId || 1}</span><b>Polling</b><span class="${c.enabled ? "ok" : "bad"}">${c.enabled ? "Enabled" : "Disabled"}</span><b>Device Set</b><span>${esc(c.deviceSetName || "-")}</span></div></div>`
+          ? `<div class="card-head"><div><h3>${esc(c.connectionName)}</h3><p>${esc(c.plantCode || "-")} • ${esc(c.deviceName || c.devDn || "-")}</p></div><div class="actions"><button type="button" class="btn secondary" onclick="connectTest(${c.connectionId})">Connect Test</button><button type="button" class="btn primary" onclick="readNow(${c.connectionId})">Read Now</button></div></div><div class="modal-body"><div class="kv"><b>Host</b><span>${esc(c.host)}:${c.port} / unit ${c.unitId || c.slaveId || 1}</span><b>Polling</b><span class="${c.enabled ? "ok" : "bad"}">${c.enabled ? "Enabled" : "Disabled"}</span><b>Device Set</b><span>${esc(c.deviceSetName || "-")}</span></div></div>`
           : '<div class="empty">เลือก Connection เพื่อดูรายละเอียด</div>';
       }
       async function refreshMonitor() {
@@ -2162,10 +2163,8 @@
           Object.keys(kpis).length
             ? Object.entries(kpis)
                 .map(([k, v]) => {
-                  // registerAddressMap already has Factor/Offset applied
-                  // by the middleware before sending (see decodeEntry in
-                  // service.go) — do not calcValue() this, that would
-                  // double-apply Factor.
+                  // registerAddressMap contains decoded Raw values. Factor/Offset is
+                  // applied by Platform Register Metadata at read time.
                   const m = meta[k] || {};
                   return `<tr><td>${esc(k)}</td><td>${esc(m.name || "-")}</td><td>${esc(v)}</td><td>${esc(m.unit || "-")}</td></tr>`;
                 })
@@ -2244,7 +2243,7 @@
         box.innerHTML = items
           .map(
             (c) =>
-              `<tr><td><b>${esc(c.connectionName)}</b></td><td><span class="mono">${esc(c.devDn || "-")}</span><br>${esc(c.deviceName || "-")}</td><td>${esc(c.deviceSetName || "-")}</td><td>${esc(c.host)}:${c.port}<br>unit ${c.unitId || c.slaveId || 1}</td><td class="${c.enabled ? "ok" : "bad"}">${c.enabled ? "Enabled" : "Disabled"}</td><td><div class="actions"><button type="button" class="btn primary" onclick="connectTest(${c.connectionId})">Test</button><button type="button" class="btn primary" onclick="readNow(${c.connectionId})">Read</button><button type="button" class="btn secondary" onclick="sendAPIOnce(${c.connectionId})">Send API</button><button type="button" class="btn secondary" onclick="openConnection(${c.connectionId})">แก้ไข</button><button type="button" class="btn secondary" onclick="toggleConnection(${c.connectionId},${!c.enabled})">${c.enabled ? "Disable" : "Enable"}</button><button type="button" class="btn danger" onclick="deleteConnection(${c.connectionId})">ลบ</button></div></td></tr>`,
+              `<tr><td><b>${esc(c.connectionName)}</b></td><td><span class="mono">${esc(c.devDn || "-")}</span><br>${esc(c.deviceName || "-")}</td><td>${esc(c.deviceSetName || "-")}</td><td>${esc(c.host)}:${c.port}<br>unit ${c.unitId || c.slaveId || 1}</td><td class="${c.enabled ? "ok" : "bad"}">${c.enabled ? "Enabled" : "Disabled"}</td><td><div class="actions"><button type="button" class="btn primary" onclick="connectTest(${c.connectionId})">Test</button><button type="button" class="btn primary" onclick="readNow(${c.connectionId})">Read</button><button type="button" class="btn secondary" onclick="openConnection(${c.connectionId})">แก้ไข</button><button type="button" class="btn secondary" onclick="toggleConnection(${c.connectionId},${!c.enabled})">${c.enabled ? "Disable" : "Enable"}</button><button type="button" class="btn danger" onclick="deleteConnection(${c.connectionId})">ลบ</button></div></td></tr>`,
           )
           .join("");
       }

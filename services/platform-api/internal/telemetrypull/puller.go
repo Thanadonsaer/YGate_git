@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	drainBatchSize      = 20
+	drainBatchSize      = 500
 	commandTimeout      = 15 * time.Second
 	defaultPullInterval = 60 * time.Second
 )
@@ -47,22 +47,53 @@ func Run(ctx context.Context, hub *gatewayhub.Hub, ingest Ingester, client inges
 	for {
 		interval := defaultPullInterval
 		pollIntervalSeconds, apiPollingEnabled, err := ingest.MiddlewareClientPullConfig(ctx, client.ID)
-		switch {
-		case err != nil:
+		if pollIntervalSeconds > 0 {
+			interval = time.Duration(pollIntervalSeconds) * time.Second
+		}
+		if err != nil {
 			log.Printf("telemetry pull: read pull config for %s: %v", gatewayID, err)
-		case !apiPollingEnabled:
-			log.Printf("telemetry pull: disabled for %s (api_polling_enabled=false)", gatewayID)
-		default:
-			if pollIntervalSeconds > 0 {
-				interval = time.Duration(pollIntervalSeconds) * time.Second
+			if !waitForPullSchedule(ctx, time.Now().UTC().Add(interval)) {
+				return
 			}
-			pullOnce(ctx, hub, ingest, client, gatewayID)
+			continue
 		}
-		select {
-		case <-ctx.Done():
+		if !apiPollingEnabled {
+			log.Printf("telemetry pull: disabled for %s (api_polling_enabled=false)", gatewayID)
+			if !waitForPullSchedule(ctx, time.Now().UTC().Add(interval)) {
+				return
+			}
+			continue
+		}
+		// Align to wall-clock slots: a five-minute interval runs at :00, :05,
+		// :10, ... instead of five minutes after the WebSocket connected.
+		if !waitForPullSchedule(ctx, nextScheduledPull(time.Now(), interval)) {
 			return
-		case <-time.After(interval):
 		}
+		pullOnce(ctx, hub, ingest, client, gatewayID)
+	}
+}
+
+func nextScheduledPull(now time.Time, interval time.Duration) time.Time {
+	if interval <= 0 {
+		interval = defaultPullInterval
+	}
+	epoch := time.Unix(0, 0).In(now.Location())
+	elapsed := now.Sub(epoch)
+	return epoch.Add(elapsed.Truncate(interval) + interval)
+}
+
+func waitForPullSchedule(ctx context.Context, at time.Time) bool {
+	delay := time.Until(at)
+	if delay < 0 {
+		delay = 0
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
 	}
 }
 
@@ -70,6 +101,51 @@ type commandResult struct {
 	Ok    bool            `json:"ok"`
 	Data  json.RawMessage `json:"data"`
 	Error string          `json:"error"`
+}
+
+type plantLog struct {
+	Code string `json:"code"`
+	Name string `json:"name"`
+}
+
+func plantLogs(readings []json.RawMessage) []plantLog {
+	seen := make(map[string]bool)
+	plants := make([]plantLog, 0)
+	for _, raw := range readings {
+		var reading struct {
+			PlantCode string `json:"plantCode"`
+			PlantName string `json:"plantName"`
+		}
+		if json.Unmarshal(raw, &reading) != nil || reading.PlantCode == "" || seen[reading.PlantCode] {
+			continue
+		}
+		seen[reading.PlantCode] = true
+		plants = append(plants, plantLog{Code: reading.PlantCode, Name: reading.PlantName})
+	}
+	return plants
+}
+
+func observedWindow(readings []json.RawMessage) (string, string) {
+	var from, to time.Time
+	for _, raw := range readings {
+		var reading struct {
+			CollectTime int64 `json:"collectTime"`
+		}
+		if json.Unmarshal(raw, &reading) != nil || reading.CollectTime <= 0 {
+			continue
+		}
+		observed := time.UnixMilli(reading.CollectTime).UTC()
+		if from.IsZero() || observed.Before(from) {
+			from = observed
+		}
+		if to.IsZero() || observed.After(to) {
+			to = observed
+		}
+	}
+	if from.IsZero() {
+		return "", ""
+	}
+	return from.Format(time.RFC3339Nano), to.Format(time.RFC3339Nano)
 }
 
 type drainedBatch struct {
@@ -134,7 +210,14 @@ func pullOnce(ctx context.Context, hub *gatewayhub.Hub, ingest Ingester, client 
 		audit("middleware.pull.failed", map[string]any{"stage": "ingest", "count": len(drained.IDs), "error": err.Error()})
 		return
 	}
-	resultDetails := map[string]any{"count": len(drained.IDs), "accepted": resultIngest.AcceptedCount, "duplicate": resultIngest.DuplicateCount, "rejected": resultIngest.RejectedCount}
+	resultDetails := map[string]any{"count": len(drained.IDs), "accepted": resultIngest.AcceptedCount, "duplicate": resultIngest.DuplicateCount, "rejected": resultIngest.RejectedCount, "receivedAt": time.Now().UTC().Format(time.RFC3339Nano)}
+	if observedFrom, observedTo := observedWindow(drained.Readings); observedFrom != "" {
+		resultDetails["observedFrom"] = observedFrom
+		resultDetails["observedTo"] = observedTo
+	}
+	if plants := plantLogs(drained.Readings); len(plants) > 0 {
+		resultDetails["plants"] = plants
+	}
 	if len(resultIngest.Errors) > 0 {
 		resultDetails["errors"] = resultIngest.Errors
 	}

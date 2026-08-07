@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -103,6 +104,28 @@ func (s *Service) MiddlewareClientPullConfig(ctx context.Context, clientID pgtyp
 	return row.PollIntervalSeconds, row.ApiPollingEnabled, nil
 }
 
+// RecordMiddlewarePullEvent appends a system audit event for backend-driven Middleware pulls.
+func (s *Service) RecordMiddlewarePullEvent(ctx context.Context, client Client, action string, details map[string]any) error {
+	var softwareVersion pgtype.Text
+	if err := s.pool.QueryRow(ctx, "SELECT software_version FROM auth.middleware_client WHERE id=$1", client.ID).Scan(&softwareVersion); err == nil && softwareVersion.Valid {
+		details["middlewareVersion"] = softwareVersion.String
+	}
+	data, err := json.Marshal(details)
+	if err != nil {
+		return fmt.Errorf("marshal middleware pull audit: %w", err)
+	}
+	correlationID, err := newUUID()
+	if err != nil {
+		return err
+	}
+	if err = s.queries.CreateAuditEventFull(ctx, dbgen.CreateAuditEventFullParams{
+		OrganizationID: client.OrganizationID, Action: action, TargetType: "middleware_client", TargetID: client.ID,
+		AfterData: data, CorrelationID: correlationID,
+	}); err != nil {
+		return fmt.Errorf("record middleware pull audit: %w", err)
+	}
+	return nil
+}
 func (s *Service) Ingest(ctx context.Context, client Client, idempotencyKey string, raw []byte, batch Batch, now time.Time) (Result, error) {
 	if len(batch.Data) == 0 || len(batch.Data) > 500 || !client.ID.Valid || !client.OrganizationID.Valid {
 		return Result{}, ErrInvalidBatch
@@ -309,8 +332,9 @@ func ingestReading(ctx context.Context, tx pgx.Tx, q *dbgen.Queries, client Clie
 	if !device.IsActive {
 		return outcome, &recordFailure{Code: "DEVICE_DISABLED", Message: "device is disabled"}, nil
 	}
-	metadata := make(map[string]string, len(reading.DataItemMap))
-	for key := range reading.DataItemMap {
+	dataItemMap := canonicalRegisterData(reading.DataItemMap)
+	metadata := make(map[string]string, len(dataItemMap))
+	for key := range dataItemMap {
 		metadata[key] = "number"
 	}
 	if err = ensureModelRegisterMetadata(ctx, tx, q, client, device.DeviceModelID, metadata, "MIDDLEWARE_V1"); err != nil {
@@ -318,7 +342,7 @@ func ingestReading(ctx context.Context, tx pgx.Tx, q *dbgen.Queries, client Clie
 	}
 
 	externalKey := reading.PlantCode + ":" + reading.DevDn + ":" + reading.ObservedAt.Format(time.RFC3339Nano)
-	duplicate, err := recordTelemetryReading(ctx, tx, q, client, batchID, plant, device, reading.GatewayID, externalKey, reading.ObservedAt, reading.DataItemMap, &outcome)
+	duplicate, err := recordTelemetryReading(ctx, tx, q, client, batchID, plant, device, reading.GatewayID, externalKey, reading.ObservedAt, dataItemMap, &outcome)
 	if err != nil {
 		return outcome, nil, err
 	}
@@ -367,6 +391,24 @@ func recordTelemetryReading(ctx context.Context, tx pgx.Tx, q *dbgen.Queries, cl
 	return false, nil
 }
 
+func canonicalRegisterKey(key string) string {
+	key = strings.TrimSpace(key)
+	if strings.HasPrefix(strings.ToLower(key), "reg") {
+		return key
+	}
+	if _, err := strconv.Atoi(key); err == nil {
+		return "reg" + key
+	}
+	return key
+}
+
+func canonicalRegisterData(items map[string]float64) map[string]float64 {
+	canonical := make(map[string]float64, len(items))
+	for key, value := range items {
+		canonical[canonicalRegisterKey(key)] = value
+	}
+	return canonical
+}
 func ensureModelRegisterMetadata(ctx context.Context, tx pgx.Tx, q *dbgen.Queries, client Client, modelID pgtype.UUID, items map[string]string, source string) error {
 	keys := make([]string, 0, len(items))
 	for key := range items {
@@ -374,12 +416,13 @@ func ensureModelRegisterMetadata(ctx context.Context, tx pgx.Tx, q *dbgen.Querie
 	}
 	sort.Strings(keys)
 	added := make([]string, 0, len(keys))
-	for _, key := range keys {
+	for _, rawKey := range keys {
+		key := canonicalRegisterKey(rawKey)
 		id, err := newUUID()
 		if err != nil {
 			return err
 		}
-		dataType := metadataDataType(items[key])
+		dataType := metadataDataType(items[rawKey])
 		result, err := tx.Exec(ctx, `
 INSERT INTO plant.device_model_register_metadata (
     id, organization_id, device_model_id, address_key, display_name, data_type, notes

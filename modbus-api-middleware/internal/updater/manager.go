@@ -28,7 +28,8 @@ const windowsUpdaterScript = `param(
   [Parameter(Mandatory=$true)][string]$Source,
   [Parameter(Mandatory=$true)][string]$Destination,
   [Parameter(Mandatory=$true)][string]$ServiceName,
-  [Parameter(Mandatory=$true)][string]$ResultFile
+  [Parameter(Mandatory=$true)][string]$ResultFile,
+  [string]$ExpectedVersion
 )
 $ErrorActionPreference = "Stop"
 try {
@@ -38,10 +39,24 @@ try {
     Stop-Service -Name $ServiceName -Force
     $service.WaitForStatus("Stopped", [TimeSpan]::FromSeconds(30))
   }
-  Copy-Item -LiteralPath $Source -Destination $Destination -Force
+  $copied = $false
+  $lastCopyError = $null
+  for ($attempt = 1; $attempt -le 30; $attempt++) {
+    try {
+      Copy-Item -LiteralPath $Source -Destination $Destination -Force -ErrorAction Stop
+      $copied = $true
+      break
+    } catch {
+      $lastCopyError = $_.Exception
+      Start-Sleep -Seconds 1
+    }
+  }
+  if (-not $copied) { throw "copy failed after 30 attempts: $($lastCopyError.Message)" }
   Start-Service -Name $ServiceName
   (Get-Service -Name $ServiceName).WaitForStatus("Running", [TimeSpan]::FromSeconds(30))
-  "SUCCESS $(Get-Date -Format o)" | Set-Content -LiteralPath $ResultFile -ErrorAction SilentlyContinue
+  $reported = (& $Destination -version 2>&1 | Out-String).Trim()
+  if ($ExpectedVersion -and $reported -notmatch [regex]::Escape($ExpectedVersion)) { throw "version mismatch: expected $ExpectedVersion, got $reported" }
+  "SUCCESS $(Get-Date -Format o) version=$reported" | Set-Content -LiteralPath $ResultFile -ErrorAction SilentlyContinue
 } catch {
   "FAILED $(Get-Date -Format o): $($_.Exception.Message)" | Set-Content -LiteralPath $ResultFile -ErrorAction SilentlyContinue
   try { Start-Service -Name $ServiceName -ErrorAction SilentlyContinue } catch {}
@@ -197,7 +212,7 @@ func (m *Manager) Apply() (backupName string, err error) {
 	if err != nil {
 		return "", err
 	}
-	if err = m.startUpdater(filepath.Join(m.root(), "staged", manifest.Binary)); err != nil {
+	if err = m.startUpdater(filepath.Join(m.root(), "staged", manifest.Binary), manifest.Version); err != nil {
 		return "", err
 	}
 	return filepath.Base(backup), nil
@@ -213,7 +228,7 @@ func (m *Manager) Rollback() (backupName string, err error) {
 	if err != nil {
 		return "", err
 	}
-	if err = m.startUpdater(backup); err != nil {
+	if err = m.startUpdater(backup, ""); err != nil {
 		return "", err
 	}
 	return filepath.Base(backup), nil
@@ -229,7 +244,7 @@ func (m *Manager) RestartOnly() error {
 	if err != nil {
 		return err
 	}
-	return m.startUpdater(exe)
+	return m.startUpdater(exe, "")
 }
 
 func (m *Manager) root() string {
@@ -322,7 +337,7 @@ func latestBackup(dir string) (string, error) {
 	return filepath.Join(dir, files[0].Name()), nil
 }
 
-func (m *Manager) startUpdater(source string) error {
+func (m *Manager) startUpdater(source, expectedVersion string) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return err
@@ -337,7 +352,7 @@ func (m *Manager) startUpdater(source string) error {
 		if err = os.WriteFile(script, []byte(windowsUpdaterScript), 0644); err != nil {
 			return err
 		}
-		return exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script, "-Source", source, "-Destination", exe, "-ServiceName", AppName, "-ResultFile", result).Start()
+		return exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script, "-Source", source, "-Destination", exe, "-ServiceName", AppName, "-ResultFile", result, "-ExpectedVersion", expectedVersion).Start()
 	}
 	script := filepath.Join(scriptDir, "apply-update.sh")
 	body := fmt.Sprintf("#!/bin/sh\nsleep 2\nsystemctl stop %s >/dev/null 2>&1 || true\ninstall -m 0755 %q %q\nsystemctl start %s\n", AppName, source, exe, AppName)

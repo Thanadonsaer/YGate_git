@@ -269,7 +269,7 @@ SELECT p.id AS plant_id, p.code, p.name, p.timezone, p.is_active,
        max(tl.observed_at) FILTER (WHERE d.is_active) AS last_observed_at
 FROM plant.plant p
 LEFT JOIN plant.device d ON d.organization_id = p.organization_id AND d.plant_id = p.id
-LEFT JOIN telemetry.telemetry_latest tl ON tl.organization_id = d.organization_id AND tl.device_id = d.id
+LEFT JOIN telemetry.raw_telemetry_latest tl ON tl.organization_id = d.organization_id AND tl.device_id = d.id
 WHERE EXISTS (
     SELECT 1 FROM auth.user_role ur
     JOIN auth.role r ON r.id = ur.role_id

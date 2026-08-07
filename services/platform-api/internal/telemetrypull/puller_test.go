@@ -14,6 +14,27 @@ import (
 	"ygate/platform-api/internal/ingestion"
 )
 
+func TestNextScheduledPullAlignsToWallClock(t *testing.T) {
+	location := time.FixedZone("ICT", 7*60*60)
+	cases := []struct {
+		name     string
+		now      time.Time
+		interval time.Duration
+		want     time.Time
+	}{
+		{"five minute slot", time.Date(2026, 8, 7, 12, 47, 13, 0, location), 5 * time.Minute, time.Date(2026, 8, 7, 12, 50, 0, 0, location)},
+		{"exact boundary advances", time.Date(2026, 8, 7, 12, 50, 0, 0, location), 5 * time.Minute, time.Date(2026, 8, 7, 12, 55, 0, 0, location)},
+		{"one minute slot", time.Date(2026, 8, 7, 12, 59, 59, 0, location), time.Minute, time.Date(2026, 8, 7, 13, 0, 0, 0, location)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := nextScheduledPull(tc.now, tc.interval); !got.Equal(tc.want) {
+				t.Fatalf("nextScheduledPull() = %s, want %s", got, tc.want)
+			}
+		})
+	}
+}
+
 type stubIngester struct {
 	calls      []ingestion.RawBatch
 	err        error
@@ -176,7 +197,7 @@ func TestPullOnceSkipsAckWhenIngestErrors(t *testing.T) {
 	}
 }
 
-func TestRunPullsImmediatelyOnceEnabledAndSkipsWhileDisabled(t *testing.T) {
+func TestRunPullsOnNextAlignedScheduleOnceEnabled(t *testing.T) {
 	hub := gatewayhub.New()
 	out, resolve, unregister := hub.Register("gw-1")
 	defer unregister()
@@ -186,7 +207,7 @@ func TestRunPullsImmediatelyOnceEnabledAndSkipsWhileDisabled(t *testing.T) {
 		"collectTime": time.Now().UnixMilli(), "registerAddressMap": map[string]float64{"40001": 1},
 	})
 
-	ingest := &stubIngester{apiPollingEnabled: true, pollIntervalSeconds: 3600} // interval large enough that only an immediate first pull would complete in time
+	ingest := &stubIngester{apiPollingEnabled: true, pollIntervalSeconds: 1} // one-second schedule keeps the aligned-slot test fast
 	client := ingestion.Client{ID: pgtype.UUID{Bytes: [16]byte{1}, Valid: true}, OrganizationID: pgtype.UUID{Bytes: [16]byte{2}, Valid: true}}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -213,7 +234,7 @@ func TestRunPullsImmediatelyOnceEnabledAndSkipsWhileDisabled(t *testing.T) {
 	resolve(ackReq.CommandID, mustMarshal(map[string]any{"ok": true}))
 
 	if len(ingest.calls) != 1 {
-		t.Fatalf("ingest.calls = %d, want exactly 1 (immediate first pull, no wait for the 3600s interval)", len(ingest.calls))
+		t.Fatalf("ingest.calls = %d, want exactly 1 after the next aligned schedule", len(ingest.calls))
 	}
 }
 

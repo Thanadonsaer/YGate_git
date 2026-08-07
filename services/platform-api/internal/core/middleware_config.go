@@ -947,10 +947,8 @@ func (s *Service) doRecomputeAndPushMiddleware(ctx context.Context, middlewareID
 	}
 	defer tx.Rollback(ctx)
 	var organizationID pgtype.UUID
-	var previousBody []byte
-	var configVersion, configAppliedVersion int64
-	if err = tx.QueryRow(ctx, `SELECT organization_id, config_snapshot, config_version, config_applied_version FROM auth.middleware_client WHERE id=$1 FOR UPDATE`, middlewareID).
-		Scan(&organizationID, &previousBody, &configVersion, &configAppliedVersion); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT organization_id FROM auth.middleware_client WHERE id=$1 FOR UPDATE`, middlewareID).
+		Scan(&organizationID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return PushConfigResult{}, nil
 		}
@@ -961,26 +959,10 @@ func (s *Service) doRecomputeAndPushMiddleware(ctx context.Context, middlewareID
 		return PushConfigResult{}, fmt.Errorf("build config snapshot: %w", err)
 	}
 	result := PushConfigResult{PlantCount: len(snapshot.Plants), DeviceCount: len(snapshot.Connections), DeviceSetCount: len(snapshot.DeviceSets)}
-	// snapshot.Version isn't set yet at this point (it's assigned below from
-	// the UPDATE ... RETURNING), so compare against the previous body with
-	// its own version stripped -- easiest is to compare after re-marshaling
-	// the previous body's non-version fields the same way.
-	var previous MiddlewareConfigSnapshot
-	_ = json.Unmarshal(previousBody, &previous)
-	previous.Version = 0
 	body := mustMarshal(snapshot)
-	// Only skip the resend when content is unchanged AND the gateway has
-	// actually acked applying it (config_applied_version caught up to
-	// config_version) -- otherwise a push that never reached the gateway
-	// (offline at send time, dropped connection, gateway never got this far
-	// yet) permanently no-ops on every later "Push Config" click too, since
-	// the computed content keeps matching what's already stored here even
-	// though the gateway itself never received it. See report: "toast shows
-	// success but the middleware has no config at all".
-	if string(mustMarshal(previous)) == string(body) && configAppliedVersion >= configVersion {
-		result.Delivered = true
-		return result, tx.Commit(ctx) // content identical and already applied -- nothing to do
-	}
+	// An explicit Push Config is also a repair/reapply operation. Always
+	// create a new version so stale middleware snapshots and connection IDs
+	// are rewritten with the current configuration.
 	var version int64
 	if err = tx.QueryRow(ctx, `UPDATE auth.middleware_client SET config_version = config_version + 1, config_snapshot=$2, updated_at=now() WHERE id=$1 RETURNING config_version`,
 		middlewareID, body).Scan(&version); err != nil {

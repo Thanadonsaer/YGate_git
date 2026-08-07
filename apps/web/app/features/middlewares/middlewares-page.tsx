@@ -207,6 +207,7 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
   const [uploading, setUploading] = useState(false);
   const [staging, setStaging] = useState(false);
   const [applying, setApplying] = useState(false);
+  const [softwareVersion, setSoftwareVersion] = useState<string | null | undefined>(gateway.softwareVersion);
   const [rollingBack, setRollingBack] = useState(false);
   const [restarting, setRestarting] = useState(false);
   const lifecycleBusy = uploading || staging || applying || rollingBack || restarting;
@@ -215,17 +216,22 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
     setLoading(true);
     setError("");
     try {
-      const [configResponse, plantsResponse, allPlantsResponse, patchesResponse] = await Promise.all([
+      const [configResponse, plantsResponse, allPlantsResponse, patchesResponse, gatewaysResponse] = await Promise.all([
         api(`/api/v1/admin/middlewares/${encodeURIComponent(gateway.id)}/config`),
         api(`/api/v1/admin/middlewares/${encodeURIComponent(gateway.id)}/plants`),
         api("/api/v1/plants"),
         api("/api/v1/admin/middleware-patches"),
+        api("/api/v1/admin/middlewares"),
       ]);
       if (!configResponse.ok || !plantsResponse.ok || !allPlantsResponse.ok) throw new Error("ไม่สามารถโหลดข้อมูล Middleware ได้");
       setSnapshot((await configResponse.json()) as MiddlewareConfigSnapshot);
       setAssignedPlants((await plantsResponse.json()) as Plant[]);
       setAllPlants((await allPlantsResponse.json()) as Plant[]);
       if (patchesResponse.ok) setPatches((await patchesResponse.json()) as MiddlewarePatch[]);
+      if (gatewaysResponse.ok) {
+        const current = ((await gatewaysResponse.json()) as MiddlewareGateway[]).find((item) => item.id === gateway.id);
+        setSoftwareVersion(current?.softwareVersion);
+      }
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -236,6 +242,19 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
   useEffect(() => { void load(); }, [load]);
 
   const unassignedPlants = allPlants.filter((p) => !assignedPlants.some((a) => a.id === p.id));
+
+  async function waitForSoftwareVersion(target: string) {
+    const deadline = Date.now() + 30000;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      const response = await api("/api/v1/admin/middlewares");
+      if (!response.ok) continue;
+      const current = ((await response.json()) as MiddlewareGateway[]).find((item) => item.id === gateway.id);
+      setSoftwareVersion(current?.softwareVersion);
+      if (current?.softwareVersion === target) return true;
+    }
+    return false;
+  }
 
   async function assignPlant() {
     if (!addPlantId) return;
@@ -355,6 +374,24 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
     }
   }
 
+  async function deletePatch() {
+    const patch = patches.find((item) => item.id === selectedPatchId);
+    if (!patch || !window.confirm(`ลบ Patch ${patch.version} (${patch.os}/${patch.arch}) หรือไม่?`)) return;
+    setError("");
+    try {
+      const response = await api(`/api/v1/admin/middleware-patches/${encodeURIComponent(patch.id)}`, {
+        method: "DELETE",
+        headers: { "X-CSRF-Token": csrfToken() },
+      });
+      if (!response.ok) throw new Error(response.status === 403 ? "เฉพาะ Platform Admin เท่านั้นที่ลบ patch ได้" : await middlewareLifecycleError(response, "ลบ patch ไม่สำเร็จ"));
+      setSelectedPatchId("");
+      toast.success(`ลบ Patch ${patch.version} แล้ว`);
+      await load();
+    } catch (cause) {
+      setError(errorMessage(cause));
+    }
+  }
+
   async function stageUpdate() {
     if (!selectedPatchId) return;
     setStaging(true);
@@ -379,12 +416,17 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
     setApplying(true);
     setError("");
     try {
+      const targetVersion = patches.find((patch) => patch.id === selectedPatchId)?.version;
       const response = await api(`/api/v1/admin/middlewares/${encodeURIComponent(gateway.id)}/update/apply`, {
         method: "POST",
         headers: { "X-CSRF-Token": csrfToken() },
       });
       if (!response.ok) throw new Error(await middlewareLifecycleError(response, "ตรวจสอบว่า stage patch ไว้แล้วหรือยัง"));
-      toast.success("Apply เริ่มแล้ว — Middleware จะ offline ชั่วครู่ระหว่าง restart");
+      if (targetVersion && await waitForSoftwareVersion(targetVersion)) {
+        toast.success(`อัปเดต Middleware เป็น ${targetVersion} สำเร็จ`);
+      } else {
+        toast.error(`คำสั่ง Apply ถูกส่งแล้ว แต่ยังยืนยัน version ${targetVersion || "ใหม่"} ไม่ได้ — ตรวจสอบ service และ last-result.txt ที่เครื่อง Middleware`);
+      }
       await load();
     } catch (cause) {
       setError(errorMessage(cause));
@@ -506,7 +548,7 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
           <div className="section-heading">
             <div>
               <h3>Software Update (Platform Admin)</h3>
-              <p>Version ปัจจุบัน: {gateway.softwareVersion || "ไม่ทราบ (Middleware ยังไม่เคยส่ง version มา)"} — upload patch, stage ไปที่เครื่องนี้, แล้วค่อย Apply แยกกัน (ไม่ auto)</p>
+              <p>Version ปัจจุบัน: {softwareVersion || "ไม่ทราบ (Middleware ยังไม่เคยส่ง version มา)"} — upload patch, stage ไปที่เครื่องนี้, แล้วค่อย Apply แยกกัน (ไม่ auto)</p>
             </div>
             <div className="heading-actions">
               <Tooltip>
@@ -543,6 +585,7 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
             <Button variant="secondary" compact disabled={!selectedPatchId || lifecycleBusy} onClick={() => void stageUpdate()}>
               {staging ? "กำลัง Stage..." : "Stage"}
             </Button>
+            <Button variant="text" compact danger disabled={!selectedPatchId || lifecycleBusy} onClick={() => void deletePatch()}>ลบ Patch</Button>
             <Button compact disabled={lifecycleBusy} onClick={() => void applyUpdate()}>
               {applying ? "กำลัง Apply..." : "Apply"}
             </Button>

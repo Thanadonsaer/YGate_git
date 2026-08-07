@@ -87,12 +87,10 @@ func TestPollConnectionUsesTableAddressFields(t *testing.T) {
 	if reading.DevDn != "AICA-INV-01" || reading.PlantCode != "AICA" || reading.DevTypeID != 1 {
 		t.Fatalf("reading identity=%+v", reading)
 	}
-	// RegisterAddressMap carries scaled values (raw * Factor + Offset): the
-	// middleware applies Factor/Offset before sending, deviating from
-	// ADR-0004 by product decision (see comment in decodeEntry). Raw
-	// register 0 is 42000 with Factor .001 -> 42.
-	if got := reading.RegisterAddressMap["0"]; got != 42 {
-		t.Fatalf("register 0=%v want 42", got)
+	// RegisterAddressMap carries decoded Raw values. Factor/Offset is applied
+	// by Platform Register Metadata when telemetry is read.
+	if got := reading.RegisterAddressMap["0"]; got != 42000 {
+		t.Fatalf("register 0=%v want 42000", got)
 	}
 	if got := reading.RegisterAddressMap["1"]; got != 123 {
 		t.Fatalf("register 1=%v want 123", got)
