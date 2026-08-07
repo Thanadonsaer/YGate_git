@@ -1,264 +1,79 @@
-# คู่มือ CI/CD: Git → Jenkins → Production
+# คู่มือ CI/CD: Git → Jenkins → Production (Windows + PM2)
 
-คู่มือนี้ใช้ Jenkins LTS บน Linux build agent และ deploy immutable artifact ผ่าน SSH ไปยัง production Linux amd64 ไม่ build ทับ directory ที่กำลังรัน และไม่เก็บ production secrets ใน Git หรือ Jenkins artifact
+Jenkins ติดตั้งอยู่บนเครื่อง production เดียวกัน (Windows amd64) จึงไม่มีการ SSH ข้ามเครื่อง Pipeline เรียกสคริปต์ build/start ตัวเดียวกับที่ใช้ manual deploy ([manual-production.md](manual-production.md)) เพื่อไม่ให้ logic build/start แยกกันสองชุด
 
 ```text
 Git push / merge main
-        ↓ webhook
-Jenkins checkout → test → build → package
+        ↓ webhook (ผ่าน Cloudflare Tunnel)
+Jenkins checkout → test → build-release.ps1 (build + package)
         ↓ manual approval
-SSH upload → DB backup → deploy ทีละ service
-        ↓
-health gate ผ่าน = release สำเร็จ
-health gate ไม่ผ่าน = rollback symlink
+Expand-Archive ลง release directory ใหม่ → start.ps1 (migrate + pm2 + health check)
 ```
 
-> ถ้า production เป็น Windows หรือ ARM64 ต้องเปลี่ยน service manager, remote deploy script และ `GOOS/GOARCH` ใน `Jenkinsfile`
+พื้นฐาน service layout, PostgreSQL, Cloudflare Tunnel ดู [manual-production.md](manual-production.md) ก่อน เอกสารนี้พูดเฉพาะส่วนที่เป็น Jenkins
 
-## 1. เตรียมเครื่อง
+## 1. เตรียมเครื่อง Jenkins (= เครื่อง production)
 
-แนะนำให้แยก Jenkins controller/build agent ออกจาก production เครื่อง Jenkins ต้องมี:
+ติดตั้งบนเครื่องเดียวกับที่รัน PM2:
 
-- Jenkins LTS และ Java 21
-- Git, `curl`, `tar`, `gzip`, `openssh-client` และ CA certificates
-- Go 1.23 ขึ้นไป
-- Node.js 20.9 ขึ้นไปพร้อม npm
-- network access ไปยัง Git server, Go module proxy/npm registry และ production SSH port
-- พื้นที่อย่างน้อย 50 GB สำหรับ small team ตามคำแนะนำ Jenkins
+- Jenkins LTS (Windows service) และ Java 21
+- Git, Go 1.23+, Node.js 20.9+ พร้อม npm, `tar.exe` — ตัวเดียวกับที่ [build-release.ps1](../../deploy/manual/build-release.ps1) ต้องการ
+- PM2 (`npm install -g pm2`) — ใช้รันจริงตอน deploy
+- Jenkins service account ต้องมองเห็นทุกอย่างข้างบนใน PATH (ปกติ Windows service รันเป็น user แยกจาก user ที่ login ใช้งาน ต้องเช็ค PATH ของ service account เอง ไม่ใช่ PATH ตอน login)
 
-ติดตั้ง Jenkins ตาม [Jenkins Linux installation](https://www.jenkins.io/doc/book/installing/linux/) และใช้ Java version ตาม [Java support policy](https://www.jenkins.io/doc/book/platform-information/support-policy-java/) จากนั้นเปิด Jenkins ผ่าน HTTPS reverse proxy ห้ามเปิด Jenkins port ต่อ Internet โดยตรง
-
-Production ต้องมี:
-
-- Linux amd64, systemd, Node.js 20.9 ขึ้นไป
-- `curl`, `tar`, `gzip`, `openssh-server`, `postgresql-client` และ CA certificates
-- PostgreSQL ที่ production เข้าถึงได้
-- TLS reverse proxy ตามหัวข้อ Production ใน root `README.md`
-- user `ygate` สำหรับรัน services และ user `ygate-deploy` สำหรับรับ artifact
-
-Go runtime และ Git ไม่จำเป็นบน production เพราะ Jenkins ส่ง native binaries และ Web standalone artifact มาให้
+เปิด Jenkins ผ่าน Cloudflare Tunnel เท่านั้น ห้ามเปิด port Jenkins (`8000` ในตัวอย่างนี้) ออก internet ตรงๆ
 
 ## 2. ติดตั้ง Jenkins plugins
 
-ไปที่ **Manage Jenkins → Plugins** แล้วติดตั้ง:
+**Manage Jenkins → Plugins**:
 
 - Pipeline
 - Git
-- Credentials Binding
+- GitHub (สำหรับรับ webhook)
 
-`Jenkinsfile` ใช้ `withCredentials` กับ SSH private key โดยตรง จึงไม่ต้องติดตั้ง SSH Agent plugin ถ้าจะเปลี่ยนไปใช้ `sshagent` agent ต้องมี executable `ssh-agent` ตาม [SSH Agent plugin requirements](https://plugins.jenkins.io/ssh-agent/)
+ไม่ต้องมี SSH Agent / Credentials Binding เพราะไม่มีการ SSH ข้ามเครื่องอีกต่อไป
 
-Jenkins แนะนำให้เก็บ pipeline definition เป็น `Jenkinsfile` ใน source control เพื่อให้ review และ audit ได้ ดู [Using a Jenkinsfile](https://www.jenkins.io/doc/book/pipeline/jenkinsfile/)
+## 3. เชื่อม Jenkins กับ Git
 
-## 3. เตรียม Production services
+1. New Item → Pipeline, SCM = Git, URL `https://github.com/Thanadonsaer/YGate_git.git`, Script Path `Jenkinsfile`
+2. ถ้า repo private เพิ่ม credential (PAT หรือ deploy key) ให้ job
+3. ติ๊ก build trigger **"GitHub hook trigger for GITScm polling"**
+4. ตั้ง GitHub webhook: Payload URL `https://<jenkins-hostname-ผ่าน-tunnel>/github-webhook/`, content type `application/json`, event `push`
+5. ตั้ง Cloudflare Access คลุมทุก path ของ Jenkins UI ยกเว้น `/github-webhook/*` (ต้อง bypass ไม่งั้น GitHub ยิงเข้าไม่ได้)
 
-สร้าง users และ directories:
+## 4. Job parameters ([Jenkinsfile](../../Jenkinsfile))
 
-```bash
-sudo useradd --system --home /opt/ygate --shell /usr/sbin/nologin ygate
-sudo useradd --create-home --shell /bin/bash ygate-deploy
-sudo install -d -o ygate -g ygate /opt/ygate/releases
-sudo install -d -m 0750 -o root -g ygate /etc/ygate /var/backups/ygate
-sudo install -m 0755 deploy/jenkins/ygate-deploy /usr/local/sbin/ygate-deploy
+- `PUBLIC_GATEWAY_URL` — ค่าเริ่มต้น `https://ygate.yokogawasolution.com`
+- `RELEASES_ROOT` — ค่าเริ่มต้น `D:\YGATE\releases` ต้องตรงกับที่ตั้งไว้ตอน manual deploy
+- `ENV_FILE` — ค่าเริ่มต้น `D:\YGATE\ygate.env` ไฟล์นี้ต้องมีอยู่ก่อนแล้ว (สร้างครั้งแรกตาม manual-production.md) — Jenkins ไม่สร้างหรือแก้ไฟล์นี้ให้
+- approver group: `ygate-production-approvers` (ตั้งใน Manage Jenkins → Authorization)
+
+## 5. Pipeline ทำงานอย่างไร
+
+1. **Checkout** — checkout commit ที่ trigger job, เก็บ SHA ไว้ใน `env.RELEASE_SHA`
+2. **Validate** (ทุก branch, parallel) — `go test ./...` สามตัว + `npm ci && npm run typecheck` สำหรับ Web
+3. **Package** (เฉพาะ `main`) — เรียก `deploy\manual\build-release.ps1` ตัวเดียวกับ manual deploy เพื่อ build Windows binaries + Next.js standalone แล้ว pack เป็น `ygate-<sha>.zip` ใน `dist\jenkins`, archive เป็น Jenkins artifact
+4. **Approve Production** (เฉพาะ `main`) — รอ manual approval จาก group `ygate-production-approvers`
+5. **Deploy Production** (เฉพาะ `main`) — แตก zip ไปที่ `RELEASES_ROOT\<sha>` แล้วรัน `start.ps1 -EnvFile <ENV_FILE>` ในโฟลเดอร์นั้น (migrate DB + `pm2 startOrRestart` + health check เหมือน manual deploy ทุกอย่าง)
+
+Deploy ล้มเหลวถ้า release directory เดิม (`<RELEASES_ROOT>\<sha>`) มีอยู่แล้ว — ป้องกัน build ทับ release ที่กำลังรัน
+
+## 6. Rollback แบบ manual
+
+ไม่มี automatic rollback ในเวอร์ชันนี้ (skip ไว้ก่อนเพราะ manual flow เองก็ไม่มี) ถ้า release ใหม่มีปัญหา:
+
+```powershell
+cd D:\YGATE\releases\<previous-sha>
+.\start.ps1 -EnvFile D:\YGATE\ygate.env
 ```
 
-สร้าง `/etc/ygate/ygate.env` โดยใช้ production values จาก root `README.md` และกำหนดเพิ่ม:
+`pm2 startOrRestart` จะชี้ process กลับไปที่ exe ของ release เดิมทันที ตราบใดที่โฟลเดอร์ release เดิมยังไม่ถูกลบ
 
-```dotenv
-PLATFORM_OPENAPI_FILE=/opt/ygate/current/platform-api.yaml
-HOSTNAME=127.0.0.1
-PORT=8080
-```
+## 7. Security checklist
 
-ต้องมี `AUTH_DATABASE_URL`, `AUTH_HTTP_ADDR`, `AUTH_COOKIE_SECURE` และ `GATEWAY_AUTH_SERVICE_URL` (ชี้ไปที่ `AUTH_HTTP_ADDR`) ตามที่ระบุใน root `README.md` ด้วย ไม่เช่นนั้น `ygate-auth-service` จะไม่ทำงานและ gateway จะ 502 ทุก login/admin request
-
-ไฟล์ต้องเป็น shell-compatible `KEY=value` และจำกัดสิทธิ์:
-
-```bash
-sudo chown root:ygate /etc/ygate/ygate.env
-sudo chmod 0640 /etc/ygate/ygate.env
-```
-
-สร้าง systemd units ต่อไปนี้
-
-`/etc/systemd/system/ygate-platform-api.service`:
-
-```ini
-[Unit]
-Description=YGATE Platform API
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-User=ygate
-Group=ygate
-WorkingDirectory=/opt/ygate/current
-EnvironmentFile=/etc/ygate/ygate.env
-ExecStart=/opt/ygate/current/bin/platform-api
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
-
-`/etc/systemd/system/ygate-auth-service.service`:
-
-```ini
-[Unit]
-Description=YGATE Auth Service
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-User=ygate
-Group=ygate
-WorkingDirectory=/opt/ygate/current
-EnvironmentFile=/etc/ygate/ygate.env
-ExecStart=/opt/ygate/current/bin/auth-service
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
-
-`/etc/systemd/system/ygate-api-gateway.service`:
-
-```ini
-[Unit]
-Description=YGATE API Gateway
-After=ygate-platform-api.service ygate-auth-service.service
-
-[Service]
-User=ygate
-Group=ygate
-WorkingDirectory=/opt/ygate/current
-EnvironmentFile=/etc/ygate/ygate.env
-ExecStart=/opt/ygate/current/bin/api-gateway
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
-
-`/etc/systemd/system/ygate-web.service`:
-
-```ini
-[Unit]
-Description=YGATE Web
-After=ygate-api-gateway.service
-
-[Service]
-User=ygate
-Group=ygate
-WorkingDirectory=/opt/ygate/current/web
-EnvironmentFile=/etc/ygate/ygate.env
-ExecStart=/usr/bin/node /opt/ygate/current/web/server.js
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
-
-เปิด services หลัง first release ถูกวางแล้ว:
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable ygate-platform-api ygate-auth-service ygate-api-gateway ygate-web
-```
-
-อนุญาตให้ deploy user รันเฉพาะ reviewed deploy script ผ่าน `/etc/sudoers.d/ygate-deploy`:
-
-```sudoers
-ygate-deploy ALL=(root) NOPASSWD: /usr/local/sbin/ygate-deploy
-```
-
-ตรวจด้วย `sudo visudo -cf /etc/sudoers.d/ygate-deploy`
-
-## 4. ตั้งค่า SSH
-
-1. สร้าง SSH key สำหรับ Jenkins โดยเฉพาะ ห้าม reuse personal key
-2. ใส่ public key ใน `/home/ygate-deploy/.ssh/authorized_keys`
-3. เก็บ private key ใน Jenkins: **Manage Jenkins → Credentials → System → Global credentials → Add Credentials**
-4. เลือกชนิด **SSH Username with private key**, username `ygate-deploy`, ID `ygate-production-ssh`
-5. รัน `ssh-keyscan <production-host>` จากเครื่องที่เชื่อถือได้ ตรวจ fingerprint กับ production admin แล้วเก็บผลเป็น Jenkins **Secret file** ID `ygate-production-known-hosts`
-
-ห้ามใช้ `StrictHostKeyChecking=no` และห้ามสร้าง `known_hosts` ใหม่ทุก build
-
-## 5. เชื่อม Jenkins กับ Git
-
-1. Push `Jenkinsfile` และไฟล์ deploy ทั้งหมดเข้า repository
-2. ถ้า repository เป็น private ให้เพิ่ม read-only deploy key/token ใน Jenkins Credentials
-3. สร้าง **Multibranch Pipeline** แล้วเลือก repository URL และ credential
-4. ตั้ง Script Path เป็น `Jenkinsfile`
-5. จำกัด production deploy ที่ protected branch `main`; pull request ทำได้เฉพาะ Validate
-6. ตั้ง webhook จาก Git server มายัง Jenkins เพื่อ trigger scan/build
-
-Git plugin รองรับ HTTPS credential แบบ username/password และ SSH แบบ private-key credential และแนะนำ webhook เพื่อลด polling delay ดู [Jenkins Git plugin](https://plugins.jenkins.io/git)
-
-ถ้าใช้ GitHub webhook ปกติคือ `https://ci.example.com/github-webhook/` ถ้าเป็น Git server ทั่วไป ใช้ authenticated `post-receive` hook เรียก Jenkins Git `notifyCommit` ตามเอกสาร plugin
-
-## 6. ตั้งค่า Jenkins job
-
-แก้ค่าเริ่มต้นใน `Jenkinsfile` หรือกรอก parameters ตอนรัน:
-
-- `PUBLIC_GATEWAY_URL`: เช่น `https://scada.example.com`
-- `PRODUCTION_HOST`: DNS/IP ที่ Jenkins SSH ถึงได้
-- agent label: `ygate-linux-build`
-- approver group: `ygate-production-approvers`
-
-Pipeline ทำงานดังนี้:
-
-1. Checkout exact commit SHA ที่ trigger job
-2. รัน Go tests สอง services และ Web typecheck
-3. Build Linux amd64 binaries และ Next.js standalone artifact
-4. สร้าง `tar.gz`, SHA-256 checksum และ archive ใน Jenkins
-5. รอ manual production approval เฉพาะ branch `main`
-6. Upload artifact และ SHA-256 checksum ผ่าน SSH แล้วตรวจ checksum ก่อนแตกไฟล์
-7. Production script backup PostgreSQL, สลับ release symlink, restart ทีละ service และตรวจ health
-8. ถ้า health gate fail จะสลับกลับ previous release และ restart ทุก service
-
-## 7. First deploy
-
-Deploy script ต้องมี previous release สำหรับ automatic rollback ดังนั้น first deploy ควรทดสอบบน staging ก่อน Production และตรวจว่า:
-
-```bash
-curl --fail http://127.0.0.1:44441/readyz
-curl --fail http://127.0.0.1:44442/readyz
-curl --fail http://127.0.0.1:44440/gateway/healthz
-curl --fail http://127.0.0.1:44440/readyz
-curl --fail http://127.0.0.1:8080/
-```
-
-จากนั้นทดสอบผ่าน public HTTPS: login, OpenAPI, WebSocket และ test Middleware ingestion
-
-## 8. Security และ Operations checklist
-
-- Backup `JENKINS_HOME`, Jenkins credentials encryption keys และ PostgreSQL แยกจากเครื่องหลัก
-- ให้ Jenkins build untrusted pull request โดยไม่มี production credentials
-- ใช้ manual approval และ protected `main`
-- จำกัด SSH/firewall ให้ Jenkins ติดต่อ production ได้เฉพาะ port ที่จำเป็น
-- rotate Git token, SSH deploy key, database password และ TLS certificates
-- ตั้ง retention ของ `/opt/ygate/releases`, `/var/backups/ygate` และ Jenkins artifacts
-- monitor `/readyz`, `/gateway/healthz`, systemd logs, PostgreSQL และ disk usage
-- อย่าย้อน `schema_migrations`; migrations เป็น forward-only ต้อง rollback เฉพาะ application artifact ที่ยังรองรับ schema ใหม่
-
-## 9. คำสั่งตรวจสอบและ rollback แบบ manual
-
-```bash
-sudo systemctl status ygate-platform-api ygate-auth-service ygate-api-gateway ygate-web
-sudo journalctl -u ygate-platform-api -u ygate-auth-service -u ygate-api-gateway -u ygate-web --since '15 minutes ago'
-readlink -f /opt/ygate/current
-ls -1 /opt/ygate/releases
-```
-
-Rollback ไป release เดิม:
-
-```bash
-sudo ln -sfn /opt/ygate/releases/<previous-commit-sha> /opt/ygate/current.rollback
-sudo mv -Tf /opt/ygate/current.rollback /opt/ygate/current
-sudo systemctl restart ygate-platform-api ygate-auth-service ygate-api-gateway ygate-web
-```
+- Jenkins UI อยู่หลัง Cloudflare Access ทั้งหมด ยกเว้น webhook path
+- ห้าม build untrusted pull request ด้วย credential ที่แตะ production ได้
+- ใช้ manual approval และ protected branch `main`
+- ตั้ง retention ของ `D:\YGATE\releases` และ Jenkins artifacts ไม่ให้ disk เต็ม
+- backup `JENKINS_HOME` และ PostgreSQL แยกจากเครื่องหลัก แม้ Jenkins จะอยู่เครื่องเดียวกับ production ก็ตาม
+- rotate Git token และ database password เป็นระยะ

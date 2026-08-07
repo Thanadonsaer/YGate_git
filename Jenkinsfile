@@ -1,14 +1,10 @@
 pipeline {
-    agent { label 'ygate-linux-build' }
+    agent any
 
     parameters {
         string(name: 'PUBLIC_GATEWAY_URL', defaultValue: 'https://ygate.yokogawasolution.com', description: 'Public same-origin URL baked into the Web build')
-        string(name: 'PRODUCTION_HOST', defaultValue: 'https://ygate.yokogawasolution.com', description: 'SSH host for production deployment')
-    }
-
-    environment {
-        DEPLOY_CREDENTIALS = 'ygate-production-ssh'
-        KNOWN_HOSTS_CREDENTIAL = 'ygate-production-known-hosts'
+        string(name: 'RELEASES_ROOT', defaultValue: 'D:\\YGATE\\releases', description: 'Directory on this machine where each release is unpacked')
+        string(name: 'ENV_FILE', defaultValue: 'D:\\YGATE\\ygate.env', description: 'Shared production environment file (not touched by deploys)')
     }
 
     options {
@@ -25,7 +21,7 @@ pipeline {
                 deleteDir()
                 checkout scm
                 script {
-                    env.RELEASE_SHA = sh(script: 'git rev-parse HEAD', returnStdout: true).trim()
+                    env.RELEASE_SHA = powershell(script: 'git rev-parse HEAD', returnStdout: true).trim()
                 }
             }
         }
@@ -35,28 +31,46 @@ pipeline {
                 stage('Platform API') {
                     steps {
                         dir('services/platform-api') {
-                            sh 'go test ./...'
+                            powershell '''
+                                $ErrorActionPreference = "Stop"
+                                go test ./...
+                                if ($LASTEXITCODE -ne 0) { exit 1 }
+                            '''
                         }
                     }
                 }
                 stage('API Gateway') {
                     steps {
                         dir('services/api-gateway') {
-                            sh 'go test ./...'
+                            powershell '''
+                                $ErrorActionPreference = "Stop"
+                                go test ./...
+                                if ($LASTEXITCODE -ne 0) { exit 1 }
+                            '''
                         }
                     }
                 }
                 stage('Auth Service') {
                     steps {
                         dir('services/auth-service') {
-                            sh 'go test ./...'
+                            powershell '''
+                                $ErrorActionPreference = "Stop"
+                                go test ./...
+                                if ($LASTEXITCODE -ne 0) { exit 1 }
+                            '''
                         }
                     }
                 }
                 stage('Web') {
                     steps {
                         dir('apps/web') {
-                            sh 'npm ci && npm run typecheck'
+                            powershell '''
+                                $ErrorActionPreference = "Stop"
+                                npm ci
+                                if ($LASTEXITCODE -ne 0) { exit 1 }
+                                npm run typecheck
+                                if ($LASTEXITCODE -ne 0) { exit 1 }
+                            '''
                         }
                     }
                 }
@@ -66,20 +80,11 @@ pipeline {
         stage('Package') {
             when { branch 'main' }
             steps {
-                sh '''
-                    set -eu
-                    mkdir -p release/bin release/web
-                    (cd services/platform-api && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=$RELEASE_SHA" -o ../../release/bin/platform-api ./cmd/platform-api)
-                    (cd services/api-gateway && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o ../../release/bin/api-gateway ./cmd/api-gateway)
-                    (cd services/auth-service && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o ../../release/bin/auth-service ./cmd/auth-service)
-                    (cd apps/web && NEXT_PUBLIC_GATEWAY_URL="$PUBLIC_GATEWAY_URL" npm run build)
-                    cp -R apps/web/.next/standalone/. release/web/
-                    cp packages/api-contracts/platform-api.yaml release/platform-api.yaml
-                    printf '%s\n' "$RELEASE_SHA" > release/VERSION
-                    tar -C release -czf "ygate-$RELEASE_SHA.tar.gz" .
-                    sha256sum "ygate-$RELEASE_SHA.tar.gz" > "ygate-$RELEASE_SHA.tar.gz.sha256"
+                powershell '''
+                    $ErrorActionPreference = "Stop"
+                    .\\deploy\\manual\\build-release.ps1 -OutputDirectory dist\\jenkins -PublicGatewayUrl $env:PUBLIC_GATEWAY_URL
                 '''
-                archiveArtifacts artifacts: 'ygate-*.tar.gz,ygate-*.tar.gz.sha256', fingerprint: true
+                archiveArtifacts artifacts: 'dist/jenkins/ygate-*.zip,dist/jenkins/ygate-*.zip.sha256', fingerprint: true
             }
         }
 
@@ -98,18 +103,22 @@ pipeline {
         stage('Deploy Production') {
             when { branch 'main' }
             steps {
-                withCredentials([
-                    sshUserPrivateKey(credentialsId: env.DEPLOY_CREDENTIALS, keyFileVariable: 'SSH_KEY', usernameVariable: 'SSH_USER'),
-                    file(credentialsId: env.KNOWN_HOSTS_CREDENTIAL, variable: 'KNOWN_HOSTS')
-                ]) {
-                    sh '''
-                        set -eu
-                        artifact="ygate-$RELEASE_SHA.tar.gz"
-                        remote_artifact="/tmp/$artifact"
-                        scp -i "$SSH_KEY" -o BatchMode=yes -o UserKnownHostsFile="$KNOWN_HOSTS" "$artifact" "$artifact.sha256" "$SSH_USER@$PRODUCTION_HOST:/tmp/"
-                        ssh -i "$SSH_KEY" -o BatchMode=yes -o UserKnownHostsFile="$KNOWN_HOSTS" "$SSH_USER@$PRODUCTION_HOST" "sudo /usr/local/sbin/ygate-deploy '$remote_artifact' '$RELEASE_SHA'"
-                    '''
-                }
+                powershell '''
+                    $ErrorActionPreference = "Stop"
+                    $zip = Get-ChildItem "dist\\jenkins\\ygate-*.zip" | Select-Object -First 1
+                    if (-not $zip) { throw "No release artifact found in dist\\jenkins" }
+                    $release = $zip.BaseName -replace '^ygate-', ''
+                    $target = Join-Path $env:RELEASES_ROOT $release
+                    if (Test-Path $target) { throw "Release $release already exists at $target" }
+                    Expand-Archive -Path $zip.FullName -DestinationPath $target
+                    Push-Location $target
+                    try {
+                        & .\\start.ps1 -EnvFile $env:ENV_FILE
+                        if ($LASTEXITCODE -ne 0) { throw "start.ps1 failed" }
+                    } finally {
+                        Pop-Location
+                    }
+                '''
             }
         }
     }
