@@ -3,8 +3,8 @@ pipeline {
 
     parameters {
         string(name: 'PUBLIC_GATEWAY_URL', defaultValue: 'https://ygate.yokogawasolution.com', description: 'Public same-origin URL baked into the Web build')
-        string(name: 'RELEASES_ROOT', defaultValue: 'D:\\YGATE\\releases', description: 'Directory on this machine where each release is unpacked')
-        string(name: 'ENV_FILE', defaultValue: 'D:\\YGATE\\ygate.env', description: 'Shared production environment file (not touched by deploys)')
+        string(name: 'RELEASES_ROOT', defaultValue: 'C:\\YGATE\\releases', description: 'Directory on this machine where each release is unpacked')
+        string(name: 'ENV_FILE', defaultValue: 'C:\\YGATE\\ygate.env', description: 'Shared production environment file (not touched by deploys)')
     }
 
     options {
