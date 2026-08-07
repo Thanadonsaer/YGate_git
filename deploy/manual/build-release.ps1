@@ -1,6 +1,7 @@
 param(
     [string]$OutputDirectory,
-    [string]$PublicGatewayUrl = "https://ygate.yokogawasolution.com"
+    [string]$PublicGatewayUrl = "https://ygate.yokogawasolution.com",
+    [string]$ReleaseVersion = ""
 )
 
 Set-StrictMode -Version Latest
@@ -34,9 +35,17 @@ if ($LASTEXITCODE -ne 0 -or $releaseSha -notmatch '^[0-9a-f]{40}$') {
 
 $timestamp = (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssZ")
 $isDirty = [bool](& git -C $root status --porcelain)
-$releaseId = if ($isDirty) { "${releaseSha}-dirty-$timestamp" } else { $releaseSha }
-if ($isDirty) {
-    Write-Warning "Building a dirty worktree; the release ID is $releaseId"
+$ciVersion = if ($ReleaseVersion) { $ReleaseVersion } elseif ($env:YGATE_RELEASE_VERSION) { $env:YGATE_RELEASE_VERSION } elseif ($env:BUILD_TAG) { $env:BUILD_TAG } elseif ($env:BUILD_NUMBER) { "jenkins-$($env:BUILD_NUMBER)-$($releaseSha.Substring(0, 12))" } else { "" }
+if ($ciVersion) {
+    $releaseId = $ciVersion.Trim()
+    if ($releaseId -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$') {
+        throw "ReleaseVersion must contain only letters, numbers, dot, underscore, and hyphen."
+    }
+} else {
+    $releaseId = if ($isDirty) { "${releaseSha}-dirty-$timestamp" } else { $releaseSha }
+    if ($isDirty) {
+        Write-Warning "Building a dirty worktree; the release ID is $releaseId"
+    }
 }
 
 $workDirectory = Join-Path ([IO.Path]::GetTempPath()) ("ygate-" + [guid]::NewGuid().ToString("N"))
@@ -45,6 +54,7 @@ $oldCgo = $env:CGO_ENABLED
 $oldGoos = $env:GOOS
 $oldGoarch = $env:GOARCH
 $oldGatewayUrl = $env:NEXT_PUBLIC_GATEWAY_URL
+$oldAppVersion = $env:NEXT_PUBLIC_APP_VERSION
 
 try {
     New-Item -ItemType Directory -Force -Path (Join-Path $releaseDirectory "bin"), (Join-Path $releaseDirectory "web"), $OutputDirectory | Out-Null
@@ -73,12 +83,13 @@ try {
     Push-Location (Join-Path $root "services\auth-service")
     try {
         Invoke-Checked { go test ./... }
-        Invoke-Checked { go build -trimpath -ldflags "-s -w" -o (Join-Path $releaseDirectory "bin\auth-service.exe") ./cmd/auth-service }
+        Invoke-Checked { go build -trimpath -ldflags "-s -w -X main.version=$releaseId" -o (Join-Path $releaseDirectory "bin\auth-service.exe") ./cmd/auth-service }
     } finally {
         Pop-Location
     }
 
     $env:NEXT_PUBLIC_GATEWAY_URL = $PublicGatewayUrl
+    $env:NEXT_PUBLIC_APP_VERSION = $releaseId
     Push-Location (Join-Path $root "apps\web")
     try {
         Invoke-Checked { npm.cmd ci }
@@ -253,6 +264,7 @@ Write-Host "YGATE is running. Use 'pm2 logs' to view logs."
     $env:GOOS = $oldGoos
     $env:GOARCH = $oldGoarch
     $env:NEXT_PUBLIC_GATEWAY_URL = $oldGatewayUrl
+    $env:NEXT_PUBLIC_APP_VERSION = $oldAppVersion
     if ($workDirectory.StartsWith([IO.Path]::GetTempPath(), [StringComparison]::OrdinalIgnoreCase) -and (Test-Path -LiteralPath $workDirectory)) {
         Remove-Item -LiteralPath $workDirectory -Recurse -Force
     }

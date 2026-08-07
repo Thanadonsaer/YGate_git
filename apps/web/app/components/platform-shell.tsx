@@ -15,6 +15,7 @@ import { LivePulse } from "./live-pulse";
 import { Toaster } from "./ui/sonner";
 
 const DEFAULT_SITE_SETTINGS: SiteSettings = { siteName: "YGATE", logoUrl: null, accentColor: "teal", updatedAt: "" };
+const BUILD_VERSION = process.env.NEXT_PUBLIC_APP_VERSION || "dev";
 
 type SessionContext = {
   user: User;
@@ -105,7 +106,7 @@ export function PlatformShell({ children }: { children: ReactNode }) {
         <aside className={navOpen ? "sidebar sidebar-open" : "sidebar"}>
           <div className="brand-lockup">
             <span className="brand-mark">{siteSettings.logoUrl ? <img src={assetURL(siteSettings.logoUrl)} alt="" /> : <SunMedium size={19} />}</span>
-            <div><strong>{siteSettings.siteName}</strong><small>Solar SCADA</small></div>
+            <div><strong>{siteSettings.siteName}</strong><small>Solar SCADA · v{BUILD_VERSION}</small></div>
           </div>
           <button className="mobile-close" onClick={() => setNavOpen(false)} title="ปิดเมนู" aria-label="ปิดเมนู"><X size={20} /></button>
           <nav aria-label="เมนูหลัก">

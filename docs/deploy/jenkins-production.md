@@ -50,11 +50,11 @@ Expand-Archive ลง release directory ใหม่ → start.ps1 (migrate + pm
 
 ## 5. Pipeline ทำงานอย่างไร
 
-1. **Checkout** — checkout commit ที่ trigger job, เก็บ SHA ไว้ใน `env.RELEASE_SHA`
+1. **Checkout** — checkout commit ที่ trigger job, เก็บ SHA ไว้ใน `env.RELEASE_SHA` และสร้าง release ID เป็น `jenkins-<BUILD_NUMBER>-<SHA12>`
 2. **Validate** (ทุก branch, parallel) — `go test ./...` สามตัว + `npm ci && npm run typecheck` สำหรับ Web
-3. **Package** (เฉพาะ `main`) — เรียก `deploy\manual\build-release.ps1` ตัวเดียวกับ manual deploy เพื่อ build Windows binaries + Next.js standalone แล้ว pack เป็น `ygate-<sha>.zip` ใน `dist\jenkins`, archive เป็น Jenkins artifact
+3. **Package** (เฉพาะ `main`) — เรียก `deploy\manual\build-release.ps1` ตัวเดียวกับ manual deploy เพื่อ build Windows binaries + Next.js standalone แล้ว pack เป็น `ygate-jenkins-<build-number>-<sha12>.zip` ใน `dist\jenkins`, archive เป็น Jenkins artifact
 4. **Approve Production** (เฉพาะ `main`) — รอ manual approval จาก group `ygate-production-approvers`
-5. **Deploy Production** (เฉพาะ `main`) — แตก zip ไปที่ `RELEASES_ROOT\<sha>` แล้วรัน `start.ps1 -EnvFile <ENV_FILE>` ในโฟลเดอร์นั้น (migrate DB + `pm2 startOrRestart` + health check เหมือน manual deploy ทุกอย่าง)
+5. **Deploy Production** (เฉพาะ `main`) — แตก zip ไปที่ `RELEASES_ROOT\<release-id>` แล้วรัน `start.ps1 -EnvFile <ENV_FILE>` ในโฟลเดอร์นั้น (migrate DB + `pm2 startOrRestart` + health check เหมือน manual deploy ทุกอย่าง)
 
 Deploy ล้มเหลวถ้า release directory เดิม (`<RELEASES_ROOT>\<sha>`) มีอยู่แล้ว — ป้องกัน build ทับ release ที่กำลังรัน
 

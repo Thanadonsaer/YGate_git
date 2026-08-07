@@ -82,7 +82,8 @@ pipeline {
             steps {
                 powershell '''
                     $ErrorActionPreference = "Stop"
-                    .\\deploy\\manual\\build-release.ps1 -OutputDirectory dist\\jenkins -PublicGatewayUrl $env:PUBLIC_GATEWAY_URL
+                    $env:YGATE_RELEASE_VERSION = "jenkins-$env:BUILD_NUMBER-$($env:RELEASE_SHA.Substring(0, 12))"
+                    .\\deploy\\manual\\build-release.ps1 -OutputDirectory dist\\jenkins -PublicGatewayUrl $env:PUBLIC_GATEWAY_URL -ReleaseVersion $env:YGATE_RELEASE_VERSION
                 '''
                 archiveArtifacts artifacts: 'dist/jenkins/ygate-*.zip,dist/jenkins/ygate-*.zip.sha256', fingerprint: true
             }
