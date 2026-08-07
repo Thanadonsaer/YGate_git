@@ -3,8 +3,8 @@ pipeline {
 
     parameters {
         string(name: 'PUBLIC_GATEWAY_URL', defaultValue: 'https://ygate.yokogawasolution.com', description: 'Public same-origin URL baked into the Web build')
-        string(name: 'RELEASES_ROOT', defaultValue: 'C:\\YGATE\\releases', description: 'Directory on this machine where each release is unpacked')
-        string(name: 'ENV_FILE', defaultValue: 'C:\\YGATE\\ygate.env', description: 'Shared production environment file (not touched by deploys)')
+        string(name: 'RELEASES_ROOT', defaultValue: 'C:\\YGate\\releases', description: 'Directory on this machine where each release is unpacked')
+        string(name: 'ENV_FILE', defaultValue: 'C:\\YGate\\ygate.env', description: 'Shared production environment file (not touched by deploys)')
     }
 
     options {
@@ -22,6 +22,9 @@ pipeline {
                 checkout scm
                 script {
                     env.RELEASE_SHA = powershell(script: 'git rev-parse HEAD', returnStdout: true).trim()
+                    if (!env.BRANCH_NAME) {
+                        env.BRANCH_NAME = powershell(script: 'git rev-parse --abbrev-ref HEAD', returnStdout: true).trim()
+                    }
                 }
             }
         }
@@ -111,6 +114,7 @@ pipeline {
                     $release = $zip.BaseName -replace '^ygate-', ''
                     $target = Join-Path $env:RELEASES_ROOT $release
                     if (Test-Path $target) { throw "Release $release already exists at $target" }
+                    Write-Host "Deploying $release to $target (env file: $env:ENV_FILE)"
                     Expand-Archive -Path $zip.FullName -DestinationPath $target
                     Push-Location $target
                     try {
