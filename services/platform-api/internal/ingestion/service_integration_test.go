@@ -5,21 +5,17 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"net/url"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"ygate/platform-api/internal/auth"
 	"ygate/platform-api/internal/core"
-	"ygate/platform-api/internal/database"
 	"ygate/platform-api/internal/gatewayhub"
+	"ygate/platform-api/internal/testdb"
 )
 
 func TestIngestionAutoOnboardingAndIdempotencyAgainstPostgreSQL(t *testing.T) {
@@ -29,7 +25,7 @@ func TestIngestionAutoOnboardingAndIdempotencyAgainstPostgreSQL(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
-	pool := disposablePool(t, ctx, databaseURL)
+	pool := testdb.Disposable(t, ctx, databaseURL)
 	defer pool.Close()
 
 	organizationID, _ := newUUID()
@@ -51,26 +47,29 @@ func TestIngestionAutoOnboardingAndIdempotencyAgainstPostgreSQL(t *testing.T) {
 		t.Fatalf("client=%+v err=%v", client, err)
 	}
 	now := time.Now().UTC()
-	batch := Batch{Data: []Reading{{GatewayID: "GW-1", PlantCode: "NE=49712672", PlantName: "Legacy Plant", DevDn: "INV-1", DevName: "Inverter 1", DevTypeID: 1, Model: "SUN2000", CollectTime: now.Add(-24 * time.Hour).UnixMilli(), DataItemMap: map[string]float64{"active_power": 42.5, "temperature": 31}}}}
+	// Register addresses, not named points: the only ingest path carries raw
+	// register maps, and Register Metadata is applied at read time.
+	const powerKey = "40001"
+	batch := RawBatch{SchemaVersion: RawSchemaVersion, Data: []RawReading{{GatewayID: "GW-1", PlantCode: "NE=49712672", PlantName: "Legacy Plant", DevDn: "INV-1", DevName: "Inverter 1", DevTypeID: 1, Model: "SUN2000", CollectTime: now.Add(-24 * time.Hour).UnixMilli(), RegisterAddressMap: map[string]float64{powerKey: 42.5, "40002": 31}}}}
 	raw, _ := json.Marshal(batch)
-	first, err := service.Ingest(ctx, client, "", raw, batch, now)
+	first, err := service.IngestRaw(ctx, client, "", raw, batch, now)
 	if err != nil || first.AcceptedCount != 1 || first.OnboardedPlantCount != 1 || first.OnboardedDeviceCount != 1 {
 		t.Fatalf("first=%+v err=%v", first, err)
 	}
-	duplicate, err := service.Ingest(ctx, client, "", raw, batch, now)
+	duplicate, err := service.IngestRaw(ctx, client, "", raw, batch, now)
 	if err != nil || duplicate.Status != "duplicate" || duplicate.IngestionID != first.IngestionID {
 		t.Fatalf("duplicate=%+v err=%v", duplicate, err)
 	}
 
 	batch.Data[0].CollectTime = now.Add(-23 * time.Hour).UnixMilli()
 	secondRaw, _ := json.Marshal(batch)
-	second, err := service.Ingest(ctx, client, "second-reading", secondRaw, batch, now)
+	second, err := service.IngestRaw(ctx, client, "second-reading", secondRaw, batch, now)
 	if err != nil || second.AcceptedCount != 1 || second.OnboardedPlantCount != 0 || second.OnboardedDeviceCount != 0 {
 		t.Fatalf("second=%+v err=%v", second, err)
 	}
 	batch.Data[0].PlantName = "Different payload"
 	conflictRaw, _ := json.Marshal(batch)
-	if _, err = service.Ingest(ctx, client, "second-reading", conflictRaw, batch, now); !errors.Is(err, ErrIdempotencyConflict) {
+	if _, err = service.IngestRaw(ctx, client, "second-reading", conflictRaw, batch, now); !errors.Is(err, ErrIdempotencyConflict) {
 		t.Fatalf("conflict error=%v", err)
 	}
 
@@ -78,15 +77,15 @@ func TestIngestionAutoOnboardingAndIdempotencyAgainstPostgreSQL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	unknown := Batch{Data: []Reading{{PlantCode: "UNKNOWN", DevDn: "D1", DevTypeID: 1, CollectTime: now.UnixMilli(), DataItemMap: map[string]float64{"x": 1}}}}
+	unknown := RawBatch{SchemaVersion: RawSchemaVersion, Data: []RawReading{{PlantCode: "UNKNOWN", DevDn: "D1", DevTypeID: 1, CollectTime: now.UnixMilli(), RegisterAddressMap: map[string]float64{"40009": 1}}}}
 	unknownRaw, _ := json.Marshal(unknown)
-	rejected, err := service.Ingest(ctx, lockedClient, "", unknownRaw, unknown, now)
+	rejected, err := service.IngestRaw(ctx, lockedClient, "", unknownRaw, unknown, now)
 	if err != nil || rejected.RejectedCount != 1 || len(rejected.Errors) != 1 || rejected.Errors[0].Code != "UNKNOWN_PLANT" {
 		t.Fatalf("rejected=%+v err=%v", rejected, err)
 	}
 
 	var plants, devices, readings, audits, unknownPlants int
-	if err = pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM plant.plant), (SELECT count(*) FROM plant.device), (SELECT count(*) FROM telemetry.telemetry_reading), (SELECT count(*) FROM audit_log WHERE action IN ('plant.auto_onboarded','device.auto_onboarded')), (SELECT count(*) FROM plant.plant WHERE code='UNKNOWN')`).Scan(&plants, &devices, &readings, &audits, &unknownPlants); err != nil {
+	if err = pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM plant.plant), (SELECT count(*) FROM plant.device), (SELECT count(*) FROM telemetry.raw_register_reading), (SELECT count(*) FROM audit_log WHERE action IN ('plant.auto_onboarded','device.auto_onboarded')), (SELECT count(*) FROM plant.plant WHERE code='UNKNOWN')`).Scan(&plants, &devices, &readings, &audits, &unknownPlants); err != nil {
 		t.Fatal(err)
 	}
 	if plants != 1 || devices != 1 || readings != 2 || audits != 2 || unknownPlants != 0 {
@@ -94,10 +93,10 @@ func TestIngestionAutoOnboardingAndIdempotencyAgainstPostgreSQL(t *testing.T) {
 	}
 	var data map[string]float64
 	var storedRaw []byte
-	if err = pool.QueryRow(ctx, `SELECT data_item_map FROM telemetry.telemetry_reading ORDER BY observed_at LIMIT 1`).Scan(&storedRaw); err != nil {
+	if err = pool.QueryRow(ctx, `SELECT register_address_map FROM telemetry.raw_register_reading ORDER BY observed_at LIMIT 1`).Scan(&storedRaw); err != nil {
 		t.Fatal(err)
 	}
-	if err = json.Unmarshal(storedRaw, &data); err != nil || data["active_power"] != 42.5 {
+	if err = json.Unmarshal(storedRaw, &data); err != nil || data[powerKey] != 42.5 {
 		t.Fatalf("data=%v err=%v", data, err)
 	}
 
@@ -128,7 +127,7 @@ func TestIngestionAutoOnboardingAndIdempotencyAgainstPostgreSQL(t *testing.T) {
 		t.Fatalf("registered=%+v err=%v", registered, err)
 	}
 	latest, err := registry.LatestTelemetry(ctx, principal, uuidString(plantID))
-	if err != nil || len(latest) != 1 || latest[0].DeviceID != registered[0].ID || latest[0].DataItemMap["active_power"] != 42.5 || !latest[0].ObservedAt.Equal(now.Add(-23*time.Hour).Truncate(time.Millisecond)) {
+	if err != nil || len(latest) != 1 || latest[0].DeviceID != registered[0].ID || latest[0].DataItemMap[powerKey] != 42.5 || !latest[0].ObservedAt.Equal(now.Add(-23*time.Hour).Truncate(time.Millisecond)) {
 		t.Fatalf("latest=%+v err=%v", latest, err)
 	}
 	dashboard, err := registry.DashboardOverview(ctx, principal, 5*time.Minute, now)
@@ -136,7 +135,7 @@ func TestIngestionAutoOnboardingAndIdempotencyAgainstPostgreSQL(t *testing.T) {
 		t.Fatalf("dashboard=%+v err=%v", dashboard, err)
 	}
 	layout, err := registry.DashboardLayout(ctx, principal)
-	if err != nil || layout.ID != nil || layout.Version != 0 || layout.RegistryVersion != 2 || !layout.CanEdit || !layout.CanPublish {
+	if err != nil || layout.ID != nil || layout.Version != 0 || layout.RegistryVersion != 3 || !layout.CanEdit || !layout.CanPublish {
 		t.Fatalf("default dashboard layout=%+v err=%v", layout, err)
 	}
 	engineerLayout, err := registry.DashboardLayout(ctx, auth.Principal{UserID: engineerID, OrganizationID: organizationID})
@@ -157,11 +156,11 @@ func TestIngestionAutoOnboardingAndIdempotencyAgainstPostgreSQL(t *testing.T) {
 	}
 	layout.WidgetConfigs["timeseries-line"] = core.DashboardWidgetConfig{
 		Version: 1,
-		DataBinding: core.DashboardWidgetDataBinding{PlantID: uuidString(plantID), DeviceID: registered[0].ID, PointKey: "active_power", TimeRangeHours: 24},
+		DataBinding: core.DashboardWidgetDataBinding{PlantID: uuidString(plantID), DeviceID: registered[0].ID, PointKey: powerKey, TimeRangeHours: 24},
 		Display: core.DashboardWidgetDisplay{Unit: "kW", Decimals: 1},
 	}
 	savedLayout, err := registry.SaveDashboardLayout(ctx, principal, core.UpdateDashboardLayoutInput{Version: layout.Version, Layouts: layout.Layouts, WidgetConfigs: layout.WidgetConfigs}, nil)
-	if err != nil || savedLayout.ID == nil || savedLayout.Version != 1 || savedLayout.Layouts["lg"][0].I != "active-device-count" || savedLayout.WidgetConfigs["timeseries-line"].DataBinding.PointKey != "active_power" {
+	if err != nil || savedLayout.ID == nil || savedLayout.Version != 1 || savedLayout.Layouts["lg"][0].I != "active-device-count" || savedLayout.WidgetConfigs["timeseries-line"].DataBinding.PointKey != powerKey {
 		t.Fatalf("saved dashboard layout=%+v err=%v", savedLayout, err)
 	}
 	publishedLayout, err := registry.PublishedDashboardLayout(ctx, principal)
@@ -192,17 +191,17 @@ func TestIngestionAutoOnboardingAndIdempotencyAgainstPostgreSQL(t *testing.T) {
 	if err != nil || len(secondPage.Data) != 1 || secondPage.NextCursor != nil || !secondPage.Data[0].ObservedAt.Equal(now.Add(-24*time.Hour).Truncate(time.Millisecond)) {
 		t.Fatalf("second history page=%+v err=%v", secondPage, err)
 	}
-	older := Batch{Data: []Reading{{GatewayID: "GW-1", PlantCode: "NE=49712672", PlantName: "Legacy Plant", DevDn: "INV-1", DevName: "Inverter 1", DevTypeID: 1, Model: "SUN2000", CollectTime: now.Add(-24*time.Hour - 30*time.Minute).UnixMilli(), DataItemMap: map[string]float64{"active_power": 5}}}}
+	older := RawBatch{SchemaVersion: RawSchemaVersion, Data: []RawReading{{GatewayID: "GW-1", PlantCode: "NE=49712672", PlantName: "Legacy Plant", DevDn: "INV-1", DevName: "Inverter 1", DevTypeID: 1, Model: "SUN2000", CollectTime: now.Add(-24*time.Hour - 30*time.Minute).UnixMilli(), RegisterAddressMap: map[string]float64{powerKey: 5}}}}
 	olderRaw, _ := json.Marshal(older)
-	olderResult, err := service.Ingest(ctx, client, "older-reading", olderRaw, older, now)
+	olderResult, err := service.IngestRaw(ctx, client, "older-reading", olderRaw, older, now)
 	if err != nil || olderResult.AcceptedCount != 1 {
 		t.Fatalf("older result=%+v err=%v", olderResult, err)
 	}
 	latestAfterOlder, err := registry.LatestTelemetry(ctx, principal, uuidString(plantID))
-	if err != nil || len(latestAfterOlder) != 1 || latestAfterOlder[0].DataItemMap["active_power"] != 42.5 || !latestAfterOlder[0].ObservedAt.Equal(now.Add(-23*time.Hour).Truncate(time.Millisecond)) {
+	if err != nil || len(latestAfterOlder) != 1 || latestAfterOlder[0].DataItemMap[powerKey] != 42.5 || !latestAfterOlder[0].ObservedAt.Equal(now.Add(-23*time.Hour).Truncate(time.Millisecond)) {
 		t.Fatalf("latest after older=%+v err=%v", latestAfterOlder, err)
 	}
-	updated, err := registry.UpdateDevice(ctx, principal, uuidString(plantID), registered[0].ID, core.UpdateDeviceInput{Name: "Main Inverter", IsActive: false}, nil)
+	updated, err := registry.UpdateDevice(ctx, principal, uuidString(plantID), registered[0].ID, core.UpdateDeviceInput{Name: "Main Inverter", DeviceModelID: registered[0].DeviceModelID, IsActive: false}, nil)
 	if err != nil || updated.Name != "Main Inverter" || updated.IsActive {
 		t.Fatalf("updated=%+v err=%v", updated, err)
 	}
@@ -219,7 +218,7 @@ func TestMiddlewareClientPullConfigReadsPollIntervalAndApiPolling(t *testing.T) 
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
-	pool := disposablePool(t, ctx, databaseURL)
+	pool := testdb.Disposable(t, ctx, databaseURL)
 	defer pool.Close()
 
 	organizationID, _ := newUUID()
@@ -242,44 +241,4 @@ func TestMiddlewareClientPullConfigReadsPollIntervalAndApiPolling(t *testing.T) 
 		t.Fatalf("pollIntervalSeconds=%d out of the DB CHECK constraint range", pollIntervalSeconds)
 	}
 	_ = apiPollingEnabled
-}
-
-func disposablePool(t *testing.T, ctx context.Context, databaseURL string) *pgxpool.Pool {
-	t.Helper()
-	parsed, err := url.Parse(databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	query := parsed.Query()
-	query.Del("schema")
-	query.Set("search_path", "public")
-	parsed.RawQuery = query.Encode()
-	admin, err := pgxpool.New(ctx, parsed.String())
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	name := fmt.Sprintf("ingestion_test_%d", time.Now().UnixNano())
-	identifier := pgx.Identifier{name}.Sanitize()
-	if _, err = admin.Exec(ctx, "CREATE DATABASE "+identifier); err != nil {
-		admin.Close()
-		t.Fatal(err)
-	}
-
-	t.Cleanup(func() {
-		_, _ = admin.Exec(context.Background(), "DROP DATABASE IF EXISTS "+identifier)
-		admin.Close()
-	})
-
-	dbURL := *parsed
-	dbURL.Path = "/" + name
-	pool, err := database.Open(ctx, dbURL.String())
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	t.Cleanup(func() {
-		pool.Close()
-	})
-	return pool
 }

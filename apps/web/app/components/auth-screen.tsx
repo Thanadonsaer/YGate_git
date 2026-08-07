@@ -136,7 +136,13 @@ export function AuthScreen({
             {pending ? "กำลังดำเนินการ" : title}
           </Button>
         </form>}
-        {mode === "login" && <><Button variant="text" onClick={() => onModeChange("forgot")}>ลืมรหัสผ่าน?</Button><Button variant="text" onClick={() => onModeChange("register")}>สมัครบัญชีใหม่</Button></>}
+        {mode === "login" && <>
+          <div className="flex gap-2 justify-between">
+            <Button variant="text" onClick={() => onModeChange("forgot")}>ลืมรหัสผ่าน?</Button>
+            <Button variant="text" onClick={() => onModeChange("register")}>สมัครบัญชีใหม่</Button>
+          </div>
+
+        </>}
         <div className="gateway-state"><span className={gatewayOnline ? "dot online" : "dot"} />API Gateway {gatewayOnline ? "online" : "offline"}</div>
       </section>
     </main>

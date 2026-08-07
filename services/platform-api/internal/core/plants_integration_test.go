@@ -10,8 +10,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"ygate/platform-api/internal/auth"
-	"ygate/platform-api/internal/database"
 	"ygate/platform-api/internal/gatewayhub"
+	"ygate/platform-api/internal/testdb"
 )
 
 func TestPlantAuthorizationLifecycleAgainstPostgreSQL(t *testing.T) {
@@ -21,11 +21,8 @@ func TestPlantAuthorizationLifecycleAgainstPostgreSQL(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	pool, err := database.Open(ctx, databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pool.Close()
+	pool := testdb.Disposable(t, ctx, databaseURL)
+	var err error
 
 	orgA := mustUUID(t, "10000000-0000-4000-8000-000000000001")
 	orgB := mustUUID(t, "10000000-0000-4000-8000-000000000002")

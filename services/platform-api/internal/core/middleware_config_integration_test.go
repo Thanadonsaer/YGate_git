@@ -10,8 +10,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"ygate/platform-api/internal/auth"
-	"ygate/platform-api/internal/database"
 	"ygate/platform-api/internal/gatewayhub"
+	"ygate/platform-api/internal/testdb"
 )
 
 func TestImportFromSnapshotAgainstPostgreSQL(t *testing.T) {
@@ -21,11 +21,8 @@ func TestImportFromSnapshotAgainstPostgreSQL(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	pool, err := database.Open(ctx, databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pool.Close()
+	pool := testdb.Disposable(t, ctx, databaseURL)
+	var err error
 
 	orgID := mustUUID(t, "20000000-0000-4000-8000-000000000001")
 	adminID := mustUUID(t, "20000000-0000-4000-8000-000000000011")
@@ -106,14 +103,27 @@ func TestImportFromSnapshotAgainstPostgreSQL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// importFromSnapshot keys register metadata by the Modbus register number
+	// ("reg40001"), deliberately not by the middleware's own CanonicalKey --
+	// the register number is the identifier once imported. Looking up "P_AC"
+	// here matched nothing, so the FLOAT -> FLOAT32 normalization this asserts
+	// was never actually being checked.
+	const powerAddressKey = "reg40001"
 	var floatDataType string
+	found := false
 	for _, m := range metadata {
-		if m.AddressKey == "P_AC" && m.ModbusDataType != nil {
-			floatDataType = *m.ModbusDataType
+		if m.AddressKey == powerAddressKey {
+			found = true
+			if m.ModbusDataType != nil {
+				floatDataType = *m.ModbusDataType
+			}
 		}
 	}
+	if !found {
+		t.Fatalf("no register metadata for %s; got %+v", powerAddressKey, metadata)
+	}
 	if floatDataType != "FLOAT32" {
-		t.Errorf("P_AC ModbusDataType = %q, want FLOAT32 (normalized from legacy FLOAT alias)", floatDataType)
+		t.Errorf("%s ModbusDataType = %q, want FLOAT32 (normalized from legacy FLOAT alias)", powerAddressKey, floatDataType)
 	}
 
 	// Re-running the same import must not create a second Device Model.

@@ -36,6 +36,15 @@ export type ManagedUser = {
   updatedAt: string;
 };
 
+export type Organization = {
+  id: string;
+  code: string;
+  name: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type Role = {
   id: string;
   organizationId: string | null;

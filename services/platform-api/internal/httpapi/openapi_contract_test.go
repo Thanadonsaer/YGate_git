@@ -69,7 +69,7 @@ func TestOpenAPIIngestionContractMatchesResponseAndCompatibilityFields(t *testin
 		"acceptedCount:", "duplicateCount:", "rejectedCount:",
 		"onboardedPlantCount:", "onboardedDeviceCount:",
 		"X-Correlation-ID:", "Idempotency-Key", "Content-Encoding",
-		"inverterReading:", "holdingRegisterReading:",
+		"holdingRegisterReading:",
 		`enum: ["2.0"]`,
 	} {
 		if !strings.Contains(text, required) {

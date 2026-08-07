@@ -3,7 +3,7 @@
 import { CheckCircle2, KeyRound, Pencil, Plus, RefreshCw, RotateCcw, Save, Trash2, UserX } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { api, errorMessage, csrfToken, formatDate } from "../../lib/api";
-import type { ManagedUser, Role } from "../../lib/types";
+import type { ManagedUser, Organization, Role } from "../../lib/types";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody } from "../../components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../../components/ui/select";
 import { toast } from "../../components/ui/sonner";
@@ -12,6 +12,7 @@ import { Button } from "../../components/ui/button";
 export function UsersPage({ currentUserId, defaultOrganizationId }: { currentUserId: string; defaultOrganizationId?: string }) {
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
+  const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [editor, setEditor] = useState<ManagedUser | "create" | null>(null);
@@ -21,11 +22,12 @@ export function UsersPage({ currentUserId, defaultOrganizationId }: { currentUse
     setLoading(true);
     setError("");
     try {
-      const [userResponse, roleResponse] = await Promise.all([api("/api/v1/admin/users"), api("/api/v1/admin/roles")]);
+      const [userResponse, roleResponse, organizationResponse] = await Promise.all([api("/api/v1/admin/users"), api("/api/v1/admin/roles"), api("/api/v1/admin/organizations")]);
       if (userResponse.status === 403 || roleResponse.status === 403) throw new Error("บัญชีนี้ไม่มีสิทธิ์จัดการผู้ใช้");
       if (!userResponse.ok || !roleResponse.ok) throw new Error("ไม่สามารถโหลดข้อมูลผู้ใช้ได้");
       setUsers((await userResponse.json()) as ManagedUser[]);
       setRoles((await roleResponse.json()) as Role[]);
+      setOrganizations(organizationResponse.ok ? ((await organizationResponse.json()) as Organization[]) : []);
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -98,12 +100,12 @@ export function UsersPage({ currentUserId, defaultOrganizationId }: { currentUse
       {loading && <div className="table-state">กำลังโหลดข้อมูลผู้ใช้</div>}
       {!loading && !error && users.length === 0 && <div className="table-state">ยังไม่มีผู้ใช้ในขอบเขตที่คุณเข้าถึงได้</div>}
     </div>
-    {editor && <UserEditor user={editor === "create" ? undefined : editor} roles={roles} defaultOrganizationId={defaultOrganizationId} onClose={() => setEditor(null)} onSaved={() => { setEditor(null); void loadUsers(); }} />}
+    {editor && <UserEditor user={editor === "create" ? undefined : editor} roles={roles} organizations={organizations} defaultOrganizationId={defaultOrganizationId} onClose={() => setEditor(null)} onSaved={() => { setEditor(null); void loadUsers(); }} />}
     {resetTarget && <PasswordResetDialog user={resetTarget} onClose={() => setResetTarget(null)} onSaved={() => { setResetTarget(null); void loadUsers(); }} />}
   </div>;
 }
 
-function UserEditor({ user, roles, defaultOrganizationId, onClose, onSaved }: { user?: ManagedUser; roles: Role[]; defaultOrganizationId?: string; onClose: () => void; onSaved: () => void }) {
+function UserEditor({ user, roles, organizations, defaultOrganizationId, onClose, onSaved }: { user?: ManagedUser; roles: Role[]; organizations: Organization[]; defaultOrganizationId?: string; onClose: () => void; onSaved: () => void }) {
   const [email, setEmail] = useState(user?.email ?? "");
   const [username, setUsername] = useState(user?.username ?? "");
   const [displayName, setDisplayName] = useState(user?.displayName ?? "");
@@ -149,7 +151,16 @@ function UserEditor({ user, roles, defaultOrganizationId, onClose, onSaved }: { 
             <label>อีเมล<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} maxLength={320} required /></label>
             <label>Username<input value={username} onChange={(event) => setUsername(event.target.value)} maxLength={100} /></label>
             <label className="full-field">ชื่อแสดงผล<input value={displayName} onChange={(event) => setDisplayName(event.target.value)} maxLength={200} required /></label>
-            <label>Organization ID<input value={organizationId} onChange={(event) => setOrganizationId(event.target.value)} required disabled={Boolean(user)} /></label>
+            <label>Organization
+              {user || organizations.length === 0 ? (
+                <input value={organizationId} onChange={(event) => setOrganizationId(event.target.value)} required disabled={Boolean(user)} />
+              ) : (
+                <Select value={organizationId} onValueChange={setOrganizationId}>
+                  <SelectTrigger><SelectValue placeholder="เลือก Organization" /></SelectTrigger>
+                  <SelectContent>{organizations.map((organization) => <SelectItem key={organization.id} value={organization.id}>{organization.name}</SelectItem>)}</SelectContent>
+                </Select>
+              )}
+            </label>
             <label>Role
               <Select value={roleId} onValueChange={setRoleId}>
                 <SelectTrigger><SelectValue /></SelectTrigger>

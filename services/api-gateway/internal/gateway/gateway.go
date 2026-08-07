@@ -27,6 +27,7 @@ var authPrefixes = []string{
 	"/api/v1/admin/permissions",
 	"/api/v1/admin/api-keys",
 	"/api/v1/admin/openapi",
+	"/api/v1/admin/organizations",
 }
 
 func New(platformURL, authServiceURL *url.URL, allowedOrigins []string) http.Handler {

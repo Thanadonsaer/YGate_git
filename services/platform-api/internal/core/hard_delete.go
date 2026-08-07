@@ -41,9 +41,7 @@ func (s *Service) HardDeletePlant(ctx context.Context, principal auth.Principal,
 		return err
 	}
 	for _, statement := range []string{
-		`DELETE FROM telemetry.telemetry_latest WHERE organization_id=$1 AND plant_id=$2`,
 		`DELETE FROM telemetry.raw_register_reading WHERE organization_id=$1 AND plant_id=$2`,
-		`DELETE FROM telemetry.telemetry_reading WHERE organization_id=$1 AND plant_id=$2`,
 		`DELETE FROM plant.device WHERE organization_id=$1 AND plant_id=$2`,
 		`DELETE FROM plant.plant WHERE organization_id=$1 AND id=$2`,
 	} {
@@ -85,9 +83,7 @@ func (s *Service) HardDeleteDevice(ctx context.Context, principal auth.Principal
 		return err
 	}
 	for _, statement := range []string{
-		`DELETE FROM telemetry.telemetry_latest WHERE organization_id=$1 AND plant_id=$2 AND device_id=$3`,
 		`DELETE FROM telemetry.raw_register_reading WHERE organization_id=$1 AND plant_id=$2 AND device_id=$3`,
-		`DELETE FROM telemetry.telemetry_reading WHERE organization_id=$1 AND plant_id=$2 AND device_id=$3`,
 		`DELETE FROM plant.device WHERE organization_id=$1 AND plant_id=$2 AND id=$3`,
 	} {
 		if _, err = tx.Exec(ctx, statement, organizationID, plantUUID, deviceUUID); err != nil {
@@ -127,9 +123,7 @@ func (s *Service) HardDeleteDeviceModel(ctx context.Context, principal auth.Prin
 		return err
 	}
 	for _, statement := range []string{
-		`DELETE FROM telemetry.telemetry_latest WHERE organization_id=$1 AND device_id IN (SELECT id FROM plant.device WHERE organization_id=$1 AND device_model_id=$2)`,
 		`DELETE FROM telemetry.raw_register_reading WHERE organization_id=$1 AND device_id IN (SELECT id FROM plant.device WHERE organization_id=$1 AND device_model_id=$2)`,
-		`DELETE FROM telemetry.telemetry_reading WHERE organization_id=$1 AND device_id IN (SELECT id FROM plant.device WHERE organization_id=$1 AND device_model_id=$2)`,
 		`DELETE FROM plant.device WHERE organization_id=$1 AND device_model_id=$2`,
 		`DELETE FROM plant.device_model WHERE organization_id=$1 AND id=$2`,
 	} {
@@ -180,29 +174,18 @@ func (s *Service) HardDeleteAPIKey(ctx context.Context, principal auth.Principal
 	}, sourceIP); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, `DELETE FROM telemetry.telemetry_latest WHERE organization_id=$1 AND telemetry_reading_id IN (SELECT id FROM telemetry.telemetry_reading WHERE middleware_client_id=$2)`, organizationID, id); err != nil {
-		return fmt.Errorf("delete api key latest telemetry: %w", err)
-	}
+	// No "latest" snapshot to tear down and rebuild here any more: the latest
+	// reading per device is a view over raw_register_reading, so deleting this
+	// client's readings re-derives it for free, including devices that still
+	// have older readings from another client.
 	for _, statement := range []string{
 		`DELETE FROM telemetry.raw_register_reading WHERE organization_id=$1 AND middleware_client_id=$2`,
-		`DELETE FROM telemetry.telemetry_reading WHERE organization_id=$1 AND middleware_client_id=$2`,
 		`DELETE FROM telemetry.telemetry_ingest_batch WHERE organization_id=$1 AND middleware_client_id=$2`,
 		`DELETE FROM auth.middleware_client WHERE organization_id=$1 AND id=$2`,
 	} {
 		if _, err = tx.Exec(ctx, statement, organizationID, id); err != nil {
 			return fmt.Errorf("hard delete api key records: %w", err)
 		}
-	}
-	if _, err = tx.Exec(ctx, `
-INSERT INTO telemetry.telemetry_latest (organization_id, plant_id, device_id, telemetry_reading_id, gateway_id, observed_at, received_at, data_item_map, parameter_count)
-SELECT DISTINCT ON (tr.organization_id, tr.device_id)
-       tr.organization_id, tr.plant_id, tr.device_id, tr.id, tr.gateway_id, tr.observed_at, tr.received_at, tr.data_item_map, tr.parameter_count
-FROM telemetry.telemetry_reading tr
-LEFT JOIN telemetry.telemetry_latest latest ON latest.organization_id=tr.organization_id AND latest.device_id=tr.device_id
-WHERE tr.organization_id=$1 AND latest.device_id IS NULL
-ORDER BY tr.organization_id, tr.device_id, tr.observed_at DESC, tr.received_at DESC, tr.id DESC
-ON CONFLICT (organization_id, device_id) DO NOTHING`, organizationID); err != nil {
-		return fmt.Errorf("restore latest telemetry after api key delete: %w", err)
 	}
 	return commitHardDelete(ctx, tx, "api key")
 }

@@ -20,27 +20,9 @@ WHERE organization_id = sqlc.arg(organization_id)
   AND id = sqlc.arg(device_id)
 LIMIT 1;
 
--- NOTE: internal/core/telemetry.go has a hand-written duplicate of this
--- query (listDeviceTelemetryHistorySQL) working around an sqlc cursor-type
--- inference bug — if you change this query's shape, update that too.
--- name: ListDeviceTelemetryHistory :many
-SELECT tr.id, tr.organization_id, tr.plant_id, tr.device_id,
-       d.external_id AS device_external_id, d.name AS device_name,
-       tr.gateway_id, tr.observed_at, tr.received_at,
-       tr.data_item_map, tr.parameter_count
-FROM telemetry.telemetry_reading tr
-JOIN plant.device d ON d.organization_id = tr.organization_id
-             AND d.plant_id = tr.plant_id
-             AND d.id = tr.device_id
-WHERE tr.organization_id = sqlc.arg(organization_id)
-  AND tr.plant_id = sqlc.arg(plant_id)
-  AND tr.device_id = sqlc.arg(device_id)
-  AND tr.observed_at >= sqlc.arg(from_time)
-  AND tr.observed_at < sqlc.arg(to_time)
-  AND (
-      NOT sqlc.arg(cursor_set)::boolean
-      OR (tr.observed_at, tr.received_at, tr.id) <
-         (sqlc.arg(cursor_observed_at), sqlc.arg(cursor_received_at), sqlc.arg(cursor_id))
-  )
-ORDER BY tr.observed_at DESC, tr.received_at DESC, tr.id DESC
-LIMIT sqlc.arg(page_limit);
+-- Device telemetry history has no query here on purpose: its keyset cursor is
+-- a `(observed_at, received_at, id) < (...)` row comparison, and sqlc's
+-- analyzer infers the cursor id parameter as timestamptz to match its
+-- row-comparison neighbours instead of uuid, which sends the wrong wire format
+-- at runtime. It lives as one hand-written query in internal/core/telemetry.go
+-- and shares this file's mapping rule through telemetry.mapped_data_items().

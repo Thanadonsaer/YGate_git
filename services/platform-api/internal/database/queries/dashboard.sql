@@ -1,14 +1,24 @@
+-- Joins raw_register_reading_latest, NOT raw_telemetry_latest: all this query
+-- wants is "when did this device last report", and going through the mapping
+-- view made it unnest and Register-Metadata-join every register of every
+-- device only to discard the resulting data_item_map.
 -- name: ListDashboardPlantStatus :many
 SELECT p.id AS plant_id, p.code, p.name, p.timezone, p.is_active,
        count(d.id)::bigint AS device_count,
        count(d.id) FILTER (WHERE d.is_active)::bigint AS active_device_count,
-       count(tl.device_id) FILTER (WHERE d.is_active)::bigint AS reporting_device_count,
-       count(tl.device_id) FILTER (WHERE d.is_active AND tl.observed_at < sqlc.arg(stale_before))::bigint AS stale_device_count,
-       count(d.id) FILTER (WHERE d.is_active AND tl.device_id IS NULL)::bigint AS offline_device_count,
+       count(tl.observed_at) FILTER (WHERE d.is_active)::bigint AS reporting_device_count,
+       count(tl.observed_at) FILTER (WHERE d.is_active AND tl.observed_at < sqlc.arg(stale_before))::bigint AS stale_device_count,
+       count(d.id) FILTER (WHERE d.is_active AND tl.observed_at IS NULL)::bigint AS offline_device_count,
        max(tl.observed_at) FILTER (WHERE d.is_active) AS last_observed_at
 FROM plant.plant p
 LEFT JOIN plant.device d ON d.organization_id = p.organization_id AND d.plant_id = p.id
-LEFT JOIN telemetry.raw_telemetry_latest tl ON tl.organization_id = d.organization_id AND tl.device_id = d.id
+-- ponytail: the view's DISTINCT ON walks the whole device-time index once per
+-- dashboard load. Cheap next to the mapping view it replaced, but still
+-- O(readings) in index entries -- if it shows up in slow-query logs, replace
+-- with a correlated LATERAL max() per device, hand-written (sqlc's analyzer
+-- cannot resolve lateral aliases).
+LEFT JOIN telemetry.raw_register_reading_latest tl
+       ON tl.organization_id = d.organization_id AND tl.device_id = d.id
 WHERE EXISTS (
     SELECT 1 FROM auth.user_role ur
     JOIN auth.role r ON r.id = ur.role_id

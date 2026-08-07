@@ -83,6 +83,9 @@ func New(version string, ready func(context.Context) error, authService *auth.Se
 			mux.HandleFunc("PUT /api/v1/admin/roles/{roleId}", authenticated(authService, true, updateRoleHandler(registryService)))
 			mux.HandleFunc("DELETE /api/v1/admin/roles/{roleId}", authenticated(authService, true, deleteRoleHandler(registryService)))
 			mux.HandleFunc("GET /api/v1/admin/permissions", authenticated(authService, false, listPermissionsHandler(registryService)))
+			mux.HandleFunc("GET /api/v1/admin/organizations", authenticated(authService, false, listOrganizationsHandler(registryService)))
+			mux.HandleFunc("POST /api/v1/admin/organizations", authenticated(authService, true, createOrganizationHandler(registryService)))
+			mux.HandleFunc("PUT /api/v1/admin/organizations/{organizationId}", authenticated(authService, true, updateOrganizationHandler(registryService)))
 		}
 	}
 	mux.HandleFunc("POST /api/v1/auth/register", registerHandler(authService))

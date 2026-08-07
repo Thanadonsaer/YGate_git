@@ -19,6 +19,7 @@ import (
 	"ygate/platform-api/internal/httpapi"
 	"ygate/platform-api/internal/ingestion"
 	"ygate/platform-api/internal/notify"
+	"ygate/platform-api/internal/retention"
 )
 
 var version = "dev"
@@ -47,6 +48,10 @@ func main() {
 	registryService := core.New(pool, hub).WithMiddlewarePatchDir(cfg.MiddlewarePatchDir).WithSiteLogoDir(cfg.SiteLogoDir).WithPlantImageDir(cfg.PlantImageDir).WithPublicBaseURL(cfg.PublicBaseURL)
 	mailer := notify.NewMailer(cfg.SMTPAddr, cfg.SMTPFrom, cfg.SMTPUsername, cfg.SMTPPassword)
 	ingestionService := ingestion.New(pool, mailer)
+
+	// Bounds telemetry growth; see migration 000040. Started before the server
+	// so the first sweep happens at boot, not an hour in.
+	go retention.Run(ctx, pool, cfg.TelemetryRetention, cfg.TelemetryRetentionScan)
 
 	server := &http.Server{
 		Addr:              cfg.ListenAddr,

@@ -77,7 +77,7 @@ func (s *Service) IngestRaw(ctx context.Context, client Client, idempotencyKey s
 	}
 	stored, err := q.CreateOrGetIngestBatch(ctx, dbgen.CreateOrGetIngestBatchParams{
 		ID: batchID, OrganizationID: client.OrganizationID, MiddlewareClientID: client.ID,
-		IdempotencyKey: idempotencyKey, PayloadHash: payloadHash[:], RawPayload: raw,
+		IdempotencyKey: idempotencyKey, PayloadHash: payloadHash[:],
 	})
 	if err != nil {
 		return Result{}, fmt.Errorf("create raw ingest batch: %w", err)
@@ -92,6 +92,7 @@ func (s *Service) IngestRaw(ctx context.Context, client Client, idempotencyKey s
 	}
 
 	result := Result{IngestionID: uuidString(batchID), Status: "accepted", Errors: []RecordError{}}
+	var breaches []alarmBreach
 	for index, reading := range batch.Data {
 		normalized, validationErr := validateRawReading(reading, client.Name, now)
 		if validationErr != nil {
@@ -112,6 +113,7 @@ func (s *Service) IngestRaw(ctx context.Context, client Client, idempotencyKey s
 		result.DuplicateCount += outcome.duplicate
 		result.OnboardedPlantCount += outcome.plants
 		result.OnboardedDeviceCount += outcome.devices
+		breaches = append(breaches, outcome.breaches...)
 	}
 	errorsJSON, _ := json.Marshal(result.Errors)
 	if err = q.CompleteIngestBatch(ctx, dbgen.CompleteIngestBatchParams{
@@ -126,6 +128,11 @@ func (s *Service) IngestRaw(ctx context.Context, client Client, idempotencyKey s
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return Result{}, fmt.Errorf("commit raw ingestion: %w", err)
+	}
+	// Notify only after the events are durably committed, and off the request
+	// path: SMTP latency/failures must never slow down or fail ingestion.
+	if s.mailer.Enabled() && len(breaches) > 0 {
+		go s.notifyAlarmBreaches(client.OrganizationID, breaches)
 	}
 	return result, nil
 }
@@ -285,6 +292,39 @@ func ingestRawReading(ctx context.Context, tx pgx.Tx, q *dbgen.Queries, client C
 		return outcome, nil, fmt.Errorf("insert raw register reading: %w", err)
 	}
 
+	// Alarm thresholds are set against the values operators actually see, so
+	// they must be checked against the mapped (scale/offset applied, disabled
+	// registers dropped) reading -- not the stored raw register values. The
+	// mapping comes from telemetry.mapped_data_items(), the same function the
+	// read models use, so a rule can never fire on a number the UI never shows.
+	dataItemMap, err := mappedDataItems(ctx, tx, client.OrganizationID, plant.ID, device.ID, device.DeviceModelID, addressMap)
+	if err != nil {
+		return outcome, nil, err
+	}
+	breaches, err := evaluateAlarms(ctx, tx, client.OrganizationID, plant.ID, device.ID, plant.Code, plant.Name, device.Name, dataItemMap, reading.ObservedAt)
+	if err != nil {
+		return outcome, nil, fmt.Errorf("evaluate alarms: %w", err)
+	}
+	outcome.breaches = append(outcome.breaches, breaches...)
+
 	outcome.accepted++
 	return outcome, nil, nil
+}
+
+// mappedDataItems applies Register Metadata to one reading's raw register map
+// inside the ingest transaction, so alarm evaluation sees exactly what
+// raw_telemetry_latest will show for this reading a moment later.
+func mappedDataItems(ctx context.Context, tx pgx.Tx, organizationID, plantID, deviceID, deviceModelID pgtype.UUID, registerAddressMap []byte) (map[string]float64, error) {
+	var encoded []byte
+	if err := tx.QueryRow(ctx,
+		`SELECT telemetry.mapped_data_items($1,$2,$3,$4,$5)`,
+		organizationID, plantID, deviceID, deviceModelID, registerAddressMap,
+	).Scan(&encoded); err != nil {
+		return nil, fmt.Errorf("map register values: %w", err)
+	}
+	values := map[string]float64{}
+	if err := json.Unmarshal(encoded, &values); err != nil {
+		return nil, fmt.Errorf("decode mapped register values: %w", err)
+	}
+	return values, nil
 }

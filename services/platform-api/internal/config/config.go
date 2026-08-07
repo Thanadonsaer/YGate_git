@@ -26,6 +26,8 @@ type Config struct {
 	SiteLogoDir            string
 	PlantImageDir          string
 	PublicBaseURL          string
+	TelemetryRetention     time.Duration
+	TelemetryRetentionScan time.Duration
 }
 
 func Load() (Config, error) {
@@ -55,6 +57,14 @@ func Load() (Config, error) {
 	}
 	if cfg.SessionIdleTimeout > cfg.SessionAbsoluteTimeout {
 		return Config{}, fmt.Errorf("PLATFORM_SESSION_IDLE_TIMEOUT must not exceed PLATFORM_SESSION_ABSOLUTE_TIMEOUT")
+	}
+	// How long raw telemetry is kept, and how often the sweep runs. Hourly is
+	// frequent enough for a multi-day window and keeps each run's delete small.
+	if cfg.TelemetryRetention, err = durationEnv("PLATFORM_TELEMETRY_RETENTION", 7*24*time.Hour); err != nil {
+		return Config{}, err
+	}
+	if cfg.TelemetryRetentionScan, err = durationEnv("PLATFORM_TELEMETRY_RETENTION_SCAN", time.Hour); err != nil {
+		return Config{}, err
 	}
 	if cfg.PasswordResetTTL, err = durationEnv("PLATFORM_PASSWORD_RESET_TTL", 30*time.Minute); err != nil {
 		return Config{}, err

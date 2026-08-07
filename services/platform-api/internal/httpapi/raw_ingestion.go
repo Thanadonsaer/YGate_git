@@ -2,16 +2,23 @@ package httpapi
 
 import (
 	"bytes"
+	"compress/gzip"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"mime"
 	"net/http"
+	"strings"
 	"time"
 
 	"ygate/platform-api/internal/ingestion"
 )
+
+const maxIngestionBody = 1 << 20
 
 func rawIngestionHandler(service *ingestion.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -71,5 +78,45 @@ func rawIngestionHandler(service *ingestion.Service) http.HandlerFunc {
 		default:
 			writeJSON(w, http.StatusAccepted, result)
 		}
+	}
+}
+
+func setIngestionCorrelationID(w http.ResponseWriter, r *http.Request) {
+	value := strings.TrimSpace(r.Header.Get("X-Correlation-ID"))
+	if !validCorrelationID(value) {
+		buffer := make([]byte, 16)
+		if _, err := rand.Read(buffer); err == nil {
+			value = hex.EncodeToString(buffer)
+		} else {
+			value = fmt.Sprintf("request-%d", time.Now().UnixNano())
+		}
+	}
+	w.Header().Set("X-Correlation-ID", value)
+}
+
+func validCorrelationID(value string) bool {
+	if len(value) == 0 || len(value) > 100 {
+		return false
+	}
+	for _, character := range value {
+		if !((character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9') || strings.ContainsRune("._:-", character)) {
+			return false
+		}
+	}
+	return true
+}
+
+func ingestionBodyReader(r *http.Request) (io.Reader, io.Closer, error) {
+	switch strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Encoding"))) {
+	case "", "identity":
+		return r.Body, nil, nil
+	case "gzip":
+		reader, err := gzip.NewReader(r.Body)
+		if err != nil {
+			return nil, nil, errors.New("invalid gzip request")
+		}
+		return reader, reader, nil
+	default:
+		return nil, nil, errors.New("unsupported content encoding")
 	}
 }

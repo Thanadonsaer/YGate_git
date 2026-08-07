@@ -1,6 +1,6 @@
 "use client";
 
-import { ArchiveX, ArrowLeft, Cpu, Download, Eye, MapPin, Pencil, PlugZap, Plus, RefreshCw, Trash2, Upload, Wifi } from "lucide-react";
+import { ArchiveX, ArrowLeft, Cpu, Download, Eye, MapPin, Pencil, PlugZap, Plus, RefreshCw, Search, Trash2, Upload, Wifi } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { api, errorMessage, assetURL, csrfToken, downloadBlob, formatDate } from "../../lib/api";
 import { useRealtimeSocket } from "../../lib/realtime";
@@ -17,6 +17,7 @@ export function PlantsPage({ defaultOrganizationId }: { defaultOrganizationId?: 
   const [error, setError] = useState("");
   const [editor, setEditor] = useState<Plant | "create" | null>(null);
   const [selectedPlant, setSelectedPlant] = useState<Plant | null>(null);
+  const [query, setQuery] = useState("");
 
   const loadPlants = useCallback(async () => {
     setLoading(true);
@@ -110,6 +111,14 @@ export function PlantsPage({ defaultOrganizationId }: { defaultOrganizationId?: 
     return <DeviceManagement plant={selectedPlant} onBack={() => setSelectedPlant(null)} />;
   }
 
+  const normalizedQuery = query.trim().toLowerCase();
+  const visiblePlants = normalizedQuery
+    ? plants.filter((plant) =>
+        plant.name.toLowerCase().includes(normalizedQuery)
+        || plant.code.toLowerCase().includes(normalizedQuery)
+        || plant.organizationName.toLowerCase().includes(normalizedQuery))
+    : plants;
+
   return (
     <div className="content plants-content">
       <div className="section-heading">
@@ -133,12 +142,21 @@ export function PlantsPage({ defaultOrganizationId }: { defaultOrganizationId?: 
           <Button compact onClick={() => setEditor("create")}><Plus size={18} /> เพิ่มโรงไฟฟ้า</Button>
         </div>
       </div>
+      <div className="plant-search">
+        <Search size={16} />
+        <input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="ค้นหาโรงไฟฟ้า ด้วยชื่อ, รหัส หรือ องค์กร"
+          aria-label="ค้นหาโรงไฟฟ้า"
+        />
+      </div>
       {error && <p className="form-message error">{error}</p>}
       <div className="plant-table" role="table" aria-label="โรงไฟฟ้า">
         <div className="plant-row plant-head" role="row">
           <span>โรงไฟฟ้า</span><span>องค์กร</span><span>กำลังติดตั้ง</span><span>สถานะ</span><span aria-label="คำสั่ง" />
         </div>
-        {!loading && plants.map((plant) => (
+        {!loading && visiblePlants.map((plant) => (
           <div className="plant-row" role="row" key={plant.id}>
             <div><strong>{plant.name}</strong><small><MapPin size={13} /> {plant.code} · {plant.timezone}</small></div>
             <div><span>{plant.organizationName}</span><small>{plant.organizationId}</small></div>
@@ -155,6 +173,7 @@ export function PlantsPage({ defaultOrganizationId }: { defaultOrganizationId?: 
         ))}
         {loading && <div className="table-state">กำลังโหลดข้อมูล</div>}
         {!loading && !error && plants.length === 0 && <div className="table-state">ยังไม่มีโรงไฟฟ้าในขอบเขตที่คุณเข้าถึงได้</div>}
+        {!loading && !error && plants.length > 0 && visiblePlants.length === 0 && <div className="table-state">ไม่พบโรงไฟฟ้าที่ตรงกับ &quot;{query}&quot;</div>}
       </div>
       {editor && <PlantEditor plant={editor === "create" ? undefined : editor} defaultOrganizationId={defaultOrganizationId} onClose={() => setEditor(null)} onSaved={() => { setEditor(null); void loadPlants(); }} />}
     </div>

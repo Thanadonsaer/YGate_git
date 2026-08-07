@@ -4,14 +4,15 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"ygate/platform-api/internal/auth"
-	"ygate/platform-api/internal/database"
 	"ygate/platform-api/internal/gatewayhub"
+	"ygate/platform-api/internal/testdb"
 )
 
 func TestAlarmRuleAndEventLifecycleAgainstPostgreSQL(t *testing.T) {
@@ -21,11 +22,8 @@ func TestAlarmRuleAndEventLifecycleAgainstPostgreSQL(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	pool, err := database.Open(ctx, databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pool.Close()
+	pool := testdb.Disposable(t, ctx, databaseURL)
+	var err error
 
 	orgID := mustUUID(t, "30000000-0000-4000-8000-000000000001")
 	plantID := mustUUID(t, "30000000-0000-4000-8000-000000000002")
@@ -79,8 +77,13 @@ func TestAlarmRuleAndEventLifecycleAgainstPostgreSQL(t *testing.T) {
 	if _, err = service.CreateAlarmRule(ctx, viewer, uuidString(plantID), CreateAlarmRuleInput{
 		DeviceID: uuidString(deviceID), Label: "Denied", Severity: "warning",
 		Conditions: []ConditionInput{{PointKey: "x", MaxValue: &maxValue}},
-	}, nil); !errors.Is(err, ErrForbidden) {
-		t.Fatalf("viewer create error = %v", err)
+	}, nil); !errors.Is(err, ErrNotFound) {
+		// Plant-scoped resources resolve permission and existence in one query
+		// (GetAuthorizedPlantResource), so "you may not create alarms here" and
+		// "no such plant" are indistinguishable and both surface as ErrNotFound
+		// -- same as devices.go and telemetry.go. Not ErrForbidden, which is
+		// only returned by the organization/global permission checks.
+		t.Fatalf("viewer create error = %v, want ErrNotFound", err)
 	}
 	if _, err = service.CreateAlarmRule(ctx, admin, uuidString(plantID), CreateAlarmRuleInput{
 		DeviceID: uuidString(mustUUID(t, "30000000-0000-4000-8000-000000000099")), Label: "Bad device", Severity: "warning",
@@ -124,13 +127,13 @@ VALUES ($1,$2,$3,$4,'critical','[{"pointKey":"active_power","value":75,"maxValue
 		t.Fatalf("latestID=%d err=%v", latestID, err)
 	}
 
-	acked, err := service.AcknowledgeAlarmEvent(ctx, admin, uuidString(plantID), "42", "seen it", nil)
+	acked, err := service.AcknowledgeAlarmEvent(ctx, admin, uuidString(plantID), strconv.FormatInt(eventID, 10), "seen it", nil)
 	if err != nil || acked.AcknowledgedBy == nil || *acked.AcknowledgedBy != uuidString(platformAdminID) {
 		t.Fatalf("acked=%+v err=%v", acked, err)
 	}
 	// Idempotent: a second acknowledgement must not change who/when.
 	firstAckAt := *acked.AcknowledgedAt
-	reacked, err := service.AcknowledgeAlarmEvent(ctx, admin, uuidString(plantID), "42", "different note", nil)
+	reacked, err := service.AcknowledgeAlarmEvent(ctx, admin, uuidString(plantID), strconv.FormatInt(eventID, 10), "different note", nil)
 	if err != nil || reacked.AcknowledgedAt == nil || !reacked.AcknowledgedAt.Equal(firstAckAt) {
 		t.Fatalf("reacked=%+v err=%v", reacked, err)
 	}

@@ -108,7 +108,7 @@ func TestPullOnceDrainsIngestsThenAcks(t *testing.T) {
 	if len(ingest.calls) != 1 || len(ingest.calls[0].Data) != 1 {
 		t.Fatalf("ingest.calls = %+v, want exactly 1 call with 1 reading", ingest.calls)
 	}
-	want := []string{"middleware.pull.started", "middleware.pull.succeeded"}
+	want := []string{"middleware.pull.succeeded"}
 	if !slices.Equal(ingest.auditCalls, want) {
 		t.Fatalf("auditCalls = %v, want %v", ingest.auditCalls, want)
 	}
@@ -141,8 +141,8 @@ func TestPullOnceDoesNotAckWhenAllReadingsRejected(t *testing.T) {
 	ingest := &stubIngester{result: ingestion.Result{Status: "accepted", RejectedCount: 1, Errors: []ingestion.RecordError{{Code: "UNKNOWN_DEVICE", Message: "device is not registered"}}}}
 	client := ingestion.Client{ID: pgtype.UUID{Bytes: [16]byte{1}, Valid: true}, OrganizationID: pgtype.UUID{Bytes: [16]byte{2}, Valid: true}}
 	pullOnce(context.Background(), hub, ingest, client, "gw-1")
-	if !slices.Equal(ingest.auditCalls, []string{"middleware.pull.started", "middleware.pull.failed"}) {
-		t.Fatalf("auditCalls = %v, want started and failed", ingest.auditCalls)
+	if !slices.Equal(ingest.auditCalls, []string{"middleware.pull.failed"}) {
+		t.Fatalf("auditCalls = %v, want failed", ingest.auditCalls)
 	}
 }
 func TestPullOnceSkipsSilentlyWhenGatewayOffline(t *testing.T) {
@@ -244,4 +244,50 @@ func mustMarshal(v any) json.RawMessage {
 		panic(err)
 	}
 	return b
+}
+
+// Decodes a command frame the way modbus-api-middleware's realtimeclient does
+// (`Data json.RawMessage`, then Unmarshal into the command's request struct).
+// Before commandPayload existed, `data` went out base64-encoded as a JSON
+// string, both decodes below failed, and the Middleware silently used its
+// fallbacks -- batchSize 20 for every drain, and an empty id list for every ack.
+func TestCommandPayloadNestsDataAsObjectForMiddleware(t *testing.T) {
+	decodeData := func(t *testing.T, payload []byte) json.RawMessage {
+		t.Helper()
+		var msg struct {
+			Type      string          `json:"type"`
+			CommandID string          `json:"commandId"`
+			Kind      string          `json:"kind"`
+			Data      json.RawMessage `json:"data,omitempty"`
+		}
+		if err := json.Unmarshal(payload, &msg); err != nil {
+			t.Fatalf("decode command frame: %v", err)
+		}
+		if msg.Type != "command.request" || msg.CommandID == "" || msg.Kind == "" {
+			t.Fatalf("command frame = %+v", msg)
+		}
+		return msg.Data
+	}
+
+	var drain struct {
+		BatchSize int `json:"batchSize"`
+	}
+	data := decodeData(t, commandPayload("cmd-1", "telemetry.drain", map[string]any{"batchSize": drainBatchSize}))
+	if err := json.Unmarshal(data, &drain); err != nil {
+		t.Fatalf("Middleware cannot decode drain data %s: %v", data, err)
+	}
+	if drain.BatchSize != drainBatchSize {
+		t.Fatalf("batchSize = %d, want %d (Middleware falls back to 20 when this does not arrive)", drain.BatchSize, drainBatchSize)
+	}
+
+	var ack struct {
+		IDs []int64 `json:"ids"`
+	}
+	ackData := decodeData(t, commandPayload("cmd-2", "telemetry.ack", map[string]any{"ids": []int64{7, 8, 9}}))
+	if err := json.Unmarshal(ackData, &ack); err != nil {
+		t.Fatalf("Middleware cannot decode ack data %s: %v", ackData, err)
+	}
+	if !slices.Equal(ack.IDs, []int64{7, 8, 9}) {
+		t.Fatalf("ack ids = %v, want [7 8 9] (an empty list acks nothing and the rows redeliver forever)", ack.IDs)
+	}
 }

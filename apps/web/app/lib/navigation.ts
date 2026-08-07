@@ -4,6 +4,7 @@ import {
   Building2,
   ChartLine,
   FileText,
+  Landmark,
   MapPinned,
   Palette,
   Radio,
@@ -41,6 +42,7 @@ export const navigation = [
   {
     group: "Administration",
     items: [
+      { href: "/organizations", label: "Organizations", icon: Landmark, requires: "organization:read" },
       { href: "/users", label: "Users", icon: Users, requires: "user:read" },
       { href: "/roles", label: "Roles & Permissions", icon: ShieldEllipsis, requires: "role:read" },
       { href: "/middlewares", label: "Middleware Gateways", icon: Server, requires: "middleware_client:read" },
@@ -59,6 +61,7 @@ export const navRequirements: Record<string, string> = Object.fromEntries(
 export const titles: Record<string, string> = {
   "/": "System Overview",
   "/plants": "Plant Management",
+  "/organizations": "Organization Management",
   "/site-map": "Site Map",
   "/energy-analysis": "Energy Analysis",
   "/register-metadata": "Register Metadata",
@@ -95,6 +98,7 @@ export const pagePermissionGroups: PagePermissionGroup[] = [
   { href: "/scada/live", label: "SCADA Viewer", entries: [{ resourceType: "scada_screen", actions: ["view"] }] },
   { href: "/alarms", label: "Alarms", entries: [{ resourceType: "alarm" }] },
   { href: "/plants", label: "Plants", entries: [{ resourceType: "plant" }, { resourceType: "device" }] },
+  { href: "/organizations", label: "Organizations", entries: [{ resourceType: "organization" }] },
   { href: "/register-metadata", label: "Register Metadata", entries: [{ resourceType: "device_model" }] },
   { href: "/scada", label: "SCADA Builder", entries: [{ resourceType: "scada_screen", actions: ["edit", "publish", "manage_access", "hard_delete"] }] },
   { href: "/users", label: "Users", entries: [{ resourceType: "user" }] },

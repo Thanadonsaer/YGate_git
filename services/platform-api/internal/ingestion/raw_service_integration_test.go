@@ -14,6 +14,7 @@ import (
 	"ygate/platform-api/internal/auth"
 	"ygate/platform-api/internal/core"
 	"ygate/platform-api/internal/gatewayhub"
+	"ygate/platform-api/internal/testdb"
 )
 
 func TestRawIngestionPersistsRegisterMapAgainstPostgreSQL(t *testing.T) {
@@ -23,7 +24,7 @@ func TestRawIngestionPersistsRegisterMapAgainstPostgreSQL(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
-	pool := disposablePool(t, ctx, databaseURL)
+	pool := testdb.Disposable(t, ctx, databaseURL)
 	defer pool.Close()
 
 	organizationID, _ := newUUID()
@@ -51,13 +52,6 @@ func TestRawIngestionPersistsRegisterMapAgainstPostgreSQL(t *testing.T) {
 	if err != nil || result.AcceptedCount != 1 || result.OnboardedPlantCount != 1 || result.OnboardedDeviceCount != 1 {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
-	var calculatedCount int
-	if err = pool.QueryRow(ctx, "SELECT count(*) FROM telemetry.telemetry_reading").Scan(&calculatedCount); err != nil {
-		t.Fatal(err)
-	}
-	if calculatedCount != 0 {
-		t.Fatalf("expected raw ingestion not to persist calculated telemetry, count=%d", calculatedCount)
-	}
 	second := batch
 	second.Data[0].CollectTime = now.Add(time.Minute).UnixMilli()
 	secondRaw, _ := json.Marshal(second)
@@ -78,8 +72,16 @@ func TestRawIngestionPersistsRegisterMapAgainstPostgreSQL(t *testing.T) {
 	if err = pool.QueryRow(ctx, `SELECT p.id, d.id, d.device_model_id FROM plant.plant p JOIN plant.device d ON d.plant_id=p.id WHERE p.code='RAW-PLANT'`).Scan(&plantID, &deviceID, &modelID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = pool.Exec(ctx, `UPDATE plant.device_model_register_metadata SET scale=2, value_offset=1 WHERE organization_id=$1 AND device_model_id=$2 AND address_key='40084'`, organizationID, modelID); err != nil {
+	// Auto-onboard writes Register Metadata under the "reg"-prefixed key (see
+	// ingestRawReading); the raw payload carries the bare address. Targeting
+	// the bare key here matched zero rows, so this asserted scaling that was
+	// never actually applied.
+	tag, err := pool.Exec(ctx, `UPDATE plant.device_model_register_metadata SET scale=2, value_offset=1 WHERE organization_id=$1 AND device_model_id=$2 AND address_key='reg40084'`, organizationID, modelID)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if tag.RowsAffected() != 1 {
+		t.Fatalf("expected one auto-created register metadata row to scale, updated %d", tag.RowsAffected())
 	}
 	adminID, _ := newUUID()
 	assignmentID, _ := newUUID()

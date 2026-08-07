@@ -251,7 +251,16 @@ func (c *Client) handleCommand(ctx context.Context, conn *websocket.Conn, msg en
 		var req struct {
 			BatchSize int `json:"batchSize"`
 		}
-		_ = json.Unmarshal(msg.Data, &req)
+		// Keep falling back rather than failing the drain, so a Gateway that
+		// sends no data still gets telemetry moved -- but say so. Swallowing
+		// this error hid a Gateway that was sending batchSize inside a
+		// base64-encoded string: every drain quietly used 20 instead of 500,
+		// and a backlog could never be worked off.
+		if len(msg.Data) > 0 {
+			if err := json.Unmarshal(msg.Data, &req); err != nil {
+				log.Printf("telemetry.drain: ignoring undecodable data %s: %v", msg.Data, err)
+			}
+		}
 		if req.BatchSize <= 0 || req.BatchSize > 500 {
 			req.BatchSize = 20
 		}

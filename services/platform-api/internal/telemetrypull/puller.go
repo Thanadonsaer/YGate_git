@@ -162,14 +162,14 @@ func pullOnce(ctx context.Context, hub *gatewayhub.Hub, ingest Ingester, client 
 			log.Printf("telemetry pull: audit %s for %s: %v", action, gatewayID, err)
 		}
 	}
-	audit("middleware.pull.started", map[string]any{"batchSize": drainBatchSize})
-
+	// No "started" audit row: at the default 60s interval that was ~1,440
+	// rows per gateway per day in audit_log (which has no retention) carrying
+	// nothing a later succeeded/failed/empty row doesn't already say.
 	drainCtx, cancel := context.WithTimeout(ctx, commandTimeout)
 	defer cancel()
 	commandID := newCommandID()
-	data, _ := json.Marshal(map[string]any{"batchSize": drainBatchSize})
-	payload, _ := json.Marshal(map[string]any{"type": "command.request", "commandId": commandID, "kind": "telemetry.drain", "data": data})
-	raw, err := hub.RunCommand(drainCtx, gatewayID, commandID, payload)
+	raw, err := hub.RunCommand(drainCtx, gatewayID, commandID,
+		commandPayload(commandID, "telemetry.drain", map[string]any{"batchSize": drainBatchSize}))
 	if err != nil {
 		log.Printf("telemetry pull: drain %s failed: %v", gatewayID, err)
 		audit("middleware.pull.failed", map[string]any{"stage": "drain", "error": err.Error()})
@@ -232,13 +232,54 @@ func pullOnce(ctx context.Context, hub *gatewayhub.Hub, ingest Ingester, client 
 	ackCtx, cancelAck := context.WithTimeout(ctx, commandTimeout)
 	defer cancelAck()
 	ackCommandID := newCommandID()
-	ackData, _ := json.Marshal(map[string]any{"ids": drained.IDs})
-	ackPayload, _ := json.Marshal(map[string]any{"type": "command.request", "commandId": ackCommandID, "kind": "telemetry.ack", "data": ackData})
-	if _, err = hub.RunCommand(ackCtx, gatewayID, ackCommandID, ackPayload); err != nil {
-		log.Printf("telemetry pull: ack for %s failed: %v (rows will redeliver next tick)", gatewayID, err)
-		audit("middleware.pull.ack_failed", map[string]any{"stage": "ack", "count": len(drained.IDs), "error": err.Error()})
+	ackPayload := commandPayload(ackCommandID, "telemetry.ack", map[string]any{"ids": drained.IDs})
+	ackRaw, err := hub.RunCommand(ackCtx, gatewayID, ackCommandID, ackPayload)
+	ackErr := ""
+	switch {
+	case err != nil:
+		ackErr = err.Error()
+	default:
+		// A command that reached the Gateway and came back `ok:false` is still
+		// a failed ack: the rows stay PENDING and redeliver forever, so every
+		// later pull is pure duplicates. Only the transport error was being
+		// checked, which made that failure mode completely silent.
+		var ackResult commandResult
+		if decodeErr := json.Unmarshal(ackRaw, &ackResult); decodeErr != nil {
+			ackErr = "decode ack result: " + decodeErr.Error()
+		} else if !ackResult.Ok {
+			ackErr = ackResult.Error
+			if ackErr == "" {
+				ackErr = "gateway rejected the acknowledgement"
+			}
+		}
+	}
+	if ackErr != "" {
+		log.Printf("telemetry pull: ack for %s failed: %s (rows will redeliver next tick)", gatewayID, ackErr)
+		audit("middleware.pull.ack_failed", map[string]any{"stage": "ack", "count": len(drained.IDs), "error": ackErr})
 	}
 }
+
+// commandPayload builds a command.request frame with data nested as a JSON
+// object.
+//
+// The nesting is the whole point: the Middleware decodes `data` into a
+// json.RawMessage and unmarshals it into the command's own request struct.
+// Marshalling an already-encoded []byte into map[string]any does NOT nest it
+// -- encoding/json base64-encodes []byte into a JSON *string* -- so the
+// Middleware got `"data":"eyJiYXRjaFNpemUiOjUwMH0="`, failed to decode it, and
+// silently fell back to its defaults: telemetry.drain ignored batchSize and
+// used 20 (which is why every pull moved exactly 20 readings no matter what
+// drainBatchSize said), and telemetry.ack saw an empty id list. Wrapping in
+// json.RawMessage is what keeps it an object on the wire.
+func commandPayload(commandID, kind string, data any) []byte {
+	encoded, _ := json.Marshal(data)
+	payload, _ := json.Marshal(map[string]any{
+		"type": "command.request", "commandId": commandID, "kind": kind,
+		"data": json.RawMessage(encoded),
+	})
+	return payload
+}
+
 func newCommandID() string {
 	var b [8]byte
 	_, _ = rand.Read(b[:])

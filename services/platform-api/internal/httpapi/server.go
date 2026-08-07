@@ -139,8 +139,6 @@ func New(version string, ready func(context.Context) error, pool *pgxpool.Pool, 
 		mux.HandleFunc("POST /api/v1/dashboard/layout/publish", authenticated(pool, sessionIdleTimeout, true, publishDashboardLayoutHandler(registryService)))
 	}
 	if ingestionService != nil {
-		mux.HandleFunc("POST /api/v1/ingestion/telemetry", ingestionHandler(ingestionService))
-		mux.HandleFunc("POST /api/middleware/readings", ingestionHandler(ingestionService))
 		mux.HandleFunc("POST /api/v2/ingestion/register-readings", rawIngestionHandler(ingestionService))
 		if registryService != nil {
 			mux.HandleFunc("GET /api/v1/gateway/realtime", gatewayRealtimeHandler(ingestionService, registryService, hub))

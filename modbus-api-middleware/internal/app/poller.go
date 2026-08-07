@@ -42,11 +42,11 @@ func (s *Service) PollEnabledConnections(gatewayID string, logf func(string, ...
 			logf("poll %s: %v", c.ConnectionName, err)
 			continue
 		}
-		detail, _ := json.Marshal(map[string]any{"reading": reading, "measurements": measurements})
 		readOK++
 		created, err := s.Enqueue(reading, gw)
 		if err != nil {
 			failed++
+			detail, _ := json.Marshal(map[string]any{"reading": reading, "measurements": measurements})
 			s.logPoll(c.ConnectionID, c.ConnectionName, "ERROR", err.Error(), string(detail))
 			logf("enqueue %s: %v", c.ConnectionName, err)
 			continue
@@ -54,7 +54,11 @@ func (s *Service) PollEnabledConnections(gatewayID string, logf func(string, ...
 		if created {
 			queued++
 		}
-		s.logPoll(c.ConnectionID, c.ConnectionName, "OK", "poll queued", string(detail))
+		// Success detail is deliberately empty: the reading itself is already
+		// in outbox_events.payload_json, and copying it into poll_logs too
+		// doubled the SQLite footprint of every poll for a row nobody reads
+		// unless something failed.
+		s.logPoll(c.ConnectionID, c.ConnectionName, "OK", "poll queued", "")
 	}
 	logf("poll sweep: %d connection(s), %d read OK, %d failed, %d queued", len(connections), readOK, failed, queued)
 	return nil

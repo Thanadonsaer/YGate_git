@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
+
+	"ygate/platform-api/internal/testdb"
 )
 
 func TestEvaluateAlarmsBreachAndClearAgainstPostgreSQL(t *testing.T) {
@@ -19,7 +21,7 @@ func TestEvaluateAlarmsBreachAndClearAgainstPostgreSQL(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
-	pool := disposablePool(t, ctx, databaseURL)
+	pool := testdb.Disposable(t, ctx, databaseURL)
 	defer pool.Close()
 
 	organizationID, _ := newUUID()
@@ -40,14 +42,19 @@ func TestEvaluateAlarmsBreachAndClearAgainstPostgreSQL(t *testing.T) {
 	}
 	now := time.Now().UTC()
 
+	// Rules are keyed by the register address as it appears in the mapped
+	// reading, which is what the device page shows -- alarm evaluation runs on
+	// telemetry.mapped_data_items() output, not on the stored raw values.
+	const pointKey = "40001"
+
 	send := func(t *testing.T, offset time.Duration, value float64) {
 		t.Helper()
-		batch := Batch{Data: []Reading{{
+		batch := RawBatch{SchemaVersion: RawSchemaVersion, Data: []RawReading{{
 			GatewayID: "GW-ALARM", PlantCode: "ALARM-PLANT", DevDn: "INV-1", DevTypeID: 1, Model: "SUN2000",
-			CollectTime: now.Add(offset).UnixMilli(), DataItemMap: map[string]float64{"active_power": value},
+			CollectTime: now.Add(offset).UnixMilli(), RegisterAddressMap: map[string]float64{pointKey: value},
 		}}}
 		raw, _ := json.Marshal(batch)
-		result, ingestErr := service.Ingest(ctx, client, "", raw, batch, now)
+		result, ingestErr := service.IngestRaw(ctx, client, "", raw, batch, now)
 		if ingestErr != nil || result.AcceptedCount != 1 {
 			t.Fatalf("ingest value=%v result=%+v err=%v", value, result, ingestErr)
 		}
@@ -72,7 +79,7 @@ VALUES ($1,$2,$3,$4,'High power','major')`, ruleID, organizationID, plantID, dev
 	conditionID, _ := newUUID()
 	if _, err = pool.Exec(ctx, `
 INSERT INTO alarm.alarm_rule_condition (id, alarm_rule_id, point_key, max_value, position)
-VALUES ($1,$2,'active_power',50,0)`, conditionID, ruleID); err != nil {
+VALUES ($1,$2,$3,50,0)`, conditionID, ruleID, pointKey); err != nil {
 		t.Fatal(err)
 	}
 
