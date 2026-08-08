@@ -1,6 +1,7 @@
 "use client";
 
 import { Check, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Checkbox, FormMessage, StatusTag, TextInput } from "../../components/ui/form";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { api, errorMessage, csrfToken, formatDate } from "../../lib/api";
 import { useRealtimeSocket } from "../../lib/realtime";
@@ -11,10 +12,10 @@ import { Tabs, TabsList, TabsTrigger } from "../../components/ui/tabs";
 import { toast } from "../../components/ui/sonner";
 import { Button } from "../../components/ui/button";
 
-const severityStatusClass: Record<AlarmRule["severity"], string> = {
-  warning: "status no_devices",
-  major: "status degraded",
-  critical: "status offline",
+const severityTone: Record<AlarmRule["severity"], string> = {
+  warning: "no_devices",
+  major: "degraded",
+  critical: "offline",
 };
 
 export function AlarmsPage() {
@@ -127,7 +128,7 @@ export function AlarmsPage() {
           {tab === "rules" && <Button compact onClick={() => setEditor("create")}><Plus size={18} /> เพิ่มกฎ</Button>}
         </div>
       </div>
-      {error && <p className="form-message error">{error}</p>}
+      {error && <FormMessage>{error}</FormMessage>}
       {tab === "log" ? (
         <div className="audit-table" role="table" aria-label="Alarm Log">
           <div className="audit-row audit-head" role="row"><span>เวลา</span><span>Point</span><span>ค่า / Threshold</span><span>Severity</span><span>สถานะ</span></div>
@@ -143,9 +144,9 @@ export function AlarmsPage() {
                   <div key={c.pointKey}><strong>{c.breached ? "⚠ " : ""}{c.value.toLocaleString()}</strong><small> {conditionThreshold(c)}</small></div>
                 ))}
               </div>
-              <span className={severityStatusClass[event.severity]}>{event.severity}</span>
+              <StatusTag tone={severityTone[event.severity]}>{event.severity}</StatusTag>
               {event.acknowledgedBy ? (
-                <span className="status active">Acked {event.acknowledgedAt ? formatDate(event.acknowledgedAt) : ""}</span>
+                <StatusTag tone="active">Acked {event.acknowledgedAt ? formatDate(event.acknowledgedAt) : ""}</StatusTag>
               ) : (
                 <Button variant="icon" onClick={() => void acknowledge(event)} title="Acknowledge" aria-label={`Acknowledge alarm ${event.id}`}><Check size={17} /></Button>
               )}
@@ -162,7 +163,7 @@ export function AlarmsPage() {
               <div><strong>{rule.label}</strong><small>{rule.severity}{notifyRoleName(rule.notifyRoleId) ? ` · แจ้ง ${notifyRoleName(rule.notifyRoleId)}` : ""}</small></div>
               <div><span>{deviceName(rule.deviceId)}</span><small>{(rule.conditions ?? []).map((c) => c.pointKey).join(rule.conditionLogic === "OR" ? " หรือ " : " และ ")}</small></div>
               <div>{(rule.conditions ?? []).map((c) => <div key={c.pointKey}><span>{c.pointKey}</span> <small>{conditionThreshold(c)}</small></div>)}</div>
-              <span className={rule.isActive ? "status active" : "status revoked"}>{rule.isActive ? "ใช้งาน" : "ปิดใช้งาน"}</span>
+              <StatusTag tone={rule.isActive ? "active" : "revoked"}>{rule.isActive ? "ใช้งาน" : "ปิดใช้งาน"}</StatusTag>
               <div className="row-actions">
                 <Button variant="icon" onClick={() => setEditor(rule)} title="แก้ไขกฎ" aria-label={`แก้ไข ${rule.label}`}><Pencil size={17} /></Button>
                 <Button variant="icon" danger onClick={() => void deleteRule(rule)} title="ลบกฎ" aria-label={`ลบ ${rule.label}`}><Trash2 size={17} /></Button>
@@ -267,7 +268,7 @@ function AlarmRuleEditor({ plantId, rule, devices, notifyRoles, onClose, onSaved
                 </Select>
               </label>
             )}
-            <label className="full-field">ชื่อกฎ<input autoFocus value={label} onChange={(event) => setLabel(event.target.value)} maxLength={200} required /></label>
+            <label className="full-field">ชื่อกฎ<TextInput autoFocus value={label} onChange={(event) => setLabel(event.target.value)} maxLength={200} required /></label>
 
             <div className="full-field alarm-conditions">
               <div className="alarm-conditions-head">
@@ -284,9 +285,9 @@ function AlarmRuleEditor({ plantId, rule, devices, notifyRoles, onClose, onSaved
               </div>
               {conditions.map((condition, index) => (
                 <div className="alarm-condition-row" key={index}>
-                  <input placeholder="Point key" value={condition.pointKey} onChange={(event) => updateCondition(index, { pointKey: event.target.value })} maxLength={200} required />
-                  <input type="number" step="any" placeholder="Min" value={condition.minValue} onChange={(event) => updateCondition(index, { minValue: event.target.value })} />
-                  <input type="number" step="any" placeholder="Max" value={condition.maxValue} onChange={(event) => updateCondition(index, { maxValue: event.target.value })} />
+                  <TextInput placeholder="Point key" value={condition.pointKey} onChange={(event) => updateCondition(index, { pointKey: event.target.value })} maxLength={200} required />
+                  <TextInput type="number" step="any" placeholder="Min" value={condition.minValue} onChange={(event) => updateCondition(index, { minValue: event.target.value })} />
+                  <TextInput type="number" step="any" placeholder="Max" value={condition.maxValue} onChange={(event) => updateCondition(index, { maxValue: event.target.value })} />
                   <Button type="button" variant="icon" danger disabled={conditions.length <= 1} onClick={() => removeCondition(index)} title="ลบเงื่อนไขนี้" aria-label={`ลบเงื่อนไข ${index + 1}`}><Trash2 size={16} /></Button>
                 </div>
               ))}
@@ -312,8 +313,8 @@ function AlarmRuleEditor({ plantId, rule, devices, notifyRoles, onClose, onSaved
                 </SelectContent>
               </Select>
             </label>
-            {rule && <label className="toggle-field full-field"><input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} /><span>เปิดใช้งานกฎนี้</span></label>}
-            {error && <p className="form-message error full-field">{error}</p>}
+            {rule && <label className="toggle-field full-field"><Checkbox checked={isActive} onChange={setIsActive} /><span>เปิดใช้งานกฎนี้</span></label>}
+            {error && <FormMessage className="full-field">{error}</FormMessage>}
             <div className="editor-actions full-field"><Button type="button" variant="secondary" onClick={onClose} disabled={pending}>ยกเลิก</Button><Button disabled={pending}>{pending ? "กำลังบันทึก" : "บันทึก"}</Button></div>
           </form>
         </DialogBody>

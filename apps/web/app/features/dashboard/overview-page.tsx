@@ -1,6 +1,7 @@
 "use client";
 
 import { Building2, ChartLine, Cpu, GripVertical, Pencil, RefreshCw, RotateCcw, Save, Settings2, Trash2, Upload, Wifi, WifiOff } from "lucide-react";
+import { FormMessage, StatusTag, TextInput } from "../../components/ui/form";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { Responsive, useContainerWidth, type Layout, type ResponsiveLayouts } from "react-grid-layout";
 import { api, errorMessage, csrfToken, formatDate } from "../../lib/api";
@@ -181,7 +182,7 @@ function DashboardCanvas({ dashboard, dashboardError, onRefresh }: { dashboard: 
     }
     return (
       <div className="dashboard-widget-body">
-        {dashboardError && <p className="form-message error">{dashboardError}</p>}
+        {dashboardError && <FormMessage>{dashboardError}</FormMessage>}
         <div className="dashboard-table" role="table" aria-label="สถานะการรับข้อมูลแต่ละโรงไฟฟ้า">
           <div className="dashboard-row dashboard-head" role="row"><span>โรงไฟฟ้า</span><span>Device</span><span>Reporting</span><span>ข้อมูลล่าสุด</span><span>สถานะ</span></div>
           {dashboard?.plants.map((plant) => (
@@ -190,7 +191,7 @@ function DashboardCanvas({ dashboard, dashboardError, onRefresh }: { dashboard: 
               <div><span>{plant.activeDeviceCount.toLocaleString()} active</span><small>{plant.deviceCount.toLocaleString()} ทั้งหมด</small></div>
               <div><span>{plant.reportingDeviceCount.toLocaleString()}</span><small>{plant.staleDeviceCount} stale · {plant.offlineDeviceCount} offline</small></div>
               <div><span>{plant.lastObservedAt ? formatDate(plant.lastObservedAt) : "-"}</span><small>เกณฑ์ stale {dashboard.staleAfterSeconds} วินาที</small></div>
-              <span className={`status ${plant.communicationStatus.toLowerCase()}`}>{dashboardStatusLabel(plant.communicationStatus)}</span>
+              <StatusTag tone={plant.communicationStatus.toLowerCase()}>{dashboardStatusLabel(plant.communicationStatus)}</StatusTag>
             </div>
           ))}
           {!dashboard && !dashboardError && <div className="table-state">กำลังโหลดข้อมูล</div>}
@@ -228,7 +229,7 @@ function DashboardCanvas({ dashboard, dashboardError, onRefresh }: { dashboard: 
           </>}
         </div>
       </div>
-      {message && <p className="form-message error">{message}</p>}
+      {message && <FormMessage>{message}</FormMessage>}
       <div ref={containerRef} className="dashboard-grid-container">
         {saved && published && layouts ? (
           <Responsive<"lg" | "md" | "sm">
@@ -324,7 +325,7 @@ function TimeseriesWidget({ config, refreshKey, editing, onConfigure }: { config
       <div><strong>{config.dataBinding.pointKey}</strong><small>{config.dataBinding.timeRangeHours}h · {values.length} points</small></div>
       {editing && <Button variant="icon" onClick={onConfigure} title="ตั้งค่ากราฟ" aria-label="ตั้งค่ากราฟ"><Settings2 size={17} /></Button>}
     </div>
-    {error ? <p className="form-message error">{error}</p> : values.length ? <>
+    {error ? <FormMessage>{error}</FormMessage> : values.length ? <>
       <svg className="timeseries-chart" viewBox="0 0 100 40" preserveAspectRatio="none" role="img" aria-label={`กราฟ ${config.dataBinding.pointKey}`}>
         <line x1="0" y1="36" x2="100" y2="36" />
         <polyline points={polyline} />
@@ -406,7 +407,7 @@ function TimeseriesConfigEditor({ initial, slot, onClose, onSave }: { initial?: 
               </Select>
             </label>
             <label className="col-span-2 grid gap-1.5 text-xs font-bold text-ink">Point key
-              <input className="h-10 rounded-[var(--radius-sm)] border border-line px-3 text-sm" list="timeseries-point-keys" value={pointKey} onChange={(event) => setPointKey(event.target.value)} maxLength={200} required />
+              <TextInput className="h-10 rounded-[var(--radius-sm)] border border-line px-3 text-sm" list="timeseries-point-keys" value={pointKey} onChange={(event) => setPointKey(event.target.value)} maxLength={200} required />
               <datalist id="timeseries-point-keys">{pointOptions.map((key) => <option key={key} value={key} />)}</datalist>
             </label>
             <label className="grid gap-1.5 text-xs font-bold text-ink">ช่วงเวลา
@@ -420,9 +421,9 @@ function TimeseriesConfigEditor({ initial, slot, onClose, onSave }: { initial?: 
                 </SelectContent>
               </Select>
             </label>
-            <label className="grid gap-1.5 text-xs font-bold text-ink">Unit<input className="h-10 rounded-[var(--radius-sm)] border border-line px-3 text-sm" value={unit} onChange={(event) => setUnit(event.target.value)} maxLength={20} placeholder="kW" /></label>
-            <label className="grid gap-1.5 text-xs font-bold text-ink">Decimals<input className="h-10 rounded-[var(--radius-sm)] border border-line px-3 text-sm" type="number" min="0" max="6" value={decimals} onChange={(event) => setDecimals(Number(event.target.value))} required /></label>
-            {error && <p className="form-message error col-span-2">{error}</p>}
+            <label className="grid gap-1.5 text-xs font-bold text-ink">Unit<TextInput className="h-10 rounded-[var(--radius-sm)] border border-line px-3 text-sm" value={unit} onChange={(event) => setUnit(event.target.value)} maxLength={20} placeholder="kW" /></label>
+            <label className="grid gap-1.5 text-xs font-bold text-ink">Decimals<TextInput className="h-10 rounded-[var(--radius-sm)] border border-line px-3 text-sm" type="number" min="0" max="6" value={String(decimals)} onChange={(event) => setDecimals(Number(event.target.value))} required /></label>
+            {error && <FormMessage className="col-span-2">{error}</FormMessage>}
             <div className="col-span-2 flex justify-end gap-2"><Button type="button" variant="secondary" onClick={onClose}>ยกเลิก</Button><Button><Save size={17} /> บันทึกการตั้งค่า</Button></div>
           </form>
         </DialogBody>

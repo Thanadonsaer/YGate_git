@@ -1,6 +1,7 @@
 "use client";
 
 import { LogOut, Menu, SunMedium, UserRound, X } from "lucide-react";
+import { Button } from "./ui/button";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createContext, ReactNode, useContext, useEffect, useRef, useState } from "react";
@@ -124,7 +125,7 @@ export function PlatformShell({ children }: { children: ReactNode }) {
             <span className="brand-mark">{siteSettings.logoUrl ? <img src={assetURL(siteSettings.logoUrl)} alt="" /> : <SunMedium size={19} />}</span>
             <div><strong>{siteSettings.siteName}</strong><small>Solar SCADA · v{BUILD_VERSION}</small></div>
           </div>
-          <button className="mobile-close" onClick={() => setNavOpen(false)} title="ปิดเมนู" aria-label="ปิดเมนู"><X size={20} /></button>
+          <Button variant="bare" className="mobile-close" onClick={() => setNavOpen(false)} title="ปิดเมนู" aria-label="ปิดเมนู"><X size={20} /></Button>
           <nav aria-label="เมนูหลัก">
             {navigation.map(({ group, items }) => {
               const visible = items.filter((item) => !item.requires || hasPermission(user, item.requires));
@@ -144,14 +145,14 @@ export function PlatformShell({ children }: { children: ReactNode }) {
           <div className="sidebar-user">
             <span className="avatar"><UserRound size={18} /></span>
             <Link href="/profile" onClick={() => setNavOpen(false)}><strong>{user.displayName}</strong><small>{user.email}</small></Link>
-            <button onClick={() => void logout()} title="ออกจากระบบ" aria-label="ออกจากระบบ"><LogOut size={18} /></button>
+            <Button variant="bare" onClick={() => void logout()} title="ออกจากระบบ" aria-label="ออกจากระบบ"><LogOut size={18} /></Button>
           </div>
         </aside>
-        {navOpen && <button className="nav-scrim" onClick={() => setNavOpen(false)} aria-label="ปิดเมนู" />}
+        {navOpen && <Button variant="bare" className="nav-scrim" onClick={() => setNavOpen(false)} aria-label="ปิดเมนู" />}
 
         <section className="workspace">
           <header className="topbar">
-            <button className="menu-button" onClick={() => setNavOpen(true)} title="เปิดเมนู" aria-label="เปิดเมนู"><Menu size={20} /></button>
+            <Button variant="bare" className="menu-button" onClick={() => setNavOpen(true)} title="เปิดเมนู" aria-label="เปิดเมนู"><Menu size={20} /></Button>
             <div><p>Solar operations</p><h1>{titles[pathname] ?? "YGATE"}</h1></div>
             <div className={`live-chip ${liveState}`}>
               <LivePulse state={liveState} />

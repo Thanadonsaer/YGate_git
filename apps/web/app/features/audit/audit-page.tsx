@@ -1,6 +1,7 @@
 "use client";
 
 import { RefreshCw, Trash2 } from "lucide-react";
+import { FormMessage } from "../../components/ui/form";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "../../components/ui/sonner";
 import { Button } from "../../components/ui/button";
@@ -53,7 +54,7 @@ export function AuditPage() {
         <Button variant="secondary" compact danger onClick={() => void clearAudit()}><Trash2 size={17} /> Clear Audit</Button>
       </div>
     </div>
-    {error && <p className="form-message error">{error}</p>}
+    {error && <FormMessage>{error}</FormMessage>}
     <div className="audit-table" role="table" aria-label="Audit Log">
       <div className="audit-row audit-head" role="row"><span>เวลา</span><span>Action</span><span>Plant</span><span>Actor</span><span>Target</span><span>รายละเอียด</span></div>
       {!loading && visibleEvents.map((event) => (

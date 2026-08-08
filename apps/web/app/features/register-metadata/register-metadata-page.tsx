@@ -1,6 +1,8 @@
 "use client";
 
 import { ArrowLeft, Download, Pencil, Plus, RefreshCw, Search, Trash2, Upload } from "lucide-react";
+import { Button } from "../../components/ui/button";
+import { Checkbox, FormMessage, TextArea, TextInput } from "../../components/ui/form";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody } from "../../components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../../components/ui/select";
@@ -156,9 +158,9 @@ export function RegisterMetadataPage() {
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div className="flex min-w-0 items-start gap-2">
           {selectedModel && (
-            <button className={iconButtonClass} type="button" onClick={() => { setSelectedModelId(""); setQuery(""); }} title="กลับไป Device Model" aria-label="กลับไป Device Model">
+            <Button variant="bare" className={iconButtonClass} type="button" onClick={() => { setSelectedModelId(""); setQuery(""); }} title="กลับไป Device Model" aria-label="กลับไป Device Model">
               <ArrowLeft size={18} />
-            </button>
+            </Button>
           )}
           <div className="min-w-0">
             <p className="text-xs font-extrabold uppercase text-ink-soft">{selectedModel ? `${selectedModel.manufacturer} / ${selectedModel.deviceType}` : "Configuration registry"}</p>
@@ -169,20 +171,20 @@ export function RegisterMetadataPage() {
           <label className="relative min-w-0 sm:w-72">
             <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
             <span className="sr-only">ค้นหา</span>
-            <input className={`${inputClass} pl-9`} type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={selectedModel ? "ค้นหา address, name, unit..." : "ค้นหา brand, type, model..."} />
+            <TextInput className={`${inputClass} pl-9`} type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={selectedModel ? "ค้นหา address, name, unit..." : "ค้นหา brand, type, model..."} />
           </label>
-          <button className={iconButtonClass} type="button" onClick={() => void (selectedModel ? loadItems(selectedModel.id) : loadModels())} title="รีเฟรช" aria-label="รีเฟรช">
+          <Button variant="bare" className={iconButtonClass} type="button" onClick={() => void (selectedModel ? loadItems(selectedModel.id) : loadModels())} title="รีเฟรช" aria-label="รีเฟรช">
             <RefreshCw size={18} />
-          </button>
-          <button className={secondaryButtonClass} type="button" onClick={() => void exportCSV()} title={selectedModel ? "Export CSV (Model นี้)" : "Export CSV (ทุก Model)"}>
+          </Button>
+          <Button variant="bare" className={secondaryButtonClass} type="button" onClick={() => void exportCSV()} title={selectedModel ? "Export CSV (Model นี้)" : "Export CSV (ทุก Model)"}>
             <Download size={16} /> Export CSV
-          </button>
-          <button className={secondaryButtonClass} type="button" onClick={() => void downloadTemplate()} title="ดาวน์โหลด Template เปล่า">
+          </Button>
+          <Button variant="bare" className={secondaryButtonClass} type="button" onClick={() => void downloadTemplate()} title="ดาวน์โหลด Template เปล่า">
             Template
-          </button>
-          <button className={secondaryButtonClass} type="button" onClick={() => importInputRef.current?.click()} title="Import CSV (อัปเดตทับของเดิม)">
+          </Button>
+          <Button variant="bare" className={secondaryButtonClass} type="button" onClick={() => importInputRef.current?.click()} title="Import CSV (อัปเดตทับของเดิม)">
             <Upload size={16} /> Import CSV
-          </button>
+          </Button>
           <input
             ref={importInputRef}
             type="file"
@@ -194,9 +196,9 @@ export function RegisterMetadataPage() {
               event.target.value = "";
             }}
           />
-          <button className={primaryButtonClass} type="button" onClick={() => selectedModel ? setAddressDialog("create") : setModelDialog("create")}>
+          <Button variant="bare" className={primaryButtonClass} type="button" onClick={() => selectedModel ? setAddressDialog("create") : setModelDialog("create")}>
             <Plus size={17} /> {selectedModel ? "เพิ่ม Address" : "เพิ่ม Model"}
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -208,13 +210,13 @@ export function RegisterMetadataPage() {
             <span>Source Type <strong className="text-ink">{selectedModel.sourceTypeId ?? "-"}</strong></span>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button className={secondaryButtonClass} type="button" onClick={() => setModelDialog(selectedModel)}><Pencil size={16} /> แก้ไข Model</button>
-            <button className={`${secondaryButtonClass} text-danger`} type="button" onClick={() => void hardDeleteModel(selectedModel)}><Trash2 size={16} /> ลบถาวร</button>
+            <Button variant="bare" className={secondaryButtonClass} type="button" onClick={() => setModelDialog(selectedModel)}><Pencil size={16} /> แก้ไข Model</Button>
+            <Button variant="bare" className={`${secondaryButtonClass} text-danger`} type="button" onClick={() => void hardDeleteModel(selectedModel)}><Trash2 size={16} /> ลบถาวร</Button>
           </div>
         </div>
       )}
 
-      {error && <p className="rounded-md bg-rose-50 px-3 py-2 text-sm font-bold text-danger">{error}</p>}
+      {error && <FormMessage>{error}</FormMessage>}
 
       <section className="overflow-hidden rounded-md border border-line bg-white" aria-label={selectedModel ? "Address Metadata" : "Device Models"}>
         {selectedModel ? (
@@ -231,8 +233,8 @@ export function RegisterMetadataPage() {
                 <span className="hidden truncate text-ink lg:block">x{item.scale} + {item.offset}, {item.decimals} dp</span>
                 <span className={`hidden w-fit rounded-full px-2.5 py-1 text-xs font-extrabold lg:block ${item.isEnabled ? "bg-success/10 text-success" : "bg-danger/10 text-danger"}`}>{item.isEnabled ? "เปิด" : "ปิด"}</span>
                 <div className="row-start-1 flex justify-end gap-1 lg:row-auto">
-                  <button className={iconButtonClass} type="button" onClick={() => setAddressDialog(item)} title="แก้ไข Address" aria-label={`แก้ไข ${item.addressKey}`}><Pencil size={16} /></button>
-                  <button className={`${iconButtonClass} text-danger hover:border-danger/30 hover:bg-danger/10`} type="button" onClick={() => void removeAddress(item)} title="ลบ Address" aria-label={`ลบ ${item.addressKey}`}><Trash2 size={16} /></button>
+                  <Button variant="bare" className={iconButtonClass} type="button" onClick={() => setAddressDialog(item)} title="แก้ไข Address" aria-label={`แก้ไข ${item.addressKey}`}><Pencil size={16} /></Button>
+                  <Button variant="bare" className={`${iconButtonClass} text-danger hover:border-danger/30 hover:bg-danger/10`} type="button" onClick={() => void removeAddress(item)} title="ลบ Address" aria-label={`ลบ ${item.addressKey}`}><Trash2 size={16} /></Button>
                 </div>
               </div>
             ))}
@@ -256,8 +258,8 @@ export function RegisterMetadataPage() {
                 <span className="hidden truncate text-ink md:block">{model.sourceTypeId ?? "-"}</span>
                 <span className={`hidden w-fit rounded-full px-2.5 py-1 text-xs font-extrabold md:block ${model.isActive ? "bg-success/10 text-success" : "bg-danger/10 text-danger"}`}>{model.isActive ? "เปิด" : "ปิด"}</span>
                 <div className="flex justify-end gap-1">
-                  <button className={iconButtonClass} type="button" onClick={(event) => { event.stopPropagation(); setModelDialog(model); }} title="แก้ไข Model" aria-label={`แก้ไข ${model.model}`}><Pencil size={16} /></button>
-                  <button className={`${iconButtonClass} text-danger`} type="button" onClick={(event) => { event.stopPropagation(); void hardDeleteModel(model); }} title="ลบ Model ถาวร" aria-label={`ลบ ${model.model} ถาวร`}><Trash2 size={16} /></button>
+                  <Button variant="bare" className={iconButtonClass} type="button" onClick={(event) => { event.stopPropagation(); setModelDialog(model); }} title="แก้ไข Model" aria-label={`แก้ไข ${model.model}`}><Pencil size={16} /></Button>
+                  <Button variant="bare" className={`${iconButtonClass} text-danger`} type="button" onClick={(event) => { event.stopPropagation(); void hardDeleteModel(model); }} title="ลบ Model ถาวร" aria-label={`ลบ ${model.model} ถาวร`}><Trash2 size={16} /></Button>
                 </div>
               </div>
             ))}
@@ -331,14 +333,14 @@ function DeviceModelDialog({ model, models, onClose, onSaved }: { model: DeviceM
         </DialogHeader>
         <DialogBody>
           <form className="grid gap-4 sm:grid-cols-2" onSubmit={submit}>
-            <label className={labelClass}>Brand<input className={inputClass} autoFocus value={manufacturer} onChange={(event) => setManufacturer(event.target.value)} maxLength={200} required /></label>
+            <label className={labelClass}>Brand<TextInput className={inputClass} autoFocus value={manufacturer} onChange={(event) => setManufacturer(event.target.value)} maxLength={200} required /></label>
             <label className={labelClass}>
               ชนิดอุปกรณ์
               {customDeviceType
                 ? (
                   <span className="flex gap-2">
-                    <input className={inputClass} value={deviceType} onChange={(event) => setDeviceType(event.target.value)} maxLength={100} placeholder="ชนิดอุปกรณ์ใหม่" required autoFocus />
-                    {deviceTypeOptions.length > 0 && <button type="button" className={`${secondaryButtonClass} shrink-0 text-xs`} onClick={() => selectDeviceType(deviceTypeOptions[0][0])}>เลือกจากรายการ</button>}
+                    <TextInput className={inputClass} value={deviceType} onChange={(event) => setDeviceType(event.target.value)} maxLength={100} placeholder="ชนิดอุปกรณ์ใหม่" required autoFocus />
+                    {deviceTypeOptions.length > 0 && <Button variant="bare" type="button" className={`${secondaryButtonClass} shrink-0 text-xs`} onClick={() => selectDeviceType(deviceTypeOptions[0][0])}>เลือกจากรายการ</Button>}
                   </span>
                 )
                 : (
@@ -351,14 +353,14 @@ function DeviceModelDialog({ model, models, onClose, onSaved }: { model: DeviceM
                   </Select>
                 )}
             </label>
-            <label className={`${labelClass} sm:col-span-2`}>รุ่น<input className={inputClass} value={modelName} onChange={(event) => setModelName(event.target.value)} maxLength={200} required /></label>
+            <label className={`${labelClass} sm:col-span-2`}>รุ่น<TextInput className={inputClass} value={modelName} onChange={(event) => setModelName(event.target.value)} maxLength={200} required /></label>
             <label className={labelClass}>
               Source Type ID
-              <input className={inputClass} type="number" min="0" value={sourceTypeId} onChange={(event) => setSourceTypeId(event.target.value)} readOnly={!customDeviceType && deviceTypeOptions.some(([type]) => type === deviceType)} />
+              <TextInput className={inputClass} type="number" min="0" value={sourceTypeId} onChange={(event) => setSourceTypeId(event.target.value)} readOnly={!customDeviceType && deviceTypeOptions.some(([type]) => type === deviceType)} />
             </label>
-            <label className="flex items-center gap-2 self-end text-sm font-bold text-slate-800"><input className="h-4 w-4 accent-brand" type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} /> เปิดใช้งาน</label>
-            {error && <p className="rounded-md bg-rose-50 px-3 py-2 text-sm font-bold text-danger sm:col-span-2">{error}</p>}
-            <div className="flex justify-end gap-2 sm:col-span-2"><button type="button" className={secondaryButtonClass} onClick={onClose} disabled={pending}>ยกเลิก</button><button className={primaryButtonClass} disabled={pending}>{pending ? "กำลังบันทึก" : "บันทึก"}</button></div>
+            <label className="flex items-center gap-2 self-end text-sm font-bold text-slate-800"><Checkbox checked={isActive} onChange={setIsActive} /> เปิดใช้งาน</label>
+            {error && <FormMessage className="sm:col-span-2">{error}</FormMessage>}
+            <div className="flex justify-end gap-2 sm:col-span-2"><Button variant="bare" type="button" className={secondaryButtonClass} onClick={onClose} disabled={pending}>ยกเลิก</Button><Button variant="bare" className={primaryButtonClass} disabled={pending}>{pending ? "กำลังบันทึก" : "บันทึก"}</Button></div>
           </form>
         </DialogBody>
       </DialogContent>
@@ -426,7 +428,7 @@ function AddressMetadataDialog({ model, item, onClose, onSaved }: { model: Devic
         </DialogHeader>
         <DialogBody>
           <form className="grid gap-4 sm:grid-cols-2" onSubmit={submit}>
-            <label className={`${labelClass} sm:col-span-2`}>Address / Key<input className={inputClass} autoFocus value={addressKey} onChange={(event) => { setAddressKey(event.target.value); setAddressKeyEdited(true); }} maxLength={200} readOnly={Boolean(item)} required /></label>
+            <label className={`${labelClass} sm:col-span-2`}>Address / Key<TextInput className={inputClass} autoFocus value={addressKey} onChange={(event) => { setAddressKey(event.target.value); setAddressKeyEdited(true); }} maxLength={200} readOnly={Boolean(item)} required /></label>
 
             <p className="sm:col-span-2 text-xs font-extrabold uppercase text-ink-soft">Modbus Register</p>
             <div className="sm:col-span-2 grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -438,7 +440,7 @@ function AddressMetadataDialog({ model, item, onClose, onSaved }: { model: Devic
                   <SelectItem value="4">FC04</SelectItem>
                 </SelectContent>
               </Select>
-              <input className={inputClass} type="number" min="0" max="65535" placeholder="Register" value={modbusRegister} onChange={(event) => setModbusRegister(event.target.value)} />
+              <TextInput className={inputClass} type="number" min="0" max="65535" placeholder="Register" value={modbusRegister} onChange={(event) => setModbusRegister(event.target.value)} />
               <Select value={modbusWordOrder} onValueChange={setModbusWordOrder}>
                 <SelectTrigger><SelectValue placeholder="Word order (default)" /></SelectTrigger>
                 <SelectContent>
@@ -458,8 +460,8 @@ function AddressMetadataDialog({ model, item, onClose, onSaved }: { model: Devic
             <p className="sm:col-span-2 -mb-2 text-xs text-ink-soft">เว้นว่างทั้งหมดถ้าเป็น display metadata อย่างเดียว ไม่ใช้ poll จริง</p>
 
             <p className="sm:col-span-2 text-xs font-extrabold uppercase text-ink-soft">Display</p>
-            <label className={labelClass}>Display name<input className={inputClass} value={displayName} onChange={(event) => setDisplayName(event.target.value)} maxLength={200} placeholder="Active power" /></label>
-            <label className={labelClass}>Unit<input className={inputClass} value={unit} onChange={(event) => setUnit(event.target.value)} maxLength={40} placeholder="kW" /></label>
+            <label className={labelClass}>Display name<TextInput className={inputClass} value={displayName} onChange={(event) => setDisplayName(event.target.value)} maxLength={200} placeholder="Active power" /></label>
+            <label className={labelClass}>Unit<TextInput className={inputClass} value={unit} onChange={(event) => setUnit(event.target.value)} maxLength={40} placeholder="kW" /></label>
             {modbusDataType === "" && (
               <label className={labelClass}>Data type
                 <Select value={dataType} onValueChange={(value) => setDataType(value as DeviceModelRegisterMetadata["dataType"])}>
@@ -473,14 +475,14 @@ function AddressMetadataDialog({ model, item, onClose, onSaved }: { model: Devic
                 </Select>
               </label>
             )}
-            <label className={labelClass}>Scale<input className={inputClass} type="number" step="any" value={scale} onChange={(event) => setScale(event.target.value)} required /></label>
-            <label className={labelClass}>Offset<input className={inputClass} type="number" step="any" value={offset} onChange={(event) => setOffset(event.target.value)} required /></label>
-            <label className={labelClass}>Decimals<input className={inputClass} type="number" min="0" max="9" value={decimals} onChange={(event) => setDecimals(event.target.value)} required /></label>
-            <label className="flex items-center gap-2 self-end text-sm font-bold text-slate-800"><input className="h-4 w-4 accent-brand" type="checkbox" checked={isEnabled} onChange={(event) => setIsEnabled(event.target.checked)} /> เปิดใช้งาน</label>
+            <label className={labelClass}>Scale<TextInput className={inputClass} type="number" step="any" value={scale} onChange={(event) => setScale(event.target.value)} required /></label>
+            <label className={labelClass}>Offset<TextInput className={inputClass} type="number" step="any" value={offset} onChange={(event) => setOffset(event.target.value)} required /></label>
+            <label className={labelClass}>Decimals<TextInput className={inputClass} type="number" min="0" max="9" value={decimals} onChange={(event) => setDecimals(event.target.value)} required /></label>
+            <label className="flex items-center gap-2 self-end text-sm font-bold text-slate-800"><Checkbox checked={isEnabled} onChange={setIsEnabled} /> เปิดใช้งาน</label>
 
-            <label className={`${labelClass} sm:col-span-2`}>Notes<textarea className={`${inputClass} min-h-24 py-2`} value={notes} onChange={(event) => setNotes(event.target.value)} maxLength={500} /></label>
-            {error && <p className="rounded-md bg-rose-50 px-3 py-2 text-sm font-bold text-danger sm:col-span-2">{error}</p>}
-            <div className="flex justify-end gap-2 sm:col-span-2"><button type="button" className={secondaryButtonClass} onClick={onClose} disabled={pending}>ยกเลิก</button><button className={primaryButtonClass} disabled={pending}>{pending ? "กำลังบันทึก" : "บันทึก Address"}</button></div>
+            <label className={`${labelClass} sm:col-span-2`}>Notes<TextArea className={`${inputClass} min-h-24 py-2`} value={notes} onChange={(event) => setNotes(event.target.value)} maxLength={500} /></label>
+            {error && <FormMessage className="sm:col-span-2">{error}</FormMessage>}
+            <div className="flex justify-end gap-2 sm:col-span-2"><Button variant="bare" type="button" className={secondaryButtonClass} onClick={onClose} disabled={pending}>ยกเลิก</Button><Button variant="bare" className={primaryButtonClass} disabled={pending}>{pending ? "กำลังบันทึก" : "บันทึก Address"}</Button></div>
           </form>
         </DialogBody>
       </DialogContent>

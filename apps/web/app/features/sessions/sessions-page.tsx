@@ -1,6 +1,7 @@
 "use client";
 
 import { RefreshCw, Trash2 } from "lucide-react";
+import { FormMessage, StatusTag } from "../../components/ui/form";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "../../components/ui/sonner";
 import { Button } from "../../components/ui/button";
@@ -57,14 +58,14 @@ export function SessionsPage() {
           <Button variant="secondary" compact danger onClick={() => void clearSessions()}><Trash2 size={17} /> Clear ทั้งหมด</Button>
         </div>
       </div>
-      {error && <p className="form-message error">{error}</p>}
+      {error && <FormMessage>{error}</FormMessage>}
       <div className="session-table" role="table" aria-label="เซสชัน">
         <div className="session-row session-head" role="row"><span>อุปกรณ์</span><span>ใช้งานล่าสุด</span><span>สถานะ</span><span aria-label="คำสั่ง" /></div>
         {sessions.map((session) => (
           <div className="session-row" role="row" key={session.id}>
             <div><strong>{session.userAgent || "Unknown client"}</strong><small>{session.clientIp || "ไม่ระบุ IP"}</small></div>
             <div><span>{formatDate(session.lastSeenAt)}</span><small>สร้างเมื่อ {formatDate(session.createdAt)}</small></div>
-            <div>{session.revokedAt ? <span className="status revoked">ยกเลิกแล้ว</span> : session.current ? <span className="status current">เซสชันนี้</span> : <span className="status active">ใช้งานอยู่</span>}</div>
+            <div>{session.revokedAt ? <StatusTag tone="revoked">ยกเลิกแล้ว</StatusTag> : session.current ? <StatusTag tone="current">เซสชันนี้</StatusTag> : <StatusTag tone="active">ใช้งานอยู่</StatusTag>}</div>
             <Button variant="icon" danger disabled={Boolean(session.revokedAt)} onClick={() => void revokeSession(session)} title="ยกเลิกเซสชัน" aria-label="ยกเลิกเซสชัน"><Trash2 size={17} /></Button>
           </div>
         ))}

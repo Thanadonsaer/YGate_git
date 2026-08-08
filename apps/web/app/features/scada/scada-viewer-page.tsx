@@ -1,6 +1,8 @@
 "use client";
 
 import { FilePlus2, Radio } from "lucide-react";
+import { Button } from "../../components/ui/button";
+import { FormMessage } from "../../components/ui/form";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { api, errorMessage, formatDate } from "../../lib/api";
@@ -84,7 +86,7 @@ export function ScadaViewerPage() {
       <div><p>Control room</p><h2>{active ? active.name : "SCADA Viewer"}</h2></div>
       {active && <div className={`live-chip ${liveState}`}><LivePulse state={liveState} /><span>{liveState === "connected" ? "Live" : liveState === "connecting" ? "Connecting" : "Offline"}</span></div>}
     </div>
-    {error && <p className="form-message error">{error}</p>}
+    {error && <FormMessage>{error}</FormMessage>}
     {loading && <div className="table-state">กำลังโหลด SCADA Screens</div>}
     {!loading && screens.length === 0 && !error && (
       <div className="table-state scada-viewer-empty">
@@ -99,9 +101,9 @@ export function ScadaViewerPage() {
           <div className="scada-tabstrip-group" key={group.plantCode}>
             <span className="scada-tabstrip-plant">{group.plantCode}</span>
             {group.items.map((screen) => (
-              <button key={screen.id} className={screen.id === activeId ? "scada-tab active" : "scada-tab"} onClick={() => void openScreen(screen)}>
+              <Button variant="bare" key={screen.id} className={screen.id === activeId ? "scada-tab active" : "scada-tab"} onClick={() => void openScreen(screen)}>
                 {screen.name}
-              </button>
+              </Button>
             ))}
           </div>
         ))}

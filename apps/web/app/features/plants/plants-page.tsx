@@ -1,6 +1,7 @@
 "use client";
 
 import { ArchiveX, ArrowLeft, Cpu, Download, Eye, MapPin, Pencil, PlugZap, Plus, RefreshCw, Search, Trash2, Upload, Wifi } from "lucide-react";
+import { Checkbox, FormMessage, StatusTag, TextInput } from "../../components/ui/form";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { api, errorMessage, assetURL, csrfToken, downloadBlob, formatDate } from "../../lib/api";
 import { useRealtimeSocket } from "../../lib/realtime";
@@ -145,14 +146,14 @@ export function PlantsPage({ defaultOrganizationId }: { defaultOrganizationId?: 
       </div>
       <div className="plant-search">
         <Search size={16} />
-        <input
+        <TextInput
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder="ค้นหาโรงไฟฟ้า ด้วยชื่อ, รหัส หรือ องค์กร"
           aria-label="ค้นหาโรงไฟฟ้า"
         />
       </div>
-      {error && <p className="form-message error">{error}</p>}
+      {error && <FormMessage>{error}</FormMessage>}
       <div className="plant-table" role="table" aria-label="โรงไฟฟ้า">
         <div className="plant-row plant-head" role="row">
           <span>โรงไฟฟ้า</span><span>องค์กร</span><span>กำลังติดตั้ง</span><span>สถานะ</span><span aria-label="คำสั่ง" />
@@ -162,7 +163,7 @@ export function PlantsPage({ defaultOrganizationId }: { defaultOrganizationId?: 
             <div><strong>{plant.name}</strong><small><MapPin size={13} /> {plant.code} · {plant.timezone}</small></div>
             <div><span>{plant.organizationName}</span><small>{plant.organizationId}</small></div>
             <div><span>{plant.installedDcKw == null ? "-" : `${plant.installedDcKw.toLocaleString()} kWdc`}</span><small>{plant.installedAcKw == null ? "ไม่ระบุ AC" : `${plant.installedAcKw.toLocaleString()} kWac`}</small></div>
-            <span className={plant.isActive ? "status active" : "status revoked"}>{plant.isActive ? "ใช้งาน" : "ปิดใช้งาน"}</span>
+            <StatusTag tone={plant.isActive ? "active" : "revoked"}>{plant.isActive ? "ใช้งาน" : "ปิดใช้งาน"}</StatusTag>
             <div className="row-actions">
               <Button variant="icon" onClick={() => setSelectedPlant(plant)} title="จัดการ Device" aria-label={`จัดการ Device ใน ${plant.name}`}><Cpu size={17} /></Button>
               <Button variant="icon" onClick={() => void exportOneCSV(plant)} title="Export CSV" aria-label={`Export CSV ของ ${plant.name}`}><Download size={17} /></Button>
@@ -309,7 +310,7 @@ function DeviceManagement({ plant, onBack }: { plant: Plant; onBack: () => void 
           <Button compact onClick={() => setEditor("create")}><Plus size={18} /> เพิ่ม Device</Button>
         </div>
       </div>
-      {error && <p className="form-message error">{error}</p>}
+      {error && <FormMessage>{error}</FormMessage>}
       <section className="grid gap-px overflow-hidden rounded-md border border-slate-200 bg-slate-200 sm:grid-cols-2 xl:grid-cols-4" aria-label="Plant summary">
         <div className="bg-white p-4"><small className="font-bold text-slate-500">Installed capacity</small><strong className="mt-1 block text-xl text-slate-900">{plant.installedDcKw?.toLocaleString() ?? "-"} kWdc</strong><span className="text-xs text-slate-500">{plant.installedAcKw?.toLocaleString() ?? "-"} kWac</span></div>
         <div className="bg-white p-4"><small className="font-bold text-slate-500">Devices</small><strong className="mt-1 block text-xl text-slate-900">{devices.length.toLocaleString()}</strong><span className="text-xs text-slate-500">ใช้งาน {devices.filter((device) => device.isActive).length.toLocaleString()}</span></div>
@@ -329,7 +330,7 @@ function DeviceManagement({ plant, onBack }: { plant: Plant; onBack: () => void 
               <div><span>{device.model}</span><small>{device.manufacturer}</small></div>
               <div><span>{device.modbusHost ? `${device.modbusHost}:${device.modbusPort}` : "ไม่ใช่ Modbus device"}</span><small>{device.modbusHost ? `unit ${device.modbusUnitId}` : device.deviceType}</small></div>
               <LatestValues reading={latestByDevice[device.id]} />
-              <span className={device.isActive ? "status active" : "status revoked"}>{device.isActive ? "ใช้งาน" : "ปิดใช้งาน"}</span>
+              <StatusTag tone={device.isActive ? "active" : "revoked"}>{device.isActive ? "ใช้งาน" : "ปิดใช้งาน"}</StatusTag>
               <div className="row-actions">
                 <Button variant="icon" disabled={!canTest || outcome?.pending} onClick={() => void runCommand("test-connection", device)} title={canTest ? "ทดสอบการเชื่อมต่อ" : "ต้องตั้งค่า IP/Port ก่อน"} aria-label={`ทดสอบการเชื่อมต่อ ${device.name}`}><PlugZap size={17} /></Button>
                 <Button variant="icon" disabled={!canTest || outcome?.pending} onClick={() => void runCommand("test-read", device)} title="ทดสอบอ่านค่า" aria-label={`ทดสอบอ่านค่า ${device.name}`}><RefreshCw size={17} /></Button>
@@ -377,7 +378,7 @@ function DeviceDetailView({ plant, device, reading, onBack }: { plant: Plant; de
           <div><p>{plant.code} · {device.externalId}{reading ? ` · ${formatDate(reading.observedAt)}` : ""}</p><h2>{device.name}</h2></div>
         </div>
       </div>
-      {metadataError && <p className="form-message error">{metadataError}</p>}
+      {metadataError && <FormMessage>{metadataError}</FormMessage>}
       <section className="grid gap-px overflow-hidden rounded-md border border-slate-200 bg-slate-200 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6" aria-label="ค่าปัจจุบัน (เฉพาะ parameter ที่เปิดใช้งาน)">
         {values.length === 0 && <div className="table-state col-span-full">ยังไม่มี telemetry (เฉพาะ parameter ที่เปิดใช้งาน) สำหรับ Device นี้</div>}
         {values.map(([key, value]) => {
@@ -499,19 +500,19 @@ function DeviceEditor({ plant, device, onClose, onSaved }: { plant: Plant; devic
         </DialogHeader>
         <DialogBody>
           <form className="plant-editor-form" onSubmit={submit}>
-            <label>Device ID<input autoFocus={!device} value={externalId} onChange={(event) => setExternalId(event.target.value)} maxLength={200} required disabled={Boolean(device)} /></label>
-            <label>ชื่อ Device<input autoFocus={Boolean(device)} value={name} onChange={(event) => setName(event.target.value)} maxLength={200} required /></label>
+            <label>Device ID<TextInput autoFocus={!device} value={externalId} onChange={(event) => setExternalId(event.target.value)} maxLength={200} required disabled={Boolean(device)} /></label>
+            <label>ชื่อ Device<TextInput autoFocus={Boolean(device)} value={name} onChange={(event) => setName(event.target.value)} maxLength={200} required /></label>
             <label className="full-field">Model
               <Select value={deviceModelId} onValueChange={setDeviceModelId} disabled={models.length === 0}>
                 <SelectTrigger><SelectValue placeholder="ยังไม่มี Device Model — สร้างที่หน้า Register Metadata ก่อน" /></SelectTrigger>
                 <SelectContent>{models.map((m) => <SelectItem key={m.id} value={m.id}>{m.manufacturer} / {m.deviceType} / {m.model}</SelectItem>)}</SelectContent>
               </Select>
             </label>
-            <label>IP<input value={modbusHost} onChange={(event) => setModbusHost(event.target.value)} placeholder="192.168.1.100 (เว้นว่างถ้าไม่ใช่ Modbus device)" /></label>
-            <label>Port<input type="number" min="1" max="65535" value={modbusPort} onChange={(event) => setModbusPort(event.target.value)} /></label>
-            <label>Unit ID<input type="number" min="0" max="255" value={modbusUnitId} onChange={(event) => setModbusUnitId(event.target.value)} /></label>
-            <label className="toggle-field full-field"><input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} /><span>เปิดใช้งาน Device</span></label>
-            {error && <p className="form-message error full-field">{error}</p>}
+            <label>IP<TextInput value={modbusHost} onChange={(event) => setModbusHost(event.target.value)} placeholder="192.168.1.100 (เว้นว่างถ้าไม่ใช่ Modbus device)" /></label>
+            <label>Port<TextInput type="number" min="1" max="65535" value={modbusPort} onChange={(event) => setModbusPort(event.target.value)} /></label>
+            <label>Unit ID<TextInput type="number" min="0" max="255" value={modbusUnitId} onChange={(event) => setModbusUnitId(event.target.value)} /></label>
+            <label className="toggle-field full-field"><Checkbox checked={isActive} onChange={setIsActive} /><span>เปิดใช้งาน Device</span></label>
+            {error && <FormMessage className="full-field">{error}</FormMessage>}
             <div className="editor-actions full-field"><Button type="button" variant="secondary" onClick={onClose} disabled={pending}>ยกเลิก</Button><Button disabled={pending}>{pending ? "กำลังบันทึก" : device ? "บันทึก" : "สร้าง Device"}</Button></div>
           </form>
         </DialogBody>
@@ -650,14 +651,14 @@ function PlantEditor({ plant, defaultOrganizationId, onClose, onSaved }: { plant
         </DialogHeader>
         <DialogBody>
           <form className="plant-editor-form" onSubmit={submit}>
-            {!plant && <label className="full-field">Organization ID<input autoFocus value={organizationId} onChange={(event) => setOrganizationId(event.target.value)} required /></label>}
-            <label>รหัสโรงไฟฟ้า<input autoFocus={Boolean(plant)} value={code} onChange={(event) => setCode(event.target.value)} maxLength={100} required /></label>
-            <label>ชื่อโรงไฟฟ้า<input value={name} onChange={(event) => setName(event.target.value)} maxLength={200} required /></label>
-            <label className="full-field">Timezone<input value={timezone} onChange={(event) => setTimezone(event.target.value)} maxLength={100} placeholder="ไม่กรอก = Asia/Bangkok" /></label>
-            <label>Latitude<input type="text" inputMode="decimal" placeholder="12.789507 หรือ 12.789507 N" value={latitude} onChange={(event) => setLatitude(event.target.value)} /></label>
-            <label>Longitude<input type="text" inputMode="decimal" placeholder="101.853718 หรือ 101.853718 E" value={longitude} onChange={(event) => setLongitude(event.target.value)} /></label>
-            <label>Installed DC (kW)<input type="number" min="0" step="any" value={installedDcKw} onChange={(event) => setInstalledDcKw(event.target.value)} /></label>
-            <label>Installed AC (kW)<input type="number" min="0" step="any" value={installedAcKw} onChange={(event) => setInstalledAcKw(event.target.value)} /></label>
+            {!plant && <label className="full-field">Organization ID<TextInput autoFocus value={organizationId} onChange={(event) => setOrganizationId(event.target.value)} required /></label>}
+            <label>รหัสโรงไฟฟ้า<TextInput autoFocus={Boolean(plant)} value={code} onChange={(event) => setCode(event.target.value)} maxLength={100} required /></label>
+            <label>ชื่อโรงไฟฟ้า<TextInput value={name} onChange={(event) => setName(event.target.value)} maxLength={200} required /></label>
+            <label className="full-field">Timezone<TextInput value={timezone} onChange={(event) => setTimezone(event.target.value)} maxLength={100} placeholder="ไม่กรอก = Asia/Bangkok" /></label>
+            <label>Latitude<TextInput type="text" inputMode="decimal" placeholder="12.789507 หรือ 12.789507 N" value={latitude} onChange={(event) => setLatitude(event.target.value)} /></label>
+            <label>Longitude<TextInput type="text" inputMode="decimal" placeholder="101.853718 หรือ 101.853718 E" value={longitude} onChange={(event) => setLongitude(event.target.value)} /></label>
+            <label>Installed DC (kW)<TextInput type="number" min="0" step="any" value={installedDcKw} onChange={(event) => setInstalledDcKw(event.target.value)} /></label>
+            <label>Installed AC (kW)<TextInput type="number" min="0" step="any" value={installedAcKw} onChange={(event) => setInstalledAcKw(event.target.value)} /></label>
             {plant && <div className="plant-image-field full-field">
               <span className="field-label">รูปโรงไฟฟ้า</span>
               {imagePreview ? <img className="plant-image-preview" src={imagePreview} alt={"รูป " + plant.name} /> : <div className="plant-image-fallback">ยังไม่มีรูป</div>}
@@ -667,8 +668,8 @@ function PlantEditor({ plant, defaultOrganizationId, onClose, onSaved }: { plant
               </div>
               <small>PNG, JPEG หรือ WebP ไม่เกิน 2 MiB</small>
             </div>}
-            {plant && <label className="toggle-field full-field"><input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} /><span>เปิดใช้งานโรงไฟฟ้า</span></label>}
-            {error && <p className="form-message error full-field">{error}</p>}
+            {plant && <label className="toggle-field full-field"><Checkbox checked={isActive} onChange={setIsActive} /><span>เปิดใช้งานโรงไฟฟ้า</span></label>}
+            {error && <FormMessage className="full-field">{error}</FormMessage>}
             <div className="editor-actions full-field"><Button type="button" variant="secondary" onClick={onClose} disabled={pending}>ยกเลิก</Button><Button disabled={pending}>{pending ? "กำลังบันทึก" : "บันทึก"}</Button></div>
           </form>
         </DialogBody>

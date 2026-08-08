@@ -1,6 +1,7 @@
 "use client";
 
 import { CheckCircle2, ImageIcon, Palette, Save, Trash2, Upload } from "lucide-react";
+import { FormMessage, TextInput } from "../../components/ui/form";
 import { ChangeEvent, FormEvent, useState } from "react";
 import { usePlatformSession } from "../../components/platform-shell";
 import { api, errorMessage, assetURL, csrfToken } from "../../lib/api";
@@ -96,20 +97,20 @@ export function SiteSettingsPage() {
           </div>
         </div>
         <form className="plant-editor-form settings-form" onSubmit={submit}>
-          <label className="full-field">ชื่อเว็บไซต์<input value={siteName} onChange={(event) => setSiteName(event.target.value)} maxLength={100} required /></label>
+          <label className="full-field">ชื่อเว็บไซต์<TextInput value={siteName} onChange={(event) => setSiteName(event.target.value)} maxLength={100} required /></label>
           <div className="full-field">
             <p className="field-label">สีหลักของเว็บ</p>
             <div className="accent-swatches">
               {(Object.keys(ACCENT_PRESETS) as AccentColor[]).map((key) => (
-                <button type="button" key={key} className={accentColor === key ? "accent-swatch active" : "accent-swatch"} onClick={() => setAccentColor(key)}>
+                <Button variant="bare" type="button" key={key} className={accentColor === key ? "accent-swatch active" : "accent-swatch"} onClick={() => setAccentColor(key)}>
                   <span className="accent-dot" style={{ background: ACCENT_PRESETS[key].action }} />
                   <span>{ACCENT_PRESETS[key].label}</span>
                   {accentColor === key && <CheckCircle2 size={14} />}
-                </button>
+                </Button>
               ))}
             </div>
           </div>
-          {error && <p className="form-message error full-field">{error}</p>}
+          {error && <FormMessage className="full-field">{error}</FormMessage>}
           <div className="editor-actions full-field"><Button disabled={pending}><Save size={17} /> {pending ? "กำลังบันทึก" : "บันทึก"}</Button></div>
         </form>
       </div>

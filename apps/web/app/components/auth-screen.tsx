@@ -1,6 +1,7 @@
 "use client";
 
-import { ArrowLeft, CheckCircle2, Eye, EyeOff, KeyRound, ShieldCheck, SunMedium } from "lucide-react";
+import { ArrowLeft, KeyRound, ShieldCheck, SunMedium } from "lucide-react";
+import { FormMessage, PasswordInput, TextInput } from "./ui/form";
 import { FormEvent, useEffect, useState } from "react";
 import { api, errorMessage, assetURL } from "../lib/api";
 import type { AuthMode, SiteSettings, User } from "../lib/types";
@@ -29,7 +30,6 @@ export function AuthScreen({
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState(initialError);
   const [notice, setNotice] = useState("");
@@ -113,27 +113,22 @@ export function AuthScreen({
       </section>
       <section className="auth-panel" aria-labelledby="auth-title">
         {mode !== "login" && mode !== "verify" && (
-          <button className="back-button" onClick={() => { onModeChange("login"); setError(""); }}>
+          <Button variant="bare" className="back-button" onClick={() => { onModeChange("login"); setError(""); }}>
             <ArrowLeft size={17} /> กลับไปเข้าสู่ระบบ
-          </button>
+          </Button>
         )}
         <div className="auth-heading"><p>Secure access</p><h2 id="auth-title">{title}</h2></div>
         {mode !== "verify" && <form onSubmit={submit}>
-          {mode === "login" && <label>อีเมลหรือชื่อผู้ใช้<input autoComplete="username" value={identifier} onChange={(event) => setIdentifier(event.target.value)} required /></label>}
-          {mode === "register" && <><label>รหัสองค์กร<input value={organizationCode} onChange={(event) => setOrganizationCode(event.target.value)} required /></label><label>อีเมล<input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label><label>Username<input autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} /></label><label className="full-field">ชื่อแสดงผล<input value={displayName} onChange={(event) => setDisplayName(event.target.value)} required /></label></>}
-          {mode === "forgot" && <label>อีเมล<input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>}
+          {mode === "login" && <label>อีเมลหรือชื่อผู้ใช้<TextInput autoComplete="username" value={identifier} onChange={(event) => setIdentifier(event.target.value)} required /></label>}
+          {mode === "register" && <><label>รหัสองค์กร<TextInput value={organizationCode} onChange={(event) => setOrganizationCode(event.target.value)} required /></label><label>อีเมล<TextInput type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label><label>Username<TextInput autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} /></label><label className="full-field">ชื่อแสดงผล<TextInput value={displayName} onChange={(event) => setDisplayName(event.target.value)} required /></label></>}
+          {mode === "forgot" && <label>อีเมล<TextInput type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>}
           {(mode === "login" || mode === "register" || mode === "reset") && (
             <label>รหัสผ่าน
-              <div className="password-field">
-                <input type={showPassword ? "text" : "password"} autoComplete={mode === "login" ? "current-password" : "new-password"} minLength={mode === "reset" || mode === "register" ? 12 : undefined} value={password} onChange={(event) => setPassword(event.target.value)} required />
-                <button type="button" onClick={() => setShowPassword((value) => !value)} title={showPassword ? "ซ่อนรหัสผ่าน" : "แสดงรหัสผ่าน"} aria-label={showPassword ? "ซ่อนรหัสผ่าน" : "แสดงรหัสผ่าน"}>
-                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                </button>
-              </div>
+              <PasswordInput autoComplete={mode === "login" ? "current-password" : "new-password"} minLength={mode === "reset" || mode === "register" ? 12 : undefined} value={password} onChange={(event) => setPassword(event.target.value)} required />
             </label>
           )}
-          {error && <p className="form-message error">{error}</p>}
-          {notice && <p className="form-message success"><CheckCircle2 size={17} />{notice}</p>}
+          {error && <FormMessage>{error}</FormMessage>}
+          {notice && <FormMessage severity="success">{notice}</FormMessage>}
           <Button disabled={pending}>
             {mode === "login" ? <KeyRound size={18} /> : <ShieldCheck size={18} />}
             {pending ? "กำลังดำเนินการ" : title}

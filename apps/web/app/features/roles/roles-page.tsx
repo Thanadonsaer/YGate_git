@@ -1,6 +1,7 @@
 "use client";
 
 import { Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Checkbox, FormMessage, StatusTag, TextInput } from "../../components/ui/form";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { api, errorMessage, csrfToken } from "../../lib/api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody } from "../../components/ui/dialog";
@@ -55,7 +56,7 @@ export function RolesPage({ defaultOrganizationId }: { defaultOrganizationId?: s
           <Button compact onClick={() => setEditor("create")}><Plus size={18} /> เพิ่ม Role</Button>
         </div>
       </div>
-      {error && <p className="form-message error">{error}</p>}
+      {error && <FormMessage>{error}</FormMessage>}
       <div className="role-table" role="table" aria-label="Role">
         <div className="role-row role-head" role="row">
           <span>Role</span><span>ขอบเขต</span><span>ประเภท</span><span aria-label="คำสั่ง" />
@@ -64,7 +65,7 @@ export function RolesPage({ defaultOrganizationId }: { defaultOrganizationId?: s
           <div className="role-row" role="row" key={role.id}>
             <div><strong>{role.name}</strong><small>{role.description || "ไม่มีคำอธิบาย"}</small></div>
             <span>{role.organizationId ? "เฉพาะองค์กร" : "ทั้งระบบ"}</span>
-            <span className={role.isSystem ? "status revoked" : "status active"}>{role.isSystem ? "System" : "Custom"}</span>
+            <StatusTag tone={role.isSystem ? "revoked" : "active"}>{role.isSystem ? "System" : "Custom"}</StatusTag>
             <div className="row-actions">
               <Button variant="icon" onClick={() => setEditor(role)} disabled={role.isSystem} title={role.isSystem ? "System role แก้ไขไม่ได้" : "แก้ไข Role"} aria-label={`แก้ไข ${role.name}`}><Pencil size={17} /></Button>
               <Button variant="icon" danger onClick={() => void deleteRole(role)} disabled={role.isSystem} title={role.isSystem ? "System role ลบไม่ได้" : "ลบ Role"} aria-label={`ลบ ${role.name}`}><Trash2 size={17} /></Button>
@@ -184,11 +185,11 @@ function RoleEditor({ role, permissions, defaultOrganizationId, onClose, onSaved
         <DialogBody>
           {loadingDetail ? <div className="table-state">กำลังโหลดข้อมูล</div> : (
             <form className="plant-editor-form" onSubmit={submit}>
-              <label className="full-field">ชื่อ Role<input autoFocus value={name} onChange={(event) => setName(event.target.value)} maxLength={100} required /></label>
-              <label className="full-field">คำอธิบาย<input value={description} onChange={(event) => setDescription(event.target.value)} maxLength={500} /></label>
+              <label className="full-field">ชื่อ Role<TextInput autoFocus value={name} onChange={(event) => setName(event.target.value)} maxLength={100} required /></label>
+              <label className="full-field">คำอธิบาย<TextInput value={description} onChange={(event) => setDescription(event.target.value)} maxLength={500} /></label>
               {!role && (
                 <label className="toggle-field full-field">
-                  <input type="checkbox" checked={global} onChange={(event) => setGlobal(event.target.checked)} />
+                  <Checkbox checked={global} onChange={setGlobal} />
                   <span>Role ทั้งระบบ (ทุกองค์กรใช้ได้ ต้องมีสิทธิ์ระดับ Platform)</span>
                 </label>
               )}
@@ -203,7 +204,7 @@ function RoleEditor({ role, permissions, defaultOrganizationId, onClose, onSaved
                   return (
                     <div key={group.href} className="permission-group">
                       <label className="toggle-field permission-page-toggle">
-                        <input type="checkbox" checked={expanded} onChange={() => togglePage(group)} />
+                        <Checkbox checked={expanded} onChange={() => togglePage(group)} />
                         <strong>{group.label}</strong>
                       </label>
                       {expanded && (
@@ -217,7 +218,7 @@ function RoleEditor({ role, permissions, defaultOrganizationId, onClose, onSaved
                                   <small>{entry.resourceType}</small>
                                   {entryPermissions.map((permission) => (
                                     <label key={permission.id} className="toggle-field">
-                                      <input type="checkbox" checked={permissionIds.includes(permission.id)} onChange={() => togglePermission(permission.id)} />
+                                      <Checkbox checked={permissionIds.includes(permission.id)} onChange={() => togglePermission(permission.id)} />
                                       <span>{permission.action}{permission.description ? ` — ${permission.description}` : ""}</span>
                                     </label>
                                   ))}
@@ -227,7 +228,7 @@ function RoleEditor({ role, permissions, defaultOrganizationId, onClose, onSaved
                           ) : (
                             groupPermissions.map((permission) => (
                               <label key={permission.id} className="toggle-field">
-                                <input type="checkbox" checked={permissionIds.includes(permission.id)} onChange={() => togglePermission(permission.id)} />
+                                <Checkbox checked={permissionIds.includes(permission.id)} onChange={() => togglePermission(permission.id)} />
                                 <span>{permission.action}{permission.description ? ` — ${permission.description}` : ""}</span>
                               </label>
                             ))
@@ -245,7 +246,7 @@ function RoleEditor({ role, permissions, defaultOrganizationId, onClose, onSaved
                         <small>{resourceType}</small>
                         {items.map((permission) => (
                           <label key={permission.id} className="toggle-field">
-                            <input type="checkbox" checked={permissionIds.includes(permission.id)} onChange={() => togglePermission(permission.id)} />
+                            <Checkbox checked={permissionIds.includes(permission.id)} onChange={() => togglePermission(permission.id)} />
                             <span>{permission.action}{permission.description ? ` — ${permission.description}` : ""}</span>
                           </label>
                         ))}
@@ -254,7 +255,7 @@ function RoleEditor({ role, permissions, defaultOrganizationId, onClose, onSaved
                   </div>
                 )}
               </fieldset>
-              {error && <p className="form-message error full-field">{error}</p>}
+              {error && <FormMessage className="full-field">{error}</FormMessage>}
               <div className="editor-actions full-field"><Button type="button" variant="secondary" onClick={onClose} disabled={pending}>ยกเลิก</Button><Button disabled={pending}>{pending ? "กำลังบันทึก" : "บันทึก"}</Button></div>
             </form>
           )}

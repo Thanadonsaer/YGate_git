@@ -1,6 +1,7 @@
 "use client";
 
 import { ChartLine, Download, RefreshCw } from "lucide-react";
+import { Checkbox, FormMessage, TextInput } from "../../components/ui/form";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, downloadBlob, errorMessage, toDatetimeLocal } from "../../lib/api";
 import { fetchRange, loadRegisterCatalog, pointMeta, type PointMeta } from "../../lib/telemetry-history";
@@ -225,7 +226,7 @@ export function EnergyAnalysisPage() {
           </Select>
         </label>
         <label className="ea-field">Start
-          <input
+          <TextInput
             type="datetime-local"
             className="ea-input"
             value={toDatetimeLocal(range.from)}
@@ -236,7 +237,7 @@ export function EnergyAnalysisPage() {
           />
         </label>
         <label className="ea-field">End
-          <input
+          <TextInput
             type="datetime-local"
             className="ea-input"
             value={toDatetimeLocal(range.to)}
@@ -249,19 +250,19 @@ export function EnergyAnalysisPage() {
         <div className="ea-field">ช่วงเวลา
           <div className="ea-presets">
             {PRESETS.map((preset) => (
-              <button key={preset.hours} type="button" className="ea-preset" onClick={() => setRange(rangeOfHours(preset.hours))}>
+              <Button variant="bare" key={preset.hours} type="button" className="ea-preset" onClick={() => setRange(rangeOfHours(preset.hours))}>
                 {preset.label}
-              </button>
+              </Button>
             ))}
           </div>
         </div>
         <label className="ea-toggle">
-          <input type="checkbox" checked={compare} onChange={(event) => setCompare(event.target.checked)} />
+          <Checkbox checked={compare} onChange={setCompare} />
           เทียบกับช่วงก่อนหน้า
         </label>
       </div>
 
-      {error && <p className="form-message error">{error}</p>}
+      {error && <FormMessage>{error}</FormMessage>}
       {current.truncated && (
         <p className="ts-truncated">ข้อมูลในช่วงนี้มากเกินไป แสดงเฉพาะส่วนล่าสุด — ลากบนกราฟเพื่อ zoom เข้าไปดูช่วงที่ต้องการ</p>
       )}

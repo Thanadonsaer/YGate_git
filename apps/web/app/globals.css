@@ -139,20 +139,20 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   color: var(--ink);
   background: white;
 }
-.password-field { position: relative; }
-.password-field input { padding-right: 48px; }
-.password-field button {
+/* PrimeReact Password: div.password-field > div(IconField) > input + span(icon) */
+.password-field, .password-field > div { position: relative; display: block; width: 100%; }
+.password-field input { width: 100%; padding-right: 44px; }
+.password-field > div > span {
   position: absolute;
-  right: 5px;
-  top: 5px;
-  width: 36px;
-  height: 36px;
+  right: 13px;
+  top: 50%;
   display: grid;
   place-items: center;
-  border: 0;
-  background: transparent;
+  transform: translateY(-50%);
   color: var(--muted);
+  cursor: pointer;
 }
+.password-field > div > span:hover { color: var(--ink); }
 .secondary-button, .back-button {
   display: inline-flex;
   align-items: center;
@@ -164,9 +164,12 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 }
 .secondary-button { min-height: 38px; padding: 0 13px; border: 1px solid var(--line); background: white; color: var(--ink); }
 .back-button { width: fit-content; padding: 8px 0; margin-bottom: 30px; color: var(--action); background: transparent; }
-.form-message { margin: 0; padding: 10px 12px; border-radius: var(--radius-sm); font-size: 13px; line-height: 1.45; }
+.form-message { margin: 0; padding: 10px 12px; border-radius: var(--radius-sm); font-size: 13px; line-height: 1.45; display: flex; align-items: flex-start; gap: 8px; }
+.form-message-icon { flex: none; width: 15px; height: 15px; margin-top: 2px; }
 .form-message.error { color: #852828; background: #fff0f0; border: 1px solid #f0bebe; }
-.form-message.success { display: flex; gap: 8px; color: #0d6744; background: #ebf8f2; border: 1px solid #bce6d4; }
+.form-message.success { color: #0d6744; background: #ebf8f2; border: 1px solid #bce6d4; }
+.form-message.warn { color: #7a5700; background: #fff6d9; border: 1px solid #f0dca8; }
+.form-message.info { color: #0e4d5f; background: #eaf5f8; border: 1px solid #bcdde6; }
 .gateway-state { margin-top: 36px; padding-top: 18px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
 .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--danger); }
 .dot.online { background: var(--success); }
@@ -496,7 +499,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .plant-editor-form input:disabled { color: var(--muted); background: #edf0f2; }
 .plant-editor-form .full-field { grid-column: 1 / -1; }
 .plant-editor-form .toggle-field { width: fit-content; grid-template-columns: 20px auto; align-items: center; gap: 9px; }
-.plant-editor-form .toggle-field input { width: 18px; height: 18px; accent-color: var(--action); }
 .editor-actions { padding-top: 4px; display: flex; justify-content: flex-end; gap: 9px; }
 .alarm-conditions { display: grid; gap: 8px; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px; }
 .alarm-conditions-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 12px; font-weight: 700; color: var(--muted); }
@@ -539,12 +541,55 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .accent-dot { width: 16px; height: 16px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 12%); }
 
 .site-map-note { margin: 0 0 14px; color: var(--muted); font-size: 12px; }
-.site-map-canvas { height: calc(100vh - 220px); min-height: 420px; border: 1px solid var(--line); }
-.site-map-marker { width: 16px; height: 16px; border-radius: 50%; border: 2px solid white; box-shadow: 0 1px 4px rgb(0 0 0 / 35%); }
-.site-map-marker.online { background: #0f6c49; }
-.site-map-marker.degraded { background: var(--warning); }
-.site-map-marker.offline { background: var(--danger); }
-.site-map-marker.no_devices, .site-map-marker.disabled { background: #6d767d; }
+.site-map-canvas { height: calc(100vh - 250px); min-height: 420px; border: 1px solid var(--line); border-radius: var(--radius-md); overflow: hidden; }
+.site-map-legend { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; padding: 0; list-style: none; }
+.site-map-legend li { display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 11px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--muted); font-size: 12px; font-weight: 650; }
+.site-map-legend b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.site-map-legend-dot { width: 10px; height: 10px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 15%); }
+
+/* Map pins. The teardrop is an inline SVG in a Leaflet divIcon, so the colour
+   arrives as the --pin custom property set on the wrapper. */
+.site-pin-icon, .site-cluster-icon { background: none; border: 0; }
+.site-pin { position: relative; display: block; width: 30px; height: 42px; filter: drop-shadow(0 5px 6px rgb(15 27 38 / 38%)); transition: transform .16s ease; transform-origin: 50% 100%; }
+.site-pin svg { position: relative; z-index: 1; display: block; width: 100%; height: 100%; }
+.site-pin path { fill: var(--pin); stroke: #fff; stroke-width: 2.2; }
+.site-pin circle { fill: #fff; }
+.site-pin:hover { transform: scale(1.14) translateY(-2px); }
+/* Something is wrong at this site -- draw the eye with a slow radar ping. */
+.site-pin-degraded::before, .site-pin-offline::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 15px;
+  width: 26px;
+  height: 26px;
+  margin: -13px 0 0 -13px;
+  border-radius: 50%;
+  background: var(--pin);
+  animation: site-pin-ping 1.9s cubic-bezier(0, 0, .2, 1) infinite;
+}
+@keyframes site-pin-ping {
+  0% { transform: scale(.55); opacity: .55; }
+  100% { transform: scale(2.6); opacity: 0; }
+}
+.site-cluster {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  color: white;
+  background: color-mix(in srgb, var(--action) 88%, black);
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--action) 22%, transparent), 0 6px 14px rgb(15 27 38 / 30%);
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 800;
+}
+.leaflet-popup-content-wrapper { border-radius: var(--radius-md); box-shadow: var(--shadow-lg); }
+@media (prefers-reduced-motion: reduce) {
+  .site-pin-degraded::before, .site-pin-offline::before { animation: none; }
+  .site-pin { transition: none; }
+}
 .site-map-popup p { margin: 0 0 4px; font-size: 10px; font-weight: 800; text-transform: uppercase; color: var(--muted); }
 .site-map-popup h3 { margin: 0 0 6px; font-size: 15px; }
 .site-map-popup dl { margin: 0; display: grid; grid-template-columns: auto auto; gap: 2px 10px; font-size: 12px; }
@@ -637,7 +682,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .scada-node.metric { min-width: 185px; align-items: start; justify-items: start; }
 .scada-node.metric > strong { font-size: 20px; }
 .scada-node.metric em { color: var(--muted); font-size: 10px; font-style: normal; font-weight: 650; }
-.scada-node.metric meter, .scada-node.metric progress { width: 100%; height: 12px; accent-color: var(--action); }
+.metric-bar { position: relative; width: 100%; height: 12px; overflow: hidden; border-radius: 999px; background: var(--canvas); box-shadow: inset 0 0 0 1px var(--line); }
+.metric-bar-fill { display: block; height: 100%; border-radius: 999px; background: var(--action); transition: width .25s ease; }
 .metric-tank { width: 34px; height: 54px; border: 1px solid var(--line); display: flex; align-items: end; background: var(--canvas); }
 .metric-tank span { width: 100%; background: var(--action); }
 .scada-node.label { min-width: 120px; padding: 9px 12px; border-style: dashed; box-shadow: none; }
@@ -791,6 +837,5 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .plant-image-fallback { display: grid; place-items: center; color: var(--muted); background: var(--canvas); font-size: 12px; }
 .plant-image-actions { display: flex; align-items: center; gap: 8px; }
 .plant-image-field > small { color: var(--muted); font-size: 11px; }
-.site-map-marker { display: block; width: 16px; height: 16px; border-radius: 50%; border: 2px solid white; box-shadow: 0 1px 4px rgb(0 0 0 / 35%); }
 .site-map-popup-image, .site-map-popup-fallback { width: 100%; max-height: 140px; min-height: 80px; margin: 0 0 8px; border-radius: 6px; object-fit: cover; }
 .site-map-popup-fallback { display: grid; place-items: center; color: var(--muted); background: var(--canvas); font-size: 11px; }

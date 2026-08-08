@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { FormMessage, TextInput } from "../../components/ui/form";
 import { errorMessage, toDatetimeLocal } from "../../lib/api";
 import { fetchRange, pointMeta, type PointMeta } from "../../lib/telemetry-history";
 import { toSeries, type Point } from "../../lib/telemetry-math";
@@ -85,7 +86,7 @@ export function DeviceHistoryChart({
       <div className="section-heading">
         <div><p>Telemetry history</p><h3>กราฟค่าย้อนหลัง</h3></div>
         <div className="flex flex-wrap items-center gap-2">
-          <input
+          <TextInput
             type="datetime-local"
             className="h-10 rounded-[var(--radius-sm)] border border-line px-2 text-sm"
             value={toDatetimeLocal(range.from)}
@@ -95,7 +96,7 @@ export function DeviceHistoryChart({
             }}
           />
           <span className="text-xs text-slate-500">ถึง</span>
-          <input
+          <TextInput
             type="datetime-local"
             className="h-10 rounded-[var(--radius-sm)] border border-line px-2 text-sm"
             value={toDatetimeLocal(range.to)}
@@ -116,7 +117,7 @@ export function DeviceHistoryChart({
           disabled={availableKeys.length === 0}
         />
       </div>
-      {error && <p className="form-message error">{error}</p>}
+      {error && <FormMessage>{error}</FormMessage>}
       {truncated && <p className="ts-truncated">ข้อมูลในช่วงนี้มากเกินไป แสดงเฉพาะส่วนล่าสุด — ลากบนกราฟเพื่อ zoom เข้าไปดูช่วงที่ต้องการ</p>}
       {!error && selectedKeys.length === 0 && <div className="table-state">เลือก Parameter อย่างน้อยหนึ่งตัวเพื่อดูกราฟ</div>}
       {!error && selectedKeys.length > 0 && (

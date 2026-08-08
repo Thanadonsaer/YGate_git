@@ -1,6 +1,7 @@
 "use client";
 
 import { CheckCircle2, KeyRound, Pencil, Plus, RefreshCw, RotateCcw, Save, Trash2, UserX } from "lucide-react";
+import { Checkbox, FormMessage, PasswordInput, StatusTag, TextInput } from "../../components/ui/form";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { api, errorMessage, csrfToken, formatDate } from "../../lib/api";
 import type { ManagedUser, Organization, Role } from "../../lib/types";
@@ -78,7 +79,7 @@ export function UsersPage({ currentUserId, defaultOrganizationId }: { currentUse
         <Button compact onClick={() => setEditor("create")}><Plus size={18} /> เพิ่มผู้ใช้</Button>
       </div>
     </div>
-    {error && <p className="form-message error">{error}</p>}
+    {error && <FormMessage>{error}</FormMessage>}
     <div className="user-table" role="table" aria-label="ผู้ใช้">
       <div className="user-row user-head" role="row"><span>ผู้ใช้</span><span>องค์กร</span><span>Role</span><span>Login</span><span>สถานะ</span><span aria-label="คำสั่ง" /></div>
       {!loading && users.map((item) => (
@@ -87,7 +88,7 @@ export function UsersPage({ currentUserId, defaultOrganizationId }: { currentUse
           <div><span>{item.organizationName}</span><small>{item.organizationId}</small></div>
           <div><span>{item.roles.join(", ") || "-"}</span><small>Role และ profile แก้ไขได้</small></div>
           <div><span>{item.failedLoginCount.toLocaleString()} failed</span><small>{item.lockedUntil ? `Locked ${formatDate(item.lockedUntil)}` : `Updated ${formatDate(item.updatedAt)}`}</small></div>
-          <span className={item.isActive ? "status active" : "status revoked"}>{item.isActive ? "ใช้งาน" : "ปิดใช้งาน"}</span>
+          <StatusTag tone={item.isActive ? "active" : "revoked"}>{item.isActive ? "ใช้งาน" : "ปิดใช้งาน"}</StatusTag>
           <div className="row-actions">
             <Button variant="icon" onClick={() => setEditor(item)} disabled={item.id === currentUserId} title="แก้ไข User/Role" aria-label={`แก้ไข ${item.displayName}`}><Pencil size={17} /></Button>
             <Button variant="icon" onClick={() => void unlockUser(item)} disabled={!item.lockedUntil && item.failedLoginCount === 0} title="ปลดล็อก" aria-label={`ปลดล็อก ${item.displayName}`}><RotateCcw size={17} /></Button>
@@ -148,12 +149,12 @@ function UserEditor({ user, roles, organizations, defaultOrganizationId, onClose
         </DialogHeader>
         <DialogBody>
           <form className="plant-editor-form" onSubmit={submit}>
-            <label>อีเมล<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} maxLength={320} required /></label>
-            <label>Username<input value={username} onChange={(event) => setUsername(event.target.value)} maxLength={100} /></label>
-            <label className="full-field">ชื่อแสดงผล<input value={displayName} onChange={(event) => setDisplayName(event.target.value)} maxLength={200} required /></label>
+            <label>อีเมล<TextInput type="email" value={email} onChange={(event) => setEmail(event.target.value)} maxLength={320} required /></label>
+            <label>Username<TextInput value={username} onChange={(event) => setUsername(event.target.value)} maxLength={100} /></label>
+            <label className="full-field">ชื่อแสดงผล<TextInput value={displayName} onChange={(event) => setDisplayName(event.target.value)} maxLength={200} required /></label>
             <label>Organization
               {user || organizations.length === 0 ? (
-                <input value={organizationId} onChange={(event) => setOrganizationId(event.target.value)} required disabled={Boolean(user)} />
+                <TextInput value={organizationId} onChange={(event) => setOrganizationId(event.target.value)} required disabled={Boolean(user)} />
               ) : (
                 <Select value={organizationId} onValueChange={setOrganizationId}>
                   <SelectTrigger><SelectValue placeholder="เลือก Organization" /></SelectTrigger>
@@ -167,9 +168,9 @@ function UserEditor({ user, roles, organizations, defaultOrganizationId, onClose
                 <SelectContent>{roles.map((role) => <SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>)}</SelectContent>
               </Select>
             </label>
-            {!user && <label className="full-field">รหัสผ่านเริ่มต้น<input type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={12} maxLength={72} required /></label>}
-            {user && <label className="toggle-field full-field"><input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} /> เปิดใช้งาน User</label>}
-            {error && <p className="form-message error full-field">{error}</p>}
+            {!user && <label className="full-field">รหัสผ่านเริ่มต้น<PasswordInput autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={12} maxLength={72} required /></label>}
+            {user && <label className="toggle-field full-field"><Checkbox checked={isActive} onChange={setIsActive} /> เปิดใช้งาน User</label>}
+            {error && <FormMessage className="full-field">{error}</FormMessage>}
             <div className="editor-actions full-field"><Button type="button" variant="secondary" onClick={onClose} disabled={pending}>ยกเลิก</Button><Button disabled={pending}><Save size={17} /> {pending ? "กำลังบันทึก" : "บันทึกผู้ใช้"}</Button></div>
           </form>
         </DialogBody>
@@ -204,9 +205,9 @@ function PasswordResetDialog({ user, onClose, onSaved }: { user: ManagedUser; on
         </DialogHeader>
         <DialogBody>
           <form className="plant-editor-form" onSubmit={submit}>
-            <label className="full-field">รหัสผ่านใหม่<input type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={12} maxLength={72} required /></label>
+            <label className="full-field">รหัสผ่านใหม่<PasswordInput autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={12} maxLength={72} required /></label>
             <p className="full-field text-xs text-slate-500">ทุก session และ reset token ของ User จะถูก revoke</p>
-            {error && <p className="form-message error full-field">{error}</p>}
+            {error && <FormMessage className="full-field">{error}</FormMessage>}
             <div className="editor-actions full-field"><Button type="button" variant="secondary" onClick={onClose} disabled={pending}>ยกเลิก</Button><Button disabled={pending}><KeyRound size={17} /> {pending ? "กำลังบันทึก" : "ตั้งรหัสผ่าน"}</Button></div>
           </form>
         </DialogBody>

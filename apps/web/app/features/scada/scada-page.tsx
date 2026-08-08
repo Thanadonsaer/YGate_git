@@ -52,12 +52,14 @@ import {
   Zap,
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { FormMessage, StatusTag, TextInput } from "../../components/ui/form";
 import { api, errorMessage, csrfToken, formatDate } from "../../lib/api";
 import { useRealtimeSocket } from "../../lib/realtime";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody } from "../../components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../../components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "../../components/ui/tabs";
 import { Tooltip, TooltipTrigger, TooltipContent } from "../../components/ui/tooltip";
+import { ProgressBar } from "primereact/progressbar";
 import { Button } from "../../components/ui/button";
 import type {
   Device,
@@ -341,7 +343,7 @@ export function ScadaPage() {
     <div className="scada-titlebar">
       <div className="registry-title">
         <Button variant="icon" onClick={() => { setScreen(null); setDraftDesign(null); void loadLibrary(); }} title="กลับไปรายการ Screen" aria-label="กลับไปรายการ Screen"><ArrowLeft size={18} /></Button>
-        <div><p>{screen.plantCode} · {screen.plantName}</p><input aria-label="ชื่อ SCADA Screen" value={draftName} onChange={(event) => markName(event.target.value)} disabled={!editable} maxLength={100} /></div>
+        <div><p>{screen.plantCode} · {screen.plantName}</p><TextInput aria-label="ชื่อ SCADA Screen" value={draftName} onChange={(event) => markName(event.target.value)} disabled={!editable} maxLength={100} /></div>
       </div>
       <div className="scada-actions">
         {screen.canEdit && <SaveState state={saveState} />}
@@ -356,7 +358,7 @@ export function ScadaPage() {
         {screen.canHardDelete && <Button variant="icon" danger onClick={() => void hardDelete()} title="ลบ Screen ถาวร" aria-label="ลบ Screen ถาวร"><Trash2 size={17} /></Button>}
       </div>
     </div>
-    {error && <p className="form-message error">{error}</p>}
+    {error && <FormMessage>{error}</FormMessage>}
     {saveState === "conflict" && <div className="scada-conflict"><strong>Draft มีการแก้ไขจากที่อื่น</strong><span>โหลดเวอร์ชันล่าสุดก่อนแก้ต่อเพื่อป้องกันข้อมูลหาย</span><Button variant="secondary" compact onClick={() => void loadScreen(screen.id)}><RefreshCw size={16} /> โหลดใหม่</Button></div>}
     {activeDesign ? <ScadaCanvas key={`${screen.id}-${canvasEpoch}-${mode}`} design={activeDesign} editable={editable} devices={devices} latestByDevice={latestByDevice} versions={versions} canPublish={screen.canPublish} onDesignChange={markDesign} onRollback={rollback} /> : <div className="table-state">ยังไม่มี Published version</div>}
   </div>;
@@ -368,12 +370,12 @@ function ScadaLibrary({ plants, screens, loading, error, createOpen, createPlant
 }) {
   return <div className="content scada-content">
     <div className="section-heading"><div><p>Fixed-canvas operational screens</p><h2>SCADA Screens</h2></div><div className="heading-actions"><Button variant="icon" onClick={() => void onRefresh()} title="รีเฟรช" aria-label="รีเฟรช SCADA Screens"><RefreshCw size={18} /></Button><Button compact onClick={() => onCreateOpen(true)}><FilePlus2 size={17} /> สร้าง Screen</Button></div></div>
-    {error && <p className="form-message error">{error}</p>}
+    {error && <FormMessage>{error}</FormMessage>}
     <section className="scada-library" aria-label="SCADA Screens">
       <div className="scada-library-head"><span>Screen</span><span>Plant</span><span>Draft</span><span>Published</span><span>Updated</span><span aria-label="คำสั่ง" /></div>
-      {screens.map((item) => <button key={item.id} className="scada-library-row" onClick={() => void onOpen(item.id)}>
-        <div><Workflow size={18} /><span><strong>{item.name}</strong><small>{item.id}</small></span></div><div><strong>{item.plantName}</strong><small>{item.plantCode}</small></div><span>v{item.draftVersion}</span><span className={item.publishedVersion > 0 ? "status active" : "status revoked"}>{item.publishedVersion > 0 ? `v${item.publishedVersion}` : "ยังไม่ Publish"}</span><time>{formatDate(item.updatedAt)}</time><Pencil size={17} />
-      </button>)}
+      {screens.map((item) => <Button variant="bare" key={item.id} className="scada-library-row" onClick={() => void onOpen(item.id)}>
+        <div><Workflow size={18} /><span><strong>{item.name}</strong><small>{item.id}</small></span></div><div><strong>{item.plantName}</strong><small>{item.plantCode}</small></div><span>v{item.draftVersion}</span><StatusTag tone={item.publishedVersion > 0 ? "active" : "revoked"}>{item.publishedVersion > 0 ? `v${item.publishedVersion}` : "ยังไม่ Publish"}</StatusTag><time>{formatDate(item.updatedAt)}</time><Pencil size={17} />
+      </Button>)}
       {loading && <div className="table-state">กำลังโหลด SCADA Screens</div>}
       {!loading && !error && screens.length === 0 && <div className="table-state">ยังไม่มี SCADA Screen — สร้าง Screen แรกสำหรับ Plant ที่ต้องการ</div>}
     </section>
@@ -390,7 +392,7 @@ function ScadaLibrary({ plants, screens, loading, error, createOpen, createPlant
                 <SelectContent>{plants.map((plant) => <SelectItem key={plant.id} value={plant.id}>{plant.code} · {plant.name}</SelectItem>)}</SelectContent>
               </Select>
             </label>
-            <label className="full-field">ชื่อ Screen<input autoFocus value={createName} onChange={(event) => onCreateName(event.target.value)} maxLength={100} placeholder="Single Line Diagram" required /></label>
+            <label className="full-field">ชื่อ Screen<TextInput autoFocus value={createName} onChange={(event) => onCreateName(event.target.value)} maxLength={100} placeholder="Single Line Diagram" required /></label>
             <div className="editor-actions full-field"><Button type="button" variant="secondary" onClick={() => onCreateOpen(false)}>ยกเลิก</Button><Button><FilePlus2 size={17} /> สร้าง Draft</Button></div>
           </form>
         </DialogBody>
@@ -486,7 +488,7 @@ export function ScadaCanvas({ design, editable, devices, latestByDevice, version
   }
 
   return <div className={editable ? "scada-workbench editing scada-dark" : hideInspector ? "scada-workbench solo scada-dark" : "scada-workbench viewing scada-dark"}>
-    {editable && <aside className="scada-palette"><header><Grid2X2 size={17} /><div><strong>Node palette</strong><small>เพิ่มองค์ประกอบลง fixed canvas</small></div></header>{paletteEntries.map(({ type, title, description, icon: Icon, requiresDevice }) => <button key={type} onClick={() => addNode(type)} disabled={requiresDevice && devices.length === 0} title={requiresDevice && devices.length === 0 ? "Plant นี้ยังไม่มี Device" : undefined}><Icon size={18} /><span><strong>{title}</strong><small>{description}</small></span></button>)}<div className="palette-note"><Workflow size={16} /><p>ใช้ Edge ของ React Flow สำหรับเส้นและลูกศรระหว่าง Node</p></div></aside>}
+    {editable && <aside className="scada-palette"><header><Grid2X2 size={17} /><div><strong>Node palette</strong><small>เพิ่มองค์ประกอบลง fixed canvas</small></div></header>{paletteEntries.map(({ type, title, description, icon: Icon, requiresDevice }) => <Button variant="bare" key={type} onClick={() => addNode(type)} disabled={requiresDevice && devices.length === 0} title={requiresDevice && devices.length === 0 ? "Plant นี้ยังไม่มี Device" : undefined}><Icon size={18} /><span><strong>{title}</strong><small>{description}</small></span></Button>)}<div className="palette-note"><Workflow size={16} /><p>ใช้ Edge ของ React Flow สำหรับเส้นและลูกศรระหว่าง Node</p></div></aside>}
     <section className="scada-stage-shell" ref={stageRef}>
       <div className="scada-stage-toolbar"><span>{editable ? "Draft canvas · Snap 20px" : "Operational viewer · Read only"}</span><Button variant="icon" onClick={() => void stageRef.current?.requestFullscreen()} title="เต็มจอ" aria-label="แสดง SCADA เต็มจอ"><Fullscreen size={17} /></Button></div>
       <div className="scada-stage">
@@ -503,7 +505,7 @@ export function ScadaCanvas({ design, editable, devices, latestByDevice, version
 }
 
 function VersionHistory({ versions, canPublish, onRollback }: { versions: ScadaScreenVersion[]; canPublish: boolean; onRollback: (version: ScadaScreenVersion) => Promise<void> }) {
-  return <div className="version-list">{versions.map((version) => <div key={version.version}><span><strong>Version {version.version}</strong><small><Clock3 size={12} /> {formatDate(version.publishedAt)} · Draft {version.sourceDraftVersion}</small></span>{version.current ? <span className="status active">Current</span> : canPublish ? <Button variant="icon" onClick={() => void onRollback(version)} title={`Rollback ไป Version ${version.version}`} aria-label={`Rollback ไป Version ${version.version}`}><RotateCcw size={15} /></Button> : null}</div>)}{versions.length === 0 && <p className="muted-text">ยังไม่มี Published version</p>}</div>;
+  return <div className="version-list">{versions.map((version) => <div key={version.version}><span><strong>Version {version.version}</strong><small><Clock3 size={12} /> {formatDate(version.publishedAt)} · Draft {version.sourceDraftVersion}</small></span>{version.current ? <StatusTag tone="active">Current</StatusTag> : canPublish ? <Button variant="icon" onClick={() => void onRollback(version)} title={`Rollback ไป Version ${version.version}`} aria-label={`Rollback ไป Version ${version.version}`}><RotateCcw size={15} /></Button> : null}</div>)}{versions.length === 0 && <p className="muted-text">ยังไม่มี Published version</p>}</div>;
 }
 
 function SaveState({ state }: { state: "saved" | "dirty" | "saving" | "conflict" | "error" }) {
@@ -523,23 +525,23 @@ function ScadaInspector({ selected, devices, latestByDevice, versions, canPublis
   const deviceOnly = selected.type === "device-summary";
   return <aside className="scada-inspector">
     <header><Pencil size={17} /><div><strong>Node properties</strong><Tooltip><TooltipTrigger asChild><small className="cursor-help underline decoration-dotted">{selected.type} · {selected.id.slice(0, 12)}</small></TooltipTrigger><TooltipContent>Node type: {selected.type}<br />Full ID: {selected.id}</TooltipContent></Tooltip></div></header>
-    <label>Label<input value={data.label} maxLength={100} onChange={(event) => update({ label: event.target.value })} /></label>
-    {selected.type === "equipment" && <label>Equipment type<select value={data.equipmentKind || "inverter"} onChange={(event) => update({ equipmentKind: event.target.value as ScadaNodeData["equipmentKind"] })}><option value="solar-panel">Solar panel</option><option value="inverter">Inverter</option><option value="meter">Meter</option><option value="grid">Grid</option></select></label>}
+    <label>Label<TextInput value={data.label} maxLength={100} onChange={(event) => update({ label: event.target.value })} /></label>
+    {selected.type === "equipment" && <label>Equipment type<Select value={data.equipmentKind || "inverter"} onValueChange={(value) => update({ equipmentKind: value as ScadaNodeData["equipmentKind"] })}><SelectTrigger aria-label="Equipment type"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="solar-panel">Solar panel</SelectItem><SelectItem value="inverter">Inverter</SelectItem><SelectItem value="meter">Meter</SelectItem><SelectItem value="grid">Grid</SelectItem></SelectContent></Select></label>}
     {bound && <BindingEditor binding={data.binding} devices={devices} latestByDevice={latestByDevice} onChange={(binding) => update({ binding })} />}
-    {deviceOnly && <label>Device<select value={data.deviceId || ""} onChange={(event) => update({ deviceId: event.target.value })}>{devices.map((device) => <option key={device.id} value={device.id}>{device.name}</option>)}</select></label>}
-    {selected.type === "metric" && <><label>Display<select value={data.displayType || "text"} onChange={(event) => update({ displayType: event.target.value as ScadaNodeData["displayType"] })}><option value="text">Text</option><option value="gauge">Gauge</option><option value="progress">Progress</option><option value="tank">Tank</option></select></label><div className="inspector-grid"><NumberField label="Minimum" value={data.minValue} onChange={(minValue) => update({ minValue })} /><NumberField label="Maximum" value={data.maxValue} onChange={(maxValue) => update({ maxValue })} /></div></>}
+    {deviceOnly && <label>Device<Select value={data.deviceId || ""} onValueChange={(value) => update({ deviceId: value })}><SelectTrigger aria-label="Device"><SelectValue /></SelectTrigger><SelectContent>{devices.map((device) => <SelectItem key={device.id} value={device.id}>{device.name}</SelectItem>)}</SelectContent></Select></label>}
+    {selected.type === "metric" && <><label>Display<Select value={data.displayType || "text"} onValueChange={(value) => update({ displayType: value as ScadaNodeData["displayType"] })}><SelectTrigger aria-label="Display"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="text">Text</SelectItem><SelectItem value="gauge">Gauge</SelectItem><SelectItem value="progress">Progress</SelectItem><SelectItem value="tank">Tank</SelectItem></SelectContent></Select></label><div className="inspector-grid"><NumberField label="Minimum" value={data.minValue} onChange={(minValue) => update({ minValue })} /><NumberField label="Maximum" value={data.maxValue} onChange={(maxValue) => update({ maxValue })} /></div></>}
     {selected.type === "led" && <NumberField label="On when value equals" value={data.onValue} onChange={(onValue) => update({ onValue })} />}
-    {selected.type === "shape" && <label>Shape<select value={data.shapeKind || "rectangle"} onChange={(event) => update({ shapeKind: event.target.value as ScadaNodeData["shapeKind"] })}><option value="rectangle">Rectangle</option><option value="circle">Circle</option><option value="triangle">Triangle</option><option value="diamond">Diamond</option><option value="hexagon">Hexagon</option></select></label>}
-    {selected.type === "clock" && <label>Timezone<select value={data.timezone || "Asia/Bangkok"} onChange={(event) => update({ timezone: event.target.value })}><option value="Asia/Bangkok">Asia/Bangkok</option><option value="UTC">UTC</option><option value="Asia/Singapore">Asia/Singapore</option><option value="Asia/Tokyo">Asia/Tokyo</option></select></label>}
-    {selected.type === "image" && <label>Image URL<input value={data.imageUrl || ""} maxLength={2048} placeholder="https://… or /images/…" onChange={(event) => update({ imageUrl: event.target.value })} /></label>}
-    {selected.type === "ticker" && <label>Message<input value={data.text || ""} maxLength={200} onChange={(event) => update({ text: event.target.value })} /></label>}
+    {selected.type === "shape" && <label>Shape<Select value={data.shapeKind || "rectangle"} onValueChange={(value) => update({ shapeKind: value as ScadaNodeData["shapeKind"] })}><SelectTrigger aria-label="Shape"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="rectangle">Rectangle</SelectItem><SelectItem value="circle">Circle</SelectItem><SelectItem value="triangle">Triangle</SelectItem><SelectItem value="diamond">Diamond</SelectItem><SelectItem value="hexagon">Hexagon</SelectItem></SelectContent></Select></label>}
+    {selected.type === "clock" && <label>Timezone<Select value={data.timezone || "Asia/Bangkok"} onValueChange={(value) => update({ timezone: value })}><SelectTrigger aria-label="Timezone"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Asia/Bangkok">Asia/Bangkok</SelectItem><SelectItem value="UTC">UTC</SelectItem><SelectItem value="Asia/Singapore">Asia/Singapore</SelectItem><SelectItem value="Asia/Tokyo">Asia/Tokyo</SelectItem></SelectContent></Select></label>}
+    {selected.type === "image" && <label>Image URL<TextInput value={data.imageUrl || ""} maxLength={2048} placeholder="https://… or /images/…" onChange={(event) => update({ imageUrl: event.target.value })} /></label>}
+    {selected.type === "ticker" && <label>Message<TextInput value={data.text || ""} maxLength={200} onChange={(event) => update({ text: event.target.value })} /></label>}
     {listed && <DataItemsEditor items={data.items || []} devices={devices} latestByDevice={latestByDevice} alarms={selected.type === "alarms"} onChange={(items) => update({ items })} />}
     <Button variant="secondary" danger onClick={onRemove}><Trash2 size={16} /> ลบ Node</Button>
   </aside>;
 }
 
 function NumberField({ label, value, onChange }: { label: string; value?: number; onChange: (value?: number) => void }) {
-  return <label>{label}<input type="number" value={value ?? ""} onChange={(event) => onChange(event.target.value === "" ? undefined : Number(event.target.value))} /></label>;
+  return <label>{label}<TextInput type="number" value={value == null ? "" : String(value)} onChange={(event) => onChange(event.target.value === "" ? undefined : Number(event.target.value))} /></label>;
 }
 
 function BindingEditor({ binding, devices, latestByDevice, onChange }: { binding?: ScadaNodeData["binding"]; devices: Device[]; latestByDevice: Record<string, LatestTelemetry>; onChange: (binding: NonNullable<ScadaNodeData["binding"]>) => void }) {
@@ -551,12 +553,12 @@ function BindingEditor({ binding, devices, latestByDevice, onChange }: { binding
     onChange({ ...current, deviceId, pointKey: nextKeys[0] || "" });
   }
   return <div className="binding-editor">
-    <label>Device<select value={current.deviceId} onChange={(event) => changeDevice(event.target.value)}>{devices.map((device) => <option key={device.id} value={device.id}>{device.name}</option>)}</select></label>
-    <label>Parameter<select value={current.pointKey} onChange={(event) => onChange({ ...current, pointKey: event.target.value })}>
-      {!current.pointKey && <option value="">{pointOptions.length === 0 ? "ยังไม่มีข้อมูล" : "-- เลือก parameter --"}</option>}
-      {pointOptions.map((key) => <option key={key} value={key}>{key}</option>)}
-    </select></label>
-    <div className="inspector-grid"><label>Unit<input value={current.unit} maxLength={20} onChange={(event) => onChange({ ...current, unit: event.target.value })} /></label><label>Decimals<input type="number" min={0} max={6} value={current.decimals} onChange={(event) => onChange({ ...current, decimals: Number(event.target.value) })} /></label></div>
+    <label>Device<Select value={current.deviceId} onValueChange={changeDevice}><SelectTrigger aria-label="Device"><SelectValue /></SelectTrigger><SelectContent>{devices.map((device) => <SelectItem key={device.id} value={device.id}>{device.name}</SelectItem>)}</SelectContent></Select></label>
+    <label>Parameter<Select value={current.pointKey} onValueChange={(value) => onChange({ ...current, pointKey: value })}>
+      <SelectTrigger aria-label="Parameter"><SelectValue placeholder={pointOptions.length === 0 ? "ยังไม่มีข้อมูล" : "-- เลือก parameter --"} /></SelectTrigger>
+      <SelectContent>{pointOptions.map((key) => <SelectItem key={key} value={key}>{key}</SelectItem>)}</SelectContent>
+    </Select></label>
+    <div className="inspector-grid"><label>Unit<TextInput value={current.unit} maxLength={20} onChange={(event) => onChange({ ...current, unit: event.target.value })} /></label><label>Decimals<TextInput type="number" min={0} max={6} value={String(current.decimals)} onChange={(event) => onChange({ ...current, decimals: Number(event.target.value) })} /></label></div>
   </div>;
 }
 
@@ -565,7 +567,7 @@ function DataItemsEditor({ items, devices, latestByDevice, alarms, onChange }: {
   const fallbackPointKey = Object.keys(latestByDevice[fallbackDeviceId]?.dataItemMap || {}).sort()[0] || "";
   const fallback = { deviceId: fallbackDeviceId, pointKey: fallbackPointKey, unit: "kW", decimals: 1 };
   const patch = (index: number, next: Partial<ScadaDataItem>) => onChange(items.map((item, itemIndex) => itemIndex === index ? { ...item, ...next } : item));
-  return <section className="scada-item-editor"><div className="item-editor-heading"><strong>{alarms ? "Alarm points" : "Table rows"}</strong><Button type="button" variant="icon" disabled={items.length >= 20 || devices.length === 0} onClick={() => onChange([...items, { label: `Point ${items.length + 1}`, binding: fallback }])} title="เพิ่ม point" aria-label="เพิ่ม point">+</Button></div>{items.map((item, index) => <div className="scada-item-row" key={`${index}-${item.binding.deviceId}`}><label>Label<input value={item.label} maxLength={100} onChange={(event) => patch(index, { label: event.target.value })} /></label><BindingEditor binding={item.binding} devices={devices} latestByDevice={latestByDevice} onChange={(binding) => patch(index, { binding })} />{alarms && <div className="inspector-grid"><NumberField label="Low alarm" value={item.minAlarm} onChange={(minAlarm) => patch(index, { minAlarm })} /><NumberField label="High alarm" value={item.maxAlarm} onChange={(maxAlarm) => patch(index, { maxAlarm })} /></div>}<Button type="button" variant="text" danger disabled={items.length <= 1} onClick={() => onChange(items.filter((_, itemIndex) => itemIndex !== index))}>ลบแถว</Button></div>)}</section>;
+  return <section className="scada-item-editor"><div className="item-editor-heading"><strong>{alarms ? "Alarm points" : "Table rows"}</strong><Button type="button" variant="icon" disabled={items.length >= 20 || devices.length === 0} onClick={() => onChange([...items, { label: `Point ${items.length + 1}`, binding: fallback }])} title="เพิ่ม point" aria-label="เพิ่ม point">+</Button></div>{items.map((item, index) => <div className="scada-item-row" key={`${index}-${item.binding.deviceId}`}><label>Label<TextInput value={item.label} maxLength={100} onChange={(event) => patch(index, { label: event.target.value })} /></label><BindingEditor binding={item.binding} devices={devices} latestByDevice={latestByDevice} onChange={(binding) => patch(index, { binding })} />{alarms && <div className="inspector-grid"><NumberField label="Low alarm" value={item.minAlarm} onChange={(minAlarm) => patch(index, { minAlarm })} /><NumberField label="High alarm" value={item.maxAlarm} onChange={(maxAlarm) => patch(index, { maxAlarm })} /></div>}<Button type="button" variant="text" danger disabled={items.length <= 1} onClick={() => onChange(items.filter((_, itemIndex) => itemIndex !== index))}>ลบแถว</Button></div>)}</section>;
 }
 
 function EquipmentNode({ data, selected }: NodeProps<FlowNode>) {
@@ -577,7 +579,20 @@ function EquipmentNode({ data, selected }: NodeProps<FlowNode>) {
 function MetricNode({ data, selected }: NodeProps<FlowNode>) {
   const reading = readBinding(data, data.binding);
   const min = data.minValue ?? 0; const max = data.maxValue ?? 100; const value = reading.value ?? min;
-  return <div className={selected ? "scada-node metric selected" : "scada-node metric"}><NodeHandles /><small>{data.label}</small>{data.displayType === "gauge" && <meter min={min} max={max} value={value} />}{data.displayType === "progress" && <progress max={Math.max(1, max - min)} value={Math.max(0, value - min)} />}{data.displayType === "tank" && <div className="metric-tank" aria-hidden="true"><span style={{ height: `${Math.max(0, Math.min(100, ((value - min) / Math.max(1, max - min)) * 100))}%` }} /></div>}<strong>{reading.missing ? "—" : reading.formatted} <em>{data.binding?.unit}</em></strong><Quality reading={reading} /></div>;
+  return <div className={selected ? "scada-node metric selected" : "scada-node metric"}><NodeHandles /><small>{data.label}</small>{(data.displayType === "gauge" || data.displayType === "progress") && <MetricBar percent={((value - min) / Math.max(1, max - min)) * 100} />}{data.displayType === "tank" && <div className="metric-tank" aria-hidden="true"><span style={{ height: `${Math.max(0, Math.min(100, ((value - min) / Math.max(1, max - min)) * 100))}%` }} /></div>}<strong>{reading.missing ? "—" : reading.formatted} <em>{data.binding?.unit}</em></strong><Quality reading={reading} /></div>;
+}
+
+// Gauge/progress metric fill. PrimeReact ProgressBar sets the width inline, so
+// pt only has to supply the track and bar skin (the app runs unstyled).
+function MetricBar({ percent }: { percent: number }) {
+  return <ProgressBar
+    value={Math.max(0, Math.min(100, Math.round(percent)))}
+    showValue={false}
+    pt={{
+      root: { className: "metric-bar" },
+      value: { className: "metric-bar-fill" },
+    }}
+  />;
 }
 
 function LabelNode({ data, selected }: NodeProps<FlowNode>) {

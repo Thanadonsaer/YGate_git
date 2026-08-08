@@ -1,6 +1,10 @@
 "use client";
 
 import { Braces, Check, Copy, Download, FileCode2, RefreshCw, Search, ShieldCheck } from "lucide-react";
+import { SelectButton } from "primereact/selectbutton";
+import { Button } from "../../components/ui/button";
+import { cn } from "../../lib/cn";
+import { FormMessage, PasswordInput, TextArea, TextInput } from "../../components/ui/form";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { parse } from "yaml";
 import { iconButtonClass, inputClass, primaryButtonClass } from "../../components/ui";
@@ -139,13 +143,13 @@ export function OpenAPIPage() {
           <p className="mt-1 text-sm text-ink-soft">สำรวจ endpoint และดาวน์โหลด contract ที่ใช้งานอยู่</p>
         </div>
         <div className="flex items-center gap-2">
-          <button className={iconButtonClass} type="button" onClick={() => void loadDocument()} title="รีเฟรช Contract" aria-label="รีเฟรช Contract"><RefreshCw size={18} /></button>
-          <button className={primaryButtonClass} type="button" onClick={download} disabled={!source}><Download size={17} /> ดาวน์โหลด YAML</button>
+          <Button variant="bare" className={iconButtonClass} type="button" onClick={() => void loadDocument()} title="รีเฟรช Contract" aria-label="รีเฟรช Contract"><RefreshCw size={18} /></Button>
+          <Button variant="bare" className={primaryButtonClass} type="button" onClick={download} disabled={!source}><Download size={17} /> ดาวน์โหลด YAML</Button>
         </div>
       </div>
 
-      {error && <p className="rounded-md bg-rose-50 px-3 py-2 text-sm font-bold text-danger">{error}</p>}
-      {parsed.parseError && <p className="rounded-md bg-rose-50 px-3 py-2 text-sm font-bold text-danger">อ่าน YAML ไม่สำเร็จ: {parsed.parseError}</p>}
+      {error && <FormMessage>{error}</FormMessage>}
+      {parsed.parseError && <FormMessage>อ่าน YAML ไม่สำเร็จ: {parsed.parseError}</FormMessage>}
 
       <section className="grid gap-px overflow-hidden rounded-md border border-line bg-slate-200 sm:grid-cols-3" aria-label="OpenAPI summary">
         <div className="bg-white p-4"><span className="flex items-center gap-2 text-xs font-bold text-ink-soft"><FileCode2 size={16} /> Specification</span><strong className="mt-2 block text-xl text-ink">OpenAPI {parsed.document?.openapi ?? "-"}</strong><small className="text-ink-soft">Version {parsed.document?.info?.version ?? "-"}</small></div>
@@ -155,8 +159,8 @@ export function OpenAPIPage() {
 
       <div className="border-b border-line">
         <div className="flex gap-5" role="tablist" aria-label="OpenAPI views">
-          <button className={`border-b-2 px-1 py-3 text-sm font-bold ${tab === "endpoints" ? "border-brand text-brand" : "border-transparent text-ink-soft"}`} type="button" role="tab" aria-selected={tab === "endpoints"} onClick={() => setTab("endpoints")}>Endpoints</button>
-          <button className={`border-b-2 px-1 py-3 text-sm font-bold ${tab === "source" ? "border-brand text-brand" : "border-transparent text-ink-soft"}`} type="button" role="tab" aria-selected={tab === "source"} onClick={() => setTab("source")}>YAML Source</button>
+          <Button variant="bare" className={`border-b-2 px-1 py-3 text-sm font-bold ${tab === "endpoints" ? "border-brand text-brand" : "border-transparent text-ink-soft"}`} type="button" role="tab" aria-selected={tab === "endpoints"} onClick={() => setTab("endpoints")}>Endpoints</Button>
+          <Button variant="bare" className={`border-b-2 px-1 py-3 text-sm font-bold ${tab === "source" ? "border-brand text-brand" : "border-transparent text-ink-soft"}`} type="button" role="tab" aria-selected={tab === "source"} onClick={() => setTab("source")}>YAML Source</Button>
         </div>
       </div>
 
@@ -166,13 +170,24 @@ export function OpenAPIPage() {
             <label className="relative min-w-0 xl:w-96">
               <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
               <span className="sr-only">ค้นหา endpoint</span>
-              <input className={`${inputClass} pl-9`} type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ค้นหา path, operation ID, summary..." />
+              <TextInput className={`${inputClass} pl-9`} type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ค้นหา path, operation ID, summary..." />
             </label>
-            <div className="flex max-w-full overflow-x-auto rounded-md border border-line bg-white p-1" role="group" aria-label="กรอง HTTP method">
-              {(["all", ...methods] as const).map((item) => (
-                <button key={item} className={`h-8 shrink-0 rounded px-3 text-xs font-extrabold uppercase ${method === item ? "bg-nav text-white" : "text-ink-soft hover:bg-canvas"}`} type="button" onClick={() => setMethod(item)}>{item}</button>
-              ))}
-            </div>
+            <SelectButton
+              value={method}
+              options={["all", ...methods]}
+              allowEmpty={false}
+              onChange={(event) => setMethod(event.value as HttpMethod | "all")}
+              aria-label="กรอง HTTP method"
+              pt={{
+                root: { className: "flex max-w-full overflow-x-auto rounded-md border border-line bg-white p-1" },
+                button: (options: { context: { selected: boolean } }) => ({
+                  className: cn(
+                    "grid h-8 shrink-0 cursor-pointer place-items-center rounded px-3 text-xs font-extrabold uppercase",
+                    options.context.selected ? "bg-nav text-white" : "text-ink-soft hover:bg-canvas",
+                  ),
+                }),
+              }}
+            />
           </div>
 
           <section className="overflow-hidden rounded-md border border-line bg-white" aria-label="OpenAPI endpoints">
@@ -204,7 +219,7 @@ export function OpenAPIPage() {
         <section className="overflow-hidden rounded-md border border-line bg-slate-950">
           <div className="flex items-center justify-between border-b border-slate-700 px-4 py-2 text-xs font-bold text-scada-ink">
             <span>platform-api.yaml</span>
-            <button className="inline-flex items-center gap-2 rounded px-2 py-1 hover:bg-slate-800" type="button" onClick={() => void copy(source)} disabled={!source}>{copied === source ? <Check size={15} /> : <Copy size={15} />} คัดลอก</button>
+            <Button variant="bare" className="inline-flex items-center gap-2 rounded px-2 py-1 hover:bg-slate-800" type="button" onClick={() => void copy(source)} disabled={!source}>{copied === source ? <Check size={15} /> : <Copy size={15} />} คัดลอก</Button>
           </div>
           <pre className="max-h-[65vh] overflow-auto p-4 text-xs leading-6 text-scada-ink font-mono">{source || "กำลังโหลด OpenAPI contract"}</pre>
         </section>
@@ -267,11 +282,11 @@ function OperationConsole({ operation }: { operation: Operation }) {
     </section>
     <section className="min-w-0 space-y-3 rounded-md border border-line bg-white p-4">
       <div><h4 className="font-extrabold text-ink">Try it</h4><p className="text-xs text-ink-soft">ส่ง request ไปยัง Gateway ปัจจุบันด้วย session ของผู้ใช้</p></div>
-      {operation.parameters.map((parameter) => parameter.name && parameter.in ? <label key={`${parameter.in}:${parameter.name}`} className="block text-xs font-bold text-ink-soft">{parameter.name} <span className="font-normal">({parameter.in}{parameter.required ? ", required" : ""})</span><input className={`${inputClass} mt-1`} value={values[`${parameter.in}:${parameter.name}`] ?? ""} onChange={(event) => setValues((current) => ({ ...current, [`${parameter.in}:${parameter.name}`]: event.target.value }))} /></label> : null)}
-      {operation.securityNames.includes("middlewareApiKey") && <label className="block text-xs font-bold text-ink-soft">Middleware API Key<input className={`${inputClass} mt-1`} type="password" autoComplete="off" value={middlewareKey} onChange={(event) => setMiddlewareKey(event.target.value)} placeholder="ใช้เฉพาะ request นี้และไม่บันทึก" /></label>}
-      {operation.requestBody != null && <label className="block text-xs font-bold text-ink-soft">JSON body<textarea className="mt-1 min-h-36 w-full rounded-md border border-slate-300 bg-slate-950 p-3 font-mono text-xs text-scada-ink" value={body} onChange={(event) => setBody(event.target.value)} spellCheck={false} /></label>}
-      <button className={primaryButtonClass} type="button" onClick={() => void execute()} disabled={pending}>{pending ? "กำลังส่ง..." : "Execute"}</button>
-      {error && <p className="rounded bg-rose-50 px-3 py-2 text-xs font-bold text-danger">{error}</p>}
+      {operation.parameters.map((parameter) => parameter.name && parameter.in ? <label key={`${parameter.in}:${parameter.name}`} className="block text-xs font-bold text-ink-soft">{parameter.name} <span className="font-normal">({parameter.in}{parameter.required ? ", required" : ""})</span><TextInput className={`${inputClass} mt-1`} value={values[`${parameter.in}:${parameter.name}`] ?? ""} onChange={(event) => setValues((current) => ({ ...current, [`${parameter.in}:${parameter.name}`]: event.target.value }))} /></label> : null)}
+      {operation.securityNames.includes("middlewareApiKey") && <label className="block text-xs font-bold text-ink-soft">Middleware API Key<PasswordInput className={`${inputClass} mt-1`} autoComplete="off" value={middlewareKey} onChange={(event) => setMiddlewareKey(event.target.value)} placeholder="ใช้เฉพาะ request นี้และไม่บันทึก" /></label>}
+      {operation.requestBody != null && <label className="block text-xs font-bold text-ink-soft">JSON body<TextArea className="mt-1 min-h-36 w-full rounded-md border border-slate-300 bg-slate-950 p-3 font-mono text-xs text-scada-ink" value={body} onChange={(event) => setBody(event.target.value)} spellCheck={false} /></label>}
+      <Button variant="bare" className={primaryButtonClass} type="button" onClick={() => void execute()} disabled={pending}>{pending ? "กำลังส่ง..." : "Execute"}</Button>
+      {error && <FormMessage>{error}</FormMessage>}
       {result && <div className="overflow-hidden rounded border border-line"><div className="bg-slate-100 px-3 py-2 text-xs font-bold">HTTP {result.status} {result.statusText}</div><pre className="max-h-72 overflow-auto whitespace-pre-wrap bg-slate-950 p-3 text-xs text-scada-ink font-mono">{result.body || "(empty response)"}</pre></div>}
     </section>
   </div>;

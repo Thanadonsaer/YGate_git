@@ -1,6 +1,7 @@
 "use client";
 
 import { KeyRound, Pencil, Save, UserRound } from "lucide-react";
+import { FormMessage, PasswordInput, TextInput } from "../../components/ui/form";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { usePlatformSession } from "../../components/platform-shell";
 import { api, csrfToken } from "../../lib/api";
@@ -36,7 +37,7 @@ export function ProfilePage() {
           <Button variant="icon" onClick={() => setEditingProfile(true)} disabled={!profile} title="แก้ไขข้อมูลส่วนตัว" aria-label="แก้ไขข้อมูลส่วนตัว"><Pencil size={17} /></Button>
         </header>
         <div className="profile-preview">
-          {loadError && <p className="form-message error">{loadError}</p>}
+          {loadError && <FormMessage>{loadError}</FormMessage>}
           {profile && <>
             <div><span>ชื่อที่แสดง</span><strong>{profile.displayName}</strong></div>
             <div><span>อีเมล</span><strong>{profile.email}</strong></div>
@@ -91,10 +92,10 @@ function EditProfileDialog({ profile, onClose, onSaved }: { profile: SelfProfile
         <DialogHeader><div><DialogDescription>My account</DialogDescription><DialogTitle>แก้ไขข้อมูลส่วนตัว</DialogTitle></div></DialogHeader>
         <DialogBody>
           <form className="plant-editor-form" onSubmit={submit}>
-            <label className="full-field">ชื่อที่แสดง<input autoFocus value={displayName} onChange={(event) => setDisplayName(event.target.value)} maxLength={200} required /></label>
-            <label className="full-field">อีเมล<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} maxLength={320} required /></label>
-            <label className="full-field">Username<input value={username} onChange={(event) => setUsername(event.target.value)} maxLength={100} /></label>
-            {error && <p className="form-message error full-field">{error}</p>}
+            <label className="full-field">ชื่อที่แสดง<TextInput autoFocus value={displayName} onChange={(event) => setDisplayName(event.target.value)} maxLength={200} required /></label>
+            <label className="full-field">อีเมล<TextInput type="email" value={email} onChange={(event) => setEmail(event.target.value)} maxLength={320} required /></label>
+            <label className="full-field">Username<TextInput value={username} onChange={(event) => setUsername(event.target.value)} maxLength={100} /></label>
+            {error && <FormMessage className="full-field">{error}</FormMessage>}
             <div className="editor-actions full-field"><Button type="button" variant="secondary" onClick={onClose} disabled={pending}>ยกเลิก</Button><Button disabled={pending}><Save size={17} /> {pending ? "กำลังบันทึก" : "บันทึก"}</Button></div>
           </form>
         </DialogBody>
@@ -138,10 +139,10 @@ function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
         <DialogHeader><div><DialogDescription>My account</DialogDescription><DialogTitle>เปลี่ยนรหัสผ่าน</DialogTitle></div></DialogHeader>
         <DialogBody>
           <form className="plant-editor-form" onSubmit={submit}>
-            <label className="full-field">รหัสผ่านปัจจุบัน<input autoFocus type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required /></label>
-            <label className="full-field">รหัสผ่านใหม่<input type="password" autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} minLength={12} maxLength={72} required /></label>
-            <label className="full-field">ยืนยันรหัสผ่านใหม่<input type="password" autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} minLength={12} maxLength={72} required /></label>
-            {error && <p className="form-message error full-field">{error}</p>}
+            <label className="full-field">รหัสผ่านปัจจุบัน<PasswordInput autoFocus autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required /></label>
+            <label className="full-field">รหัสผ่านใหม่<PasswordInput autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} minLength={12} maxLength={72} required /></label>
+            <label className="full-field">ยืนยันรหัสผ่านใหม่<PasswordInput autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} minLength={12} maxLength={72} required /></label>
+            {error && <FormMessage className="full-field">{error}</FormMessage>}
             <div className="editor-actions full-field"><Button type="button" variant="secondary" onClick={onClose} disabled={pending}>ยกเลิก</Button><Button disabled={pending}><KeyRound size={17} /> {pending ? "กำลังเปลี่ยน" : "เปลี่ยนรหัสผ่าน"}</Button></div>
           </form>
         </DialogBody>

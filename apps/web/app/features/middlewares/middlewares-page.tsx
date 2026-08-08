@@ -1,6 +1,7 @@
 "use client";
 
 import { ArchiveX, ArrowDownToLine, ArrowLeft, ArrowUpToLine, CheckCircle2, FileUp, Loader2, Pencil, Plus, RefreshCw, RotateCcw, Save, Settings2, Trash2, X } from "lucide-react";
+import { Checkbox, FormMessage, StatusTag, TextInput } from "../../components/ui/form";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { api, errorMessage, csrfToken } from "../../lib/api";
 import type { CreatedMiddlewareGateway, ImportMiddlewareConfigResult, MiddlewareConfigSnapshot, MiddlewareGateway, MiddlewarePatch, Plant } from "../../lib/types";
@@ -82,7 +83,7 @@ export function MiddlewaresPage({ defaultOrganizationId }: { defaultOrganization
           <Button variant="icon" onClick={() => setCreatedKey(null)} title="ปิด" aria-label="ปิดข้อความ API key"><X size={17} /></Button>
         </section>
       )}
-      {error && <p className="form-message error">{error}</p>}
+      {error && <FormMessage>{error}</FormMessage>}
       <div className="api-key-table middleware-table" role="table" aria-label="Middleware Gateways">
         <div className="api-key-row api-key-head" role="row">
           <span>Gateway</span><span>Site</span><span>Key</span><span>Auto onboard</span><span>เชื่อมต่อ</span><span>Config version</span><span>สถานะ</span><span aria-label="คำสั่ง" />
@@ -92,10 +93,10 @@ export function MiddlewaresPage({ defaultOrganizationId }: { defaultOrganization
             <div><strong>{gateway.name}</strong><small>{gateway.id}</small></div>
             <div><span>{gateway.siteName || "-"}</span><small>{gateway.organizationName}</small></div>
             <div><span>{gateway.keyPrefix}...</span><small>ไม่แสดง secret หลังสร้าง</small></div>
-            <span className={gateway.autoOnboard ? "status active" : "status revoked"}>{gateway.autoOnboard ? "เปิด" : "ปิด"}</span>
-            <span className={gateway.isOnline ? "status active" : "status revoked"}>{gateway.isOnline ? "Online" : "Offline"}</span>
+            <StatusTag tone={gateway.autoOnboard ? "active" : "revoked"}>{gateway.autoOnboard ? "เปิด" : "ปิด"}</StatusTag>
+            <StatusTag tone={gateway.isOnline ? "active" : "revoked"}>{gateway.isOnline ? "Online" : "Offline"}</StatusTag>
             <div><span>v{gateway.configAppliedVersion} / v{gateway.configVersion}</span><small>{gateway.configAppliedVersion < gateway.configVersion ? "รอ push ไป gateway" : "อัปเดตล่าสุดแล้ว"}</small></div>
-            <span className={gateway.isActive ? "status active" : "status revoked"}>{gateway.isActive ? "ใช้งาน" : "ปิดใช้งาน"}</span>
+            <StatusTag tone={gateway.isActive ? "active" : "revoked"}>{gateway.isActive ? "ใช้งาน" : "ปิดใช้งาน"}</StatusTag>
             <div className="row-actions">
               <Button variant="icon" onClick={() => setSelected(gateway)} title="ตั้งค่า Config" aria-label={`ตั้งค่า Config ของ ${gateway.name}`}><Settings2 size={17} /></Button>
               <Button variant="icon" onClick={() => setEditor(gateway)} title="แก้ไข" aria-label={`แก้ไข ${gateway.name}`}><Pencil size={17} /></Button>
@@ -164,14 +165,14 @@ function MiddlewareEditor({ gateway, defaultOrganizationId, onClose, onSaved }: 
         </DialogHeader>
         <DialogBody>
           <form className="plant-editor-form" onSubmit={submit}>
-            <label className="full-field">ชื่อ Gateway<input autoFocus value={name} onChange={(event) => setName(event.target.value)} maxLength={200} required /></label>
-            <label className="full-field">ชื่อ Site<input value={siteName} onChange={(event) => setSiteName(event.target.value)} maxLength={200} placeholder="เช่น VT1 - Vientiane Solar" /></label>
-            {!gateway && <label className="full-field">Organization ID<input value={organizationId} onChange={(event) => setOrganizationId(event.target.value)} required /></label>}
-            <label>ส่งข้อมูลทุก (นาที)<input type="number" min="1" max="60" value={pollIntervalMinutes} onChange={(event) => setPollIntervalMinutes(event.target.value)} /></label>
-            <label className="toggle-field full-field"><input type="checkbox" checked={apiPollingEnabled} onChange={(event) => setApiPollingEnabled(event.target.checked)} /> เปิดใช้งาน Telemetry Pull (platform ดึงข้อมูลผ่าน WebSocket)</label>
-            <label className="toggle-field full-field"><input type="checkbox" checked={autoOnboard} onChange={(event) => setAutoOnboard(event.target.checked)} /> Auto onboard Plant/Device</label>
-            {gateway && <label className="toggle-field full-field"><input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} /> เปิดใช้งาน Middleware</label>}
-            {error && <p className="form-message error full-field">{error}</p>}
+            <label className="full-field">ชื่อ Gateway<TextInput autoFocus value={name} onChange={(event) => setName(event.target.value)} maxLength={200} required /></label>
+            <label className="full-field">ชื่อ Site<TextInput value={siteName} onChange={(event) => setSiteName(event.target.value)} maxLength={200} placeholder="เช่น VT1 - Vientiane Solar" /></label>
+            {!gateway && <label className="full-field">Organization ID<TextInput value={organizationId} onChange={(event) => setOrganizationId(event.target.value)} required /></label>}
+            <label>ส่งข้อมูลทุก (นาที)<TextInput type="number" min="1" max="60" value={pollIntervalMinutes} onChange={(event) => setPollIntervalMinutes(event.target.value)} /></label>
+            <label className="toggle-field full-field"><Checkbox checked={apiPollingEnabled} onChange={setApiPollingEnabled} /> เปิดใช้งาน Telemetry Pull (platform ดึงข้อมูลผ่าน WebSocket)</label>
+            <label className="toggle-field full-field"><Checkbox checked={autoOnboard} onChange={setAutoOnboard} /> Auto onboard Plant/Device</label>
+            {gateway && <label className="toggle-field full-field"><Checkbox checked={isActive} onChange={setIsActive} /> เปิดใช้งาน Middleware</label>}
+            {error && <FormMessage className="full-field">{error}</FormMessage>}
             <div className="editor-actions full-field"><Button type="button" variant="secondary" onClick={onClose} disabled={pending}>ยกเลิก</Button><Button disabled={pending}><Save size={17} /> {pending ? "กำลังบันทึก" : "บันทึก Middleware"}</Button></div>
           </form>
         </DialogBody>
@@ -481,11 +482,11 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
           <div><p>{gateway.siteName || gateway.name}</p><h2>{gateway.name}</h2></div>
         </div>
         <div className="row-actions">
-          <span className={gateway.isOnline ? "status active" : "status revoked"}>{gateway.isOnline ? "Online" : "Offline"}</span>
+          <StatusTag tone={gateway.isOnline ? "active" : "revoked"}>{gateway.isOnline ? "Online" : "Offline"}</StatusTag>
           <Button variant="icon" onClick={() => void load()} title="รีเฟรช" aria-label="รีเฟรช"><RefreshCw size={18} /></Button>
         </div>
       </div>
-      {error && <p className="form-message error">{error}</p>}
+      {error && <FormMessage>{error}</FormMessage>}
       {loading && <div className="table-state">กำลังโหลดข้อมูล</div>}
 
       <Tabs defaultValue="plants">
@@ -613,7 +614,7 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
                 <span>{connection.host}:{connection.port}</span>
                 <span>{snapshot.deviceSets.find((ds) => ds.deviceSetId === connection.deviceSetId)?.devModel ?? "-"}</span>
                 <span>{connection.plantCode || "-"}</span>
-                <span className={connection.enabled ? "status active" : "status revoked"}>{connection.enabled ? "เปิด" : "ปิด"}</span>
+                <StatusTag tone={connection.enabled ? "active" : "revoked"}>{connection.enabled ? "เปิด" : "ปิด"}</StatusTag>
                 <span />
               </div>
             ))}

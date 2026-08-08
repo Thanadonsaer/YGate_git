@@ -1,44 +1,48 @@
 "use client";
 
 import * as React from "react";
+import { Tooltip as PrimeTooltip } from "primereact/tooltip";
+import { collectByType } from "./collect-children";
 import { cn } from "../../lib/cn";
 
-type TooltipContextValue = { open: boolean; setOpen: (open: boolean) => void };
-const TooltipContext = React.createContext<TooltipContextValue | null>(null);
-
-function Tooltip({ children }: { children: React.ReactNode }) {
-  const [open, setOpen] = React.useState(false);
-  return (
-    <TooltipContext.Provider value={{ open, setOpen }}>
-      <span className="relative inline-block">{children}</span>
-    </TooltipContext.Provider>
-  );
-}
+// PrimeReact positions the bubble in a portal, so it can no longer be clipped
+// by a toolbar with `overflow: hidden` the way the old absolutely-positioned
+// span could. The trigger is matched by a per-instance class name because
+// PrimeReact's Tooltip binds to a CSS selector rather than a React ref.
 
 function TooltipTrigger({ children }: { asChild?: boolean; children: React.ReactElement }) {
-  const ctx = React.useContext(TooltipContext);
-  if (!ctx) throw new Error("TooltipTrigger must be used inside Tooltip");
-  return React.cloneElement(children, {
-    onMouseEnter: () => ctx.setOpen(true),
-    onMouseLeave: () => ctx.setOpen(false),
-    onFocus: () => ctx.setOpen(true),
-    onBlur: () => ctx.setOpen(false),
-  } as React.HTMLAttributes<HTMLElement>);
+  return children;
 }
 
-function TooltipContent({ className, children }: { className?: string; children: React.ReactNode }) {
-  const ctx = React.useContext(TooltipContext);
-  if (!ctx?.open) return null;
+function TooltipContent({ children }: { className?: string; children: React.ReactNode }) {
+  return <>{children}</>;
+}
+
+function Tooltip({ children }: { children: React.ReactNode }) {
+  const target = "tt" + React.useId().replace(/[^a-zA-Z0-9]/g, "");
+  const triggers = collectByType<{ children: React.ReactElement }>(children, TooltipTrigger);
+  const contents = collectByType<{ children: React.ReactNode }>(children, TooltipContent);
+  const trigger = triggers[0]?.props.children;
+  if (!trigger) return null;
+
   return (
-    <span
-      role="tooltip"
-      className={cn(
-        "absolute left-0 top-full z-50 mt-1 max-w-64 rounded-[var(--radius-sm)] bg-ink px-2.5 py-1.5 text-xs font-semibold text-surface shadow-[var(--shadow-sm)]",
-        className,
-      )}
-    >
-      {children}
-    </span>
+    <>
+      {React.cloneElement(trigger, {
+        className: cn((trigger.props as { className?: string }).className, target),
+      } as React.HTMLAttributes<HTMLElement>)}
+      <PrimeTooltip
+        target={"." + target}
+        position="bottom"
+        showDelay={120}
+        pt={{
+          root: { className: "absolute z-50 max-w-72" },
+          text: { className: "block rounded-[var(--radius-sm)] bg-ink px-2.5 py-1.5 text-xs font-semibold leading-snug text-surface shadow-[var(--shadow-sm)]" },
+          arrow: { className: "hidden" },
+        }}
+      >
+        {contents[0]?.props.children}
+      </PrimeTooltip>
+    </>
   );
 }
 

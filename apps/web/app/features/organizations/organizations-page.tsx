@@ -1,6 +1,7 @@
 "use client";
 
 import { Pencil, Plus, RefreshCw } from "lucide-react";
+import { Checkbox, FormMessage, StatusTag, TextInput } from "../../components/ui/form";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { api, errorMessage, csrfToken, formatDate } from "../../lib/api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody } from "../../components/ui/dialog";
@@ -40,7 +41,7 @@ export function OrganizationsPage() {
           <Button compact onClick={() => setEditor("create")}><Plus size={18} /> เพิ่ม Organization</Button>
         </div>
       </div>
-      {error && <p className="form-message error">{error}</p>}
+      {error && <FormMessage>{error}</FormMessage>}
       <div className="organization-table" role="table" aria-label="Organization">
         <div className="organization-row organization-head" role="row">
           <span>Organization</span><span>รหัส</span><span>สถานะ</span><span>อัปเดตล่าสุด</span><span aria-label="คำสั่ง" />
@@ -49,7 +50,7 @@ export function OrganizationsPage() {
           <div className="organization-row" role="row" key={organization.id}>
             <div><strong>{organization.name}</strong><small>{organization.id}</small></div>
             <span>{organization.code}</span>
-            <span className={organization.isActive ? "status active" : "status revoked"}>{organization.isActive ? "ใช้งาน" : "ปิดใช้งาน"}</span>
+            <StatusTag tone={organization.isActive ? "active" : "revoked"}>{organization.isActive ? "ใช้งาน" : "ปิดใช้งาน"}</StatusTag>
             <span>{formatDate(organization.updatedAt)}</span>
             <div className="row-actions">
               <Button variant="icon" onClick={() => setEditor(organization)} title="แก้ไข Organization" aria-label={`แก้ไข ${organization.name}`}><Pencil size={17} /></Button>
@@ -110,15 +111,15 @@ function OrganizationEditor({ organization, onClose, onSaved }: { organization?:
         </DialogHeader>
         <DialogBody>
           <form className="plant-editor-form" onSubmit={submit}>
-            <label>รหัส Organization<input autoFocus value={code} onChange={(event) => setCode(event.target.value)} maxLength={50} required /></label>
-            <label>ชื่อ Organization<input value={name} onChange={(event) => setName(event.target.value)} maxLength={200} required /></label>
+            <label>รหัส Organization<TextInput autoFocus value={code} onChange={(event) => setCode(event.target.value)} maxLength={50} required /></label>
+            <label>ชื่อ Organization<TextInput value={name} onChange={(event) => setName(event.target.value)} maxLength={200} required /></label>
             {organization && (
               <label className="toggle-field full-field">
-                <input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} />
+                <Checkbox checked={isActive} onChange={setIsActive} />
                 <span>เปิดใช้งาน Organization</span>
               </label>
             )}
-            {error && <p className="form-message error full-field">{error}</p>}
+            {error && <FormMessage className="full-field">{error}</FormMessage>}
             <div className="editor-actions full-field"><Button type="button" variant="secondary" onClick={onClose} disabled={pending}>ยกเลิก</Button><Button disabled={pending}>{pending ? "กำลังบันทึก" : "บันทึก"}</Button></div>
           </form>
         </DialogBody>

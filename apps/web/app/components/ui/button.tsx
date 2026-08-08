@@ -3,7 +3,7 @@
 import { Button as PrimeButton, type ButtonProps as PrimeButtonProps } from "primereact/button";
 import { cn } from "../../lib/cn";
 
-type Variant = "primary" | "secondary" | "icon" | "text";
+type Variant = "primary" | "secondary" | "icon" | "text" | "bare";
 
 const base =
   "inline-flex items-center justify-center gap-1.5 font-bold transition disabled:cursor-not-allowed disabled:opacity-48 focus:outline-none focus-visible:ring-2 focus-visible:ring-focus";
@@ -13,6 +13,8 @@ const variantClass: Record<Variant, string> = {
   secondary: "rounded-[var(--radius-md)] border border-line bg-surface px-4 py-2 text-sm text-ink hover:bg-canvas",
   icon: "rounded-[var(--radius-sm)] p-2 text-ink-soft hover:bg-canvas",
   text: "text-sm text-brand hover:underline",
+  // No skin at all -- for buttons whose look already lives in globals.css.
+  bare: "",
 };
 
 type Props = Omit<PrimeButtonProps, "variant"> & {
@@ -29,7 +31,7 @@ export function Button(props: Props) {
     <PrimeButton
       unstyled
       className={cn(
-        base,
+        v !== "bare" && base,
         variantClass[v],
         compact && "px-2.5 py-1.5 text-xs",
         iconOnly && "px-2 py-2",
