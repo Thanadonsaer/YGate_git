@@ -54,7 +54,7 @@ Expand-Archive ลง release directory ใหม่ → start.ps1 (migrate + pm
 2. **Validate** (ทุก branch, parallel) — `go test ./...` สามตัว + `npm ci && npm run typecheck` สำหรับ Web
 3. **Package** (เฉพาะ `main`) — เรียก `deploy\manual\build-release.ps1` ตัวเดียวกับ manual deploy เพื่อ build Windows binaries + Next.js standalone แล้ว pack เป็น `ygate-jenkins-<build-number>-<sha12>.zip` ใน `dist\jenkins`, archive เป็น Jenkins artifact
 4. **Approve Production** (เฉพาะ `main`) — รอ manual approval จาก group `ygate-production-approvers`
-5. **Deploy Production** (เฉพาะ `main`) — แตก zip ไปที่ `RELEASES_ROOT\<release-id>` แล้วรัน `start.ps1 -EnvFile <ENV_FILE>` ในโฟลเดอร์นั้น (migrate DB + `pm2 startOrRestart` + health check เหมือน manual deploy ทุกอย่าง)
+5. **Deploy Production** (เฉพาะ `main`) — แตก zip ไปที่ `RELEASES_ROOT\<release-id>` แล้วรัน `start.ps1 -EnvFile <ENV_FILE>` ในโฟลเดอร์นั้น (migrate DB + `pm2 delete` + `pm2 start` + health check เหมือน manual deploy ทุกอย่าง)
 
 Deploy ล้มเหลวถ้า release directory เดิม (`<RELEASES_ROOT>\<sha>`) มีอยู่แล้ว — ป้องกัน build ทับ release ที่กำลังรัน
 
@@ -67,7 +67,9 @@ cd D:\YGATE\releases\<previous-sha>
 .\start.ps1 -EnvFile D:\YGATE\ygate.env
 ```
 
-`pm2 startOrRestart` จะชี้ process กลับไปที่ exe ของ release เดิมทันที ตราบใดที่โฟลเดอร์ release เดิมยังไม่ถูกลบ
+`start.ps1` จะ `pm2 delete` ทุก process ก่อน แล้ว `pm2 start` ใหม่จากโฟลเดอร์ที่รัน — process จึงชี้ไป exe ของ release นั้นจริง ตราบใดที่โฟลเดอร์ release เดิมยังไม่ถูกลบ
+
+> ห้ามเปลี่ยนกลับไปใช้ `pm2 restart` / `pm2 startOrRestart` — ทั้งสองคำสั่ง merge แค่ env เข้า app ที่มีชื่ออยู่แล้ว แต่ยังใช้ `pm_exec_path`/`pm_cwd` เดิมที่จำไว้ตอน start ครั้งแรก ผลคือ deploy ผ่าน health check เขียวหมดแต่ยังรันโค้ด release เก่า
 
 ## 7. Security checklist
 

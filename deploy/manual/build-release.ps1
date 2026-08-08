@@ -220,9 +220,14 @@ Get-Command node, pm2.cmd -ErrorAction Stop | Out-Null
 $env:YGATE_ENV_FILE = $EnvFile
 & .\bin\platform-admin.exe migrate
 if ($LASTEXITCODE -ne 0) { throw "Database migration failed." }
-Write-Host "Stopping any previous YGATE processes..."
-& pm2.cmd stop ygate-platform-api ygate-api-gateway ygate-auth-service ygate-web *> $null
-& pm2.cmd startOrRestart .\ecosystem.config.cjs --update-env
+# `pm2 restart`/`startOrRestart` only merges env into an app that already
+# exists; it keeps the pm_exec_path and pm_cwd recorded when that app was first
+# started. Every release unpacks into its own directory, so restarting by name
+# re-runs the PREVIOUS release. Delete first, so `pm2 start` registers the paths
+# under this release directory.
+Write-Host "Removing any previous YGATE processes..."
+& pm2.cmd delete ygate-platform-api ygate-api-gateway ygate-auth-service ygate-web *> $null
+& pm2.cmd start .\ecosystem.config.cjs --update-env
 if ($LASTEXITCODE -ne 0) { throw "PM2 failed to start YGATE." }
 & pm2.cmd save
 if ($LASTEXITCODE -ne 0) { throw "PM2 failed to save the process list." }
