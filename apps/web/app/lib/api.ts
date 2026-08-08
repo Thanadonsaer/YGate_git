@@ -17,9 +17,25 @@ export function errorMessage(cause: unknown) {
   return cause instanceof Error ? cause.message : "เกิดข้อผิดพลาด";
 }
 
+let sessionExpiredHandler: (() => void) | undefined;
+
+/**
+ * Register the callback that runs when the server rejects a request because the
+ * session is gone. Every authenticated request goes through `api`, so this is
+ * the one place that can notice a session expiring mid-visit -- without it the
+ * page keeps rendering as if signed in and only fills up with errors. Returns
+ * an unsubscribe function so it drops straight into a `useEffect`.
+ */
+export function onSessionExpired(handler: () => void) {
+  sessionExpiredHandler = handler;
+  return () => {
+    if (sessionExpiredHandler === handler) sessionExpiredHandler = undefined;
+  };
+}
+
 export async function api(path: string, init?: RequestInit) {
   try {
-    return await fetch(`${gatewayURL}${path}`, {
+    const response = await fetch(`${gatewayURL}${path}`, {
       ...init,
       credentials: "include",
       headers: {
@@ -27,6 +43,10 @@ export async function api(path: string, init?: RequestInit) {
         ...init?.headers,
       },
     });
+    // A 401 from the login form means "wrong credentials", not an expired
+    // session -- every other endpoint returns it only once the cookie is dead.
+    if (response.status === 401 && !path.startsWith("/api/v1/auth/login")) sessionExpiredHandler?.();
+    return response;
   } catch {
     // Gateway unreachable (down, network drop, CORS-origin rejected). Return a
     // non-ok Response instead of letting fetch's rejection propagate, so every
@@ -43,6 +63,12 @@ export function downloadBlob(blob: Blob, filename: string) {
   link.download = filename;
   link.click();
   URL.revokeObjectURL(url);
+}
+
+/** The `YYYY-MM-DDTHH:mm` shape `<input type="datetime-local">` requires, in browser-local time. */
+export function toDatetimeLocal(date: Date) {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 export function formatDate(value: string) {

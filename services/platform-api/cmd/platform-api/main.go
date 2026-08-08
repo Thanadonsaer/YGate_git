@@ -11,6 +11,7 @@ import (
 
 	_ "time/tzdata"
 
+	"ygate/platform-api/internal/bootstrap"
 	"ygate/platform-api/internal/config"
 	"ygate/platform-api/internal/core"
 	"ygate/platform-api/internal/database"
@@ -38,11 +39,19 @@ func main() {
 
 	startupCtx, cancelStartup := context.WithTimeout(ctx, 30*time.Second)
 	pool, err := database.Open(startupCtx, cfg.DatabaseURL)
-	cancelStartup()
 	if err != nil {
+		cancelStartup()
 		log.Fatal(err)
 	}
 	defer pool.Close()
+	// Migrations have just been applied, so a database that was created or
+	// copied to this machine still needs its first login. Warn instead of
+	// exiting: an install that already has an admin never gets past the check,
+	// and ingestion does not depend on it.
+	if err = bootstrap.EnsureAdmin(startupCtx, pool); err != nil {
+		log.Printf("bootstrap: %v", err)
+	}
+	cancelStartup()
 
 	hub := gatewayhub.New()
 	registryService := core.New(pool, hub).WithMiddlewarePatchDir(cfg.MiddlewarePatchDir).WithSiteLogoDir(cfg.SiteLogoDir).WithPlantImageDir(cfg.PlantImageDir).WithPublicBaseURL(cfg.PublicBaseURL)

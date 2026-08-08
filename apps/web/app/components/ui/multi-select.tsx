@@ -5,7 +5,10 @@ import { MultiSelect as PrimeMultiSelect } from "primereact/multiselect";
 import { ChevronDown, Search } from "lucide-react";
 import { cn } from "../../lib/cn";
 
-type Option = { label: string; value: string };
+// `unit` and `tag` are what a telemetry point picker needs beyond a name: the
+// engineering unit and the Modbus address (e.g. "FC3:40071"). Both optional, so
+// plain {label, value} callers are unaffected.
+type MultiSelectOption = { label: string; value: string; unit?: string; tag?: string };
 
 function MultiSelect({
   value,
@@ -18,12 +21,15 @@ function MultiSelect({
 }: {
   value: string[];
   onValueChange: (values: string[]) => void;
-  options: Option[];
+  options: MultiSelectOption[];
   placeholder?: string;
   disabled?: boolean;
   className?: string;
   ariaLabel?: string;
 }) {
+  // Only search the columns that exist, otherwise PrimeReact matches the
+  // literal string "undefined" on options that have no unit or tag.
+  const filterBy = options.some((option) => option.unit || option.tag) ? "label,unit,tag" : "label";
   return (
     <PrimeMultiSelect
       value={value}
@@ -35,8 +41,16 @@ function MultiSelect({
       placeholder={placeholder}
       aria-label={ariaLabel}
       filter
+      filterBy={filterBy}
       filterPlaceholder="ค้นหา..."
       display="chip"
+      itemTemplate={(option: MultiSelectOption) => (
+        <>
+          <span className="min-w-0 flex-1 truncate" title={option.label}>{option.label}</span>
+          {option.unit && <span className="shrink-0 rounded bg-canvas px-1.5 py-0.5 text-[11px] font-bold text-ink-soft">{option.unit}</span>}
+          {option.tag && <code className="shrink-0 text-[11px] text-ink-soft">{option.tag}</code>}
+        </>
+      )}
       dropdownIcon={<ChevronDown size={16} />}
       filterIcon={<Search size={14} />}
       unstyled
@@ -73,3 +87,4 @@ function MultiSelect({
 }
 
 export { MultiSelect };
+export type { MultiSelectOption };

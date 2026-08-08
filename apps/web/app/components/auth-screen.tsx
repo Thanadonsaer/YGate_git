@@ -11,12 +11,15 @@ export function AuthScreen({
   mode,
   gatewayOnline,
   siteSettings,
+  initialError = "",
   onModeChange,
   onLogin,
 }: {
   mode: AuthMode;
   gatewayOnline: boolean;
   siteSettings: SiteSettings;
+  /** Why the shell sent the visitor here, e.g. an expired session. */
+  initialError?: string;
   onModeChange: (mode: AuthMode) => void;
   onLogin: (user: User) => void;
 }) {
@@ -28,7 +31,7 @@ export function AuthScreen({
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(initialError);
   const [notice, setNotice] = useState("");
 
   useEffect(() => {

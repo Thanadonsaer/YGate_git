@@ -294,18 +294,62 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .timeseries-empty { height: 100%; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 9px; color: var(--muted); font-size: 12px; }
 .dashboard-kpi strong { font-size: 17px; font-family: var(--font-display); }
 
-.energy-analysis-filters { display: flex; flex-wrap: wrap; gap: 16px; margin: 18px 0; max-width: 720px; }
-.energy-analysis-filters > label { flex: 1 1 180px; }
-.energy-analysis-body { display: grid; grid-template-columns: 220px 1fr; gap: 20px; align-items: start; }
-.energy-analysis-keys { display: flex; flex-direction: column; gap: 4px; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px; }
-.energy-analysis-key { display: flex; align-items: center; gap: 8px; padding: 6px 4px; font-size: 12px; cursor: pointer; }
-.energy-analysis-swatch { width: 10px; height: 10px; border-radius: 50%; flex: none; }
-.energy-analysis-chart-panel { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 16px; min-height: 320px; display: flex; flex-direction: column; gap: 14px; }
-.energy-analysis-chart { min-height: 220px; }
-.energy-analysis-legend { display: flex; flex-wrap: wrap; gap: 14px; }
-.energy-analysis-legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
-.energy-analysis-legend-item strong { color: var(--ink); font-size: 12px; }
-@media (max-width: 700px) { .energy-analysis-body { grid-template-columns: 1fr; } }
+/* Shared time-series chart (Energy Analysis + Plants device detail). */
+.ts-stack { display: flex; flex-direction: column; gap: 10px; }
+.ts-panel { position: relative; display: flex; flex-direction: column; gap: 6px; }
+.ts-panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+.ts-unit { flex: none; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.ts-legend { display: flex; flex-wrap: wrap; gap: 12px; justify-content: flex-end; }
+.ts-legend-item { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 11px; color: var(--muted); }
+.ts-legend-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px; }
+.ts-legend-item strong, .ts-tooltip strong { color: var(--ink); font-size: 12px; }
+.ts-swatch { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.ts-svg { display: block; width: 100%; touch-action: none; cursor: crosshair; user-select: none; }
+.ts-grid { stroke: var(--line); stroke-width: 1; shape-rendering: crispEdges; }
+.ts-axis { stroke: #b9c4cb; stroke-width: 1; shape-rendering: crispEdges; }
+.ts-tick { fill: var(--muted); font-size: 10px; }
+.ts-tick-day { fill: var(--ink); font-weight: 800; }
+.ts-line { fill: none; stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
+.ts-crosshair { stroke: var(--focus); stroke-width: 1; stroke-dasharray: 3 3; pointer-events: none; }
+.ts-dot { stroke: var(--surface); stroke-width: 1.5; pointer-events: none; }
+.ts-selection { fill: var(--focus); opacity: .14; pointer-events: none; }
+.ts-empty { min-height: 120px; display: grid; place-items: center; color: var(--muted); font-size: 12px; }
+.ts-tooltip { position: absolute; top: 34px; z-index: 2; display: grid; gap: 3px; min-width: 150px; max-width: 240px; padding: 8px 10px;
+  border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); box-shadow: var(--shadow-lg); pointer-events: none; font-size: 11px; color: var(--muted); }
+.ts-tooltip span { display: flex; align-items: center; gap: 6px; }
+.ts-tooltip > strong:first-child { font-size: 11px; color: var(--ink); }
+.ts-tooltip span strong { margin-left: auto; }
+.ts-axis-caption { margin: 0; font-size: 11px; color: var(--muted); }
+.ts-hint { color: var(--muted); font-size: 11px; }
+.ts-truncated { margin: 0 0 12px; padding: 8px 12px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--warning) 12%, transparent); color: var(--warning); font-size: 12px; font-weight: 700; }
+
+/* Energy Analysis page layout. */
+.ea-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 14px; margin: 18px 0; }
+.ea-field { display: grid; gap: 6px; flex: 1 1 170px; min-width: 150px; font-size: 12px; font-weight: 800; color: var(--ink); }
+.ea-input { height: 40px; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 0 10px; font-size: 14px; font-weight: 400; }
+.ea-presets { display: flex; gap: 6px; }
+.ea-preset { height: 40px; flex: 1; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); font-size: 12px; font-weight: 700; color: var(--ink); cursor: pointer; }
+.ea-preset:hover { border-color: var(--focus); color: var(--action); }
+.ea-toggle { display: flex; align-items: center; gap: 8px; height: 40px; flex: 0 0 auto; font-size: 12px; font-weight: 700; color: var(--ink); cursor: pointer; }
+.ea-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 18px; }
+.ea-kpi { display: grid; gap: 4px; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); }
+.ea-kpi small { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.ea-kpi strong { font-family: var(--font-display); font-size: 20px; color: var(--ink); }
+.ea-kpi-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 15px; font-size: 11px; color: var(--muted); }
+.ea-kpi-hint { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ea-up { font-style: normal; font-weight: 800; color: var(--success); }
+.ea-down { font-style: normal; font-weight: 800; color: var(--danger); }
+.ea-picker { margin-bottom: 14px; }
+.ea-panel { margin-bottom: 18px; padding: 16px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); }
+.ea-panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.ea-panel-head h3 { margin: 0; font-size: 15px; }
+.ea-bars { display: flex; align-items: flex-end; gap: 2px; height: 200px; }
+.ea-bar-slot { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; justify-content: flex-end; height: 100%; }
+.ea-bar-stack { position: relative; flex: 1; display: flex; align-items: flex-end; justify-content: center; }
+.ea-bar { width: 68%; min-height: 1px; border-radius: 2px 2px 0 0; background: var(--action); }
+.ea-bar-base { position: absolute; bottom: 0; width: 68%; background: color-mix(in srgb, var(--muted) 34%, transparent); }
+.ea-bar-slot small { padding-top: 4px; overflow: hidden; text-align: center; white-space: nowrap; font-size: 10px; color: var(--muted); }
+@media (max-width: 700px) { .ea-filters > .ea-field { flex-basis: 100%; } }
 .dashboard-kpi { border-radius: var(--radius-md); }
 .dashboard-widget { box-shadow: var(--shadow-sm); }
 .activity-band { margin-top: 14px; min-height: 68px; padding: 13px 18px; border: 1px solid var(--line); background: white; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
@@ -362,7 +406,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .plant-row strong, .plant-row span, .plant-row small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .plant-row small { color: var(--muted); font-size: 11px; }
 .plant-row small svg { vertical-align: -2px; }
-.plant-head { position: sticky; top: 82px; z-index: 5; min-height: 42px; color: var(--muted); background: #f7f9fa; font-size: 11px; font-weight: 750; }
+.plant-head { position: sticky;  z-index: 5; min-height: 42px; color: var(--muted); background: #f7f9fa; font-size: 11px; font-weight: 750; }
 .row-actions { display: flex !important; flex-wrap: wrap; justify-content: flex-end; gap: 7px !important; }
 .role-table { max-width: 100%; overflow-x: auto; border: 1px solid var(--line); background: white; }
 .role-row { min-height: 72px; padding: 12px 16px; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: minmax(220px, 1.3fr) minmax(140px, .7fr) 100px 90px; align-items: center; gap: 16px; font-size: 13px; }

@@ -4,10 +4,11 @@ import { ArchiveX, ArrowLeft, Cpu, Download, Eye, MapPin, Pencil, PlugZap, Plus,
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { api, errorMessage, assetURL, csrfToken, downloadBlob, formatDate } from "../../lib/api";
 import { useRealtimeSocket } from "../../lib/realtime";
-import type { Device, DeviceModelOption, LatestTelemetry, Plant, RegisterMetadata, TelemetryHistoryPage } from "../../lib/types";
+import type { Device, DeviceModelOption, LatestTelemetry, Plant } from "../../lib/types";
+import { loadRegisterCatalog, type PointMeta } from "../../lib/telemetry-history";
+import { DeviceHistoryChart } from "./device-history-chart";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody } from "../../components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../../components/ui/select";
-import { MultiSelect } from "../../components/ui/multi-select";
 import { toast } from "../../components/ui/sonner";
 import { Button } from "../../components/ui/button";
 
@@ -114,9 +115,9 @@ export function PlantsPage({ defaultOrganizationId }: { defaultOrganizationId?: 
   const normalizedQuery = query.trim().toLowerCase();
   const visiblePlants = normalizedQuery
     ? plants.filter((plant) =>
-        plant.name.toLowerCase().includes(normalizedQuery)
-        || plant.code.toLowerCase().includes(normalizedQuery)
-        || plant.organizationName.toLowerCase().includes(normalizedQuery))
+      plant.name.toLowerCase().includes(normalizedQuery)
+      || plant.code.toLowerCase().includes(normalizedQuery)
+      || plant.organizationName.toLowerCase().includes(normalizedQuery))
     : plants;
 
   return (
@@ -350,28 +351,19 @@ function DeviceManagement({ plant, onBack }: { plant: Plant; onBack: () => void 
 }
 
 function DeviceDetailView({ plant, device, reading, onBack }: { plant: Plant; device: Device; reading?: LatestTelemetry; onBack: () => void }) {
-  const [metadata, setMetadata] = useState<RegisterMetadata[]>([]);
+  const [metadataByKey, setMetadataByKey] = useState<Record<string, PointMeta>>({});
   const [metadataError, setMetadataError] = useState("");
 
   useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const response = await api(`/api/v1/plants/${plant.id}/device-register-metadata/${device.id}`);
-        if (cancelled) return;
-        if (!response.ok) {
-          setMetadataError("ไม่สามารถโหลด Unit ของ Parameter ได้");
-          return;
-        }
-        setMetadata((await response.json()) as RegisterMetadata[]);
-      } catch {
-        if (!cancelled) setMetadataError("ไม่สามารถโหลด Unit ของ Parameter ได้");
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [plant.id, device.id]);
+    const controller = new AbortController();
+    void loadRegisterCatalog(plant.id, device, controller.signal)
+      .then(setMetadataByKey)
+      .catch(() => {
+        if (!controller.signal.aborted) setMetadataError("ไม่สามารถโหลด Unit ของ Parameter ได้");
+      });
+    return () => controller.abort();
+  }, [plant.id, device]);
 
-  const metadataByKey = Object.fromEntries(metadata.map((item) => [item.addressKey, item]));
   const values = Object.entries(reading?.dataItemMap ?? {})
     .filter(([key]) => metadataByKey[key]?.isEnabled !== false)
     .sort(([a], [b]) => a.localeCompare(b));
@@ -401,126 +393,8 @@ function DeviceDetailView({ plant, device, reading, onBack }: { plant: Plant; de
           );
         })}
       </section>
-      <DeviceHistoryChart plant={plant} device={device} metadataByKey={metadataByKey} availableKeys={availableKeys} />
+      <DeviceHistoryChart plant={plant} device={device} catalog={metadataByKey} availableKeys={availableKeys} />
     </div>
-  );
-}
-
-const CHART_COLORS = ["#2563eb", "#16a34a", "#d97706", "#dc2626", "#7c3aed", "#0891b2"];
-
-function defaultHistoryRange() {
-  const to = new Date();
-  const from = new Date(to.getTime() - 24 * 60 * 60 * 1000);
-  return { from: toDatetimeLocal(from), to: toDatetimeLocal(to) };
-}
-
-function toDatetimeLocal(date: Date) {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
-function DeviceHistoryChart({ plant, device, metadataByKey, availableKeys }: { plant: Plant; device: Device; metadataByKey: Record<string, RegisterMetadata>; availableKeys: string[] }) {
-  const [selectedKeys, setSelectedKeys] = useState<string[]>(() => availableKeys.slice(0, 1));
-  const [range, setRange] = useState(defaultHistoryRange);
-  const [historyData, setHistoryData] = useState<LatestTelemetry[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    setSelectedKeys((current) => current.filter((key) => availableKeys.includes(key)));
-  }, [availableKeys]);
-
-  useEffect(() => {
-    const from = new Date(range.from);
-    const to = new Date(range.to);
-    if (Number.isNaN(+from) || Number.isNaN(+to) || from >= to) {
-      setError("ช่วงเวลาไม่ถูกต้อง (start ต้องอยู่ก่อน end)");
-      return;
-    }
-    const controller = new AbortController();
-    setLoading(true);
-    setError("");
-    void (async () => {
-      const query = new URLSearchParams({ from: from.toISOString(), to: to.toISOString(), limit: "500" });
-      try {
-        const response = await api(`/api/v1/plants/${plant.id}/devices/${device.id}/telemetry/history?${query}`, { signal: controller.signal });
-        if (!response.ok) throw new Error("ไม่สามารถโหลดข้อมูลกราฟได้");
-        const page = (await response.json()) as TelemetryHistoryPage;
-        setHistoryData(page.data);
-      } catch (cause) {
-        if (!controller.signal.aborted) setError(errorMessage(cause));
-      } finally {
-        if (!controller.signal.aborted) setLoading(false);
-      }
-    })();
-    return () => controller.abort();
-  }, [plant.id, device.id, range]);
-
-  const series: Record<string, Array<{ at: string; value: number }>> = {};
-  for (const key of selectedKeys) {
-    series[key] = historyData.flatMap((entry) => {
-      const value = entry.dataItemMap[key];
-      return Number.isFinite(value) ? [{ at: entry.observedAt, value }] : [];
-    }).reverse();
-  }
-
-  const allValues = Object.values(series).flat().map((point) => point.value);
-  const minimum = allValues.length ? Math.min(...allValues) : 0;
-  const maximum = allValues.length ? Math.max(...allValues) : 0;
-  const valueRange = maximum - minimum || 1;
-  const allPoints = selectedKeys.flatMap((key) => series[key] ?? []);
-  const t0 = allPoints.length ? Math.min(...allPoints.map((point) => +new Date(point.at))) : 0;
-  const t1 = allPoints.length ? Math.max(...allPoints.map((point) => +new Date(point.at))) : 0;
-  const keyOptions = availableKeys.map((key) => ({ label: `${metadataByKey[key]?.displayName || key}${metadataByKey[key]?.unit ? ` (${metadataByKey[key]!.unit})` : ""}`, value: key }));
-
-  return (
-    <section className="device-chart-panel">
-      <div className="section-heading">
-        <div><p>Telemetry history</p><h3>กราฟค่าย้อนหลัง</h3></div>
-        <div className="flex flex-wrap items-center gap-2">
-          <input type="datetime-local" className="h-10 rounded-[var(--radius-sm)] border border-line px-2 text-sm" value={range.from} onChange={(event) => setRange((current) => ({ ...current, from: event.target.value }))} />
-          <span className="text-xs text-slate-500">ถึง</span>
-          <input type="datetime-local" className="h-10 rounded-[var(--radius-sm)] border border-line px-2 text-sm" value={range.to} onChange={(event) => setRange((current) => ({ ...current, to: event.target.value }))} />
-        </div>
-      </div>
-      <div className="px-1 pb-3">
-        <MultiSelect
-          value={selectedKeys}
-          onValueChange={setSelectedKeys}
-          options={keyOptions}
-          placeholder="เลือก Parameter เพื่อ plot กราฟ"
-          ariaLabel="เลือก Parameter เพื่อ plot กราฟ"
-          disabled={availableKeys.length === 0}
-        />
-      </div>
-      {error && <p className="form-message error">{error}</p>}
-      {!error && selectedKeys.length === 0 && <div className="table-state">เลือก Parameter อย่างน้อยหนึ่งตัวเพื่อดูกราฟ</div>}
-      {!error && selectedKeys.length > 0 && !loading && allValues.length === 0 && <div className="table-state">ไม่มีข้อมูลในช่วงเวลานี้</div>}
-      {!error && allValues.length > 0 && <>
-        <svg className="h-64 w-full" viewBox="0 0 100 40" preserveAspectRatio="none" role="img" aria-label="กราฟ telemetry ย้อนหลัง">
-          <line x1="0" y1="36" x2="100" y2="36" stroke="#e2e8f0" strokeWidth="0.3" />
-          {selectedKeys.map((key, index) => {
-            const points = series[key] ?? [];
-            if (points.length === 0) return null;
-            const polyline = points.map((point) => `${t1 === t0 ? 50 : (+new Date(point.at) - t0) * 100 / (t1 - t0)},${36 - (point.value - minimum) * 32 / valueRange}`).join(" ");
-            return <polyline key={key} points={polyline} fill="none" stroke={CHART_COLORS[index % CHART_COLORS.length]} strokeWidth="0.6" />;
-          })}
-        </svg>
-        <div className="flex flex-wrap gap-4 px-1 pt-2 text-xs text-slate-500">
-          {selectedKeys.map((key, index) => {
-            const meta = metadataByKey[key];
-            const points = series[key] ?? [];
-            const latestValue = points.length ? points[points.length - 1].value : undefined;
-            return (
-              <span key={key} className="flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-full" style={{ background: CHART_COLORS[index % CHART_COLORS.length] }} />
-                {meta?.displayName || key}: <strong className="text-slate-900">{latestValue == null ? "-" : latestValue.toLocaleString(undefined, meta ? { minimumFractionDigits: meta.decimals, maximumFractionDigits: meta.decimals } : undefined)}{meta?.unit ? ` ${meta.unit}` : ""}</strong>
-              </span>
-            );
-          })}
-        </div>
-      </>}
-    </section>
   );
 }
 

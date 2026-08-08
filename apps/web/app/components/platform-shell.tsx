@@ -3,8 +3,8 @@
 import { LogOut, Menu, SunMedium, UserRound, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { createContext, ReactNode, useContext, useEffect, useState } from "react";
-import { api, assetURL, csrfToken } from "../lib/api";
+import { createContext, ReactNode, useContext, useEffect, useRef, useState } from "react";
+import { api, assetURL, csrfToken, onSessionExpired } from "../lib/api";
 import { navigation, navRequirements, titles } from "../lib/navigation";
 import { hasPermission } from "../lib/permissions";
 import { useRealtimeSocket } from "../lib/realtime";
@@ -44,6 +44,22 @@ export function PlatformShell({ children }: { children: ReactNode }) {
   const [lastLiveAt, setLastLiveAt] = useState<string | null>(null);
   const [navOpen, setNavOpen] = useState(false);
   const [siteSettings, setSiteSettings] = useState<SiteSettings>(DEFAULT_SITE_SETTINGS);
+  const [sessionExpired, setSessionExpired] = useState(false);
+  const signedIn = useRef(false);
+  signedIn.current = Boolean(user);
+
+  // The session cookie can lapse long after the initial /auth/me, so drop back
+  // to the login screen the moment any request comes back 401 instead of
+  // leaving a shell that looks signed in but can no longer load anything.
+  // ponytail: reacts to the next request, so an idle tab keeps showing the
+  // shell until something is clicked; add an /auth/me heartbeat if that matters.
+  useEffect(() =>
+    onSessionExpired(() => {
+      // A 401 before anyone signed in is just the logged-out first visit.
+      if (!signedIn.current) return;
+      setUser(null);
+      setSessionExpired(true);
+    }), []);
 
   useEffect(() => {
     const token = new URLSearchParams(window.location.search).get("token");
@@ -96,7 +112,7 @@ export function PlatformShell({ children }: { children: ReactNode }) {
   }
 
   if (!user) {
-    return <AuthScreen mode={authMode} gatewayOnline={gatewayOnline} siteSettings={siteSettings} onModeChange={setAuthMode} onLogin={(nextUser) => { setUser(nextUser); setGatewayOnline(true); }} />;
+    return <AuthScreen mode={authMode} gatewayOnline={gatewayOnline} siteSettings={siteSettings} initialError={sessionExpired ? "เซสชันหมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง" : ""} onModeChange={setAuthMode} onLogin={(nextUser) => { setUser(nextUser); setGatewayOnline(true); setSessionExpired(false); }} />;
   }
 
   return (

@@ -125,6 +125,8 @@ PORT=8080
 
 สำหรับ installation ใหม่ ให้รัน `platform-admin bootstrap-user` และ `platform-admin bootstrap-middleware` ครั้งเดียว เก็บ Middleware API key ที่สร้างทันที แล้วลบ bootstrap secrets ออกจาก runtime environment
 
+ทุกครั้งที่ platform-api start ถ้าฐานข้อมูลยังไม่มีบัญชี System Admin ที่ ACTIVE ระบบจะสร้างให้อัตโนมัติจาก `PLATFORM_BOOTSTRAP_*` ใน environment (เทียบเท่า `platform-admin bootstrap-user`) ฐานข้อมูลที่มี admin อยู่แล้วจะไม่ถูกแตะต้อง ดังนั้นตอน dev/test ที่ย้ายเครื่องหรือสร้าง database ใหม่ก็ไม่ต้อง bootstrap เองอีก ถ้าไม่ต้องการพฤติกรรมนี้บน production ให้ลบ `PLATFORM_BOOTSTRAP_*` ออกจาก environment ของ service แล้วจะเหลือแค่ warning ใน log
+
 ## CI/CD Pipeline
 
 Repository นี้ยังไม่มี pipeline เฉพาะ vendor หรือ container definition สำหรับ Central Platform สามารถใช้ GitHub Actions, GitLab CI, Jenkins หรือระบบเทียบเท่า โดยมี gate ดังนี้:
