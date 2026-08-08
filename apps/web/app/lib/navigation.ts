@@ -25,6 +25,7 @@ export const navigation = [
     group: "Monitoring",
     items: [
       { href: "/", label: "Overview", icon: Activity },
+      { href: "/plants", label: "Plants/Devices", icon: Building2, requires: "plant:read" },
       { href: "/site-map", label: "Site Map", icon: MapPinned, requires: "plant:read" },
       { href: "/energy-analysis", label: "Energy Analysis", icon: ChartLine, requires: "plant:read" },
       { href: "/scada/live", label: "SCADA Viewer", icon: Radio, requires: "scada_screen:view" },
@@ -34,7 +35,7 @@ export const navigation = [
   {
     group: "Assets & Config",
     items: [
-      { href: "/plants", label: "Plants", icon: Building2, requires: "plant:read" },
+      { href: "/middlewares", label: "Middleware Gateways", icon: Server, requires: "middleware_client:read" },
       { href: "/register-metadata", label: "Register Metadata", icon: Settings2, requires: "device_model:read" },
       { href: "/scada", label: "SCADA Builder", icon: Workflow, requires: "scada_screen:edit" },
     ],
@@ -45,13 +46,17 @@ export const navigation = [
       { href: "/organizations", label: "Organizations", icon: Landmark, requires: "organization:read" },
       { href: "/users", label: "Users", icon: Users, requires: "user:read" },
       { href: "/roles", label: "Roles & Permissions", icon: ShieldEllipsis, requires: "role:read" },
-      { href: "/middlewares", label: "Middleware Gateways", icon: Server, requires: "middleware_client:read" },
+    ],
+  },
+  {
+    group: "System",
+    items: [
       { href: "/openapi", label: "OpenAPI", icon: FileText, requires: "api_contract:read" },
       { href: "/audit", label: "Audit Log", icon: ShieldCheck, requires: "audit:read" },
       { href: "/sessions", label: "Sessions", icon: ShieldCheck, requires: "session:read" },
       { href: "/settings", label: "Site Branding", icon: Palette, requires: "site_setting:update" },
     ],
-  },
+  }
 ] satisfies ReadonlyArray<{ group: string; items: ReadonlyArray<{ href: string; label: string; icon: typeof Activity; requires?: string }> }>;
 
 export const navRequirements: Record<string, string> = Object.fromEntries(
