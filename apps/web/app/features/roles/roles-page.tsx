@@ -7,6 +7,7 @@ import { api, errorMessage, csrfToken } from "../../lib/api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody } from "../../components/ui/dialog";
 import { toast } from "../../components/ui/sonner";
 import { Button } from "../../components/ui/button";
+import { DataTable, TableColumn } from "../../components/ui/data-table";
 import { pagePermissionGroups, type PagePermissionGroup } from "../../lib/navigation";
 import type { Permission, Role, RoleDetail } from "../../lib/types";
 
@@ -57,24 +58,25 @@ export function RolesPage({ defaultOrganizationId }: { defaultOrganizationId?: s
         </div>
       </div>
       {error && <FormMessage>{error}</FormMessage>}
-      <div className="role-table" role="table" aria-label="Role">
-        <div className="role-row role-head" role="row">
-          <span>Role</span><span>ขอบเขต</span><span>ประเภท</span><span aria-label="คำสั่ง" />
-        </div>
-        {!loading && roles.map((role) => (
-          <div className="role-row" role="row" key={role.id}>
-            <div><strong>{role.name}</strong><small>{role.description || "ไม่มีคำอธิบาย"}</small></div>
-            <span>{role.organizationId ? "เฉพาะองค์กร" : "ทั้งระบบ"}</span>
+      {loading ? (
+        <div className="table-state">กำลังโหลดข้อมูล</div>
+      ) : (
+        <DataTable value={roles} dataKey="id" aria-label="Role" emptyMessage={<div className="table-state">{error ? "" : "ยังไม่มี Role ในขอบเขตที่คุณเข้าถึงได้"}</div>}>
+          <TableColumn field="name" header="Role" sortable body={(role: Role) => (
+            <div className="grid gap-1"><strong>{role.name}</strong><small className="block text-[11px] text-ink-soft">{role.description || "ไม่มีคำอธิบาย"}</small></div>
+          )} />
+          <TableColumn header="ขอบเขต" body={(role: Role) => <span>{role.organizationId ? "เฉพาะองค์กร" : "ทั้งระบบ"}</span>} />
+          <TableColumn field="isSystem" header="ประเภท" sortable body={(role: Role) => (
             <StatusTag tone={role.isSystem ? "revoked" : "active"}>{role.isSystem ? "System" : "Custom"}</StatusTag>
+          )} />
+          <TableColumn header="" body={(role: Role) => (
             <div className="row-actions">
               <Button variant="icon" onClick={() => setEditor(role)} disabled={role.isSystem} title={role.isSystem ? "System role แก้ไขไม่ได้" : "แก้ไข Role"} aria-label={`แก้ไข ${role.name}`}><Pencil size={17} /></Button>
               <Button variant="icon" danger onClick={() => void deleteRole(role)} disabled={role.isSystem} title={role.isSystem ? "System role ลบไม่ได้" : "ลบ Role"} aria-label={`ลบ ${role.name}`}><Trash2 size={17} /></Button>
             </div>
-          </div>
-        ))}
-        {loading && <div className="table-state">กำลังโหลดข้อมูล</div>}
-        {!loading && !error && roles.length === 0 && <div className="table-state">ยังไม่มี Role ในขอบเขตที่คุณเข้าถึงได้</div>}
-      </div>
+          )} />
+        </DataTable>
+      )}
       {editor && (
         <RoleEditor
           role={editor === "create" ? undefined : editor}

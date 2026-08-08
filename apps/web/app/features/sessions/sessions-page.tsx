@@ -5,6 +5,7 @@ import { FormMessage, StatusTag } from "../../components/ui/form";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "../../components/ui/sonner";
 import { Button } from "../../components/ui/button";
+import { DataTable, TableColumn } from "../../components/ui/data-table";
 import { api, errorMessage, csrfToken, formatDate } from "../../lib/api";
 import type { Session } from "../../lib/types";
 
@@ -59,19 +60,21 @@ export function SessionsPage() {
         </div>
       </div>
       {error && <FormMessage>{error}</FormMessage>}
-      <div className="session-table" role="table" aria-label="เซสชัน">
-        <div className="session-row session-head" role="row"><span>อุปกรณ์</span><span>ใช้งานล่าสุด</span><span>สถานะ</span><span aria-label="คำสั่ง" /></div>
-        {sessions.map((session) => (
-          <div className="session-row" role="row" key={session.id}>
-            <div><strong>{session.userAgent || "Unknown client"}</strong><small>{session.clientIp || "ไม่ระบุ IP"}</small></div>
-            <div><span>{formatDate(session.lastSeenAt)}</span><small>สร้างเมื่อ {formatDate(session.createdAt)}</small></div>
-            <div>{session.revokedAt ? <StatusTag tone="revoked">ยกเลิกแล้ว</StatusTag> : session.current ? <StatusTag tone="current">เซสชันนี้</StatusTag> : <StatusTag tone="active">ใช้งานอยู่</StatusTag>}</div>
-            <Button variant="icon" danger disabled={Boolean(session.revokedAt)} onClick={() => void revokeSession(session)} title="ยกเลิกเซสชัน" aria-label="ยกเลิกเซสชัน"><Trash2 size={17} /></Button>
-          </div>
-        ))}
-        {loading && <div className="table-state">กำลังโหลดเซสชัน</div>}
-        {!loading && !error && sessions.length === 0 && <div className="table-state">ไม่พบเซสชัน</div>}
-      </div>
+      <DataTable value={sessions} dataKey="id" aria-label="เซสชัน" emptyMessage={<div className="table-state">{!loading && !error ? "ไม่พบเซสชัน" : ""}</div>}>
+        <TableColumn field="userAgent" header="อุปกรณ์" sortable body={(session: Session) => (
+          <div className="grid gap-1"><strong>{session.userAgent || "Unknown client"}</strong><small className="block text-[11px] text-ink-soft">{session.clientIp || "ไม่ระบุ IP"}</small></div>
+        )} />
+        <TableColumn field="lastSeenAt" header="ใช้งานล่าสุด" sortable body={(session: Session) => (
+          <div className="grid gap-1"><span>{formatDate(session.lastSeenAt)}</span><small className="block text-[11px] text-ink-soft">สร้างเมื่อ {formatDate(session.createdAt)}</small></div>
+        )} />
+        <TableColumn header="สถานะ" body={(session: Session) => (
+          session.revokedAt ? <StatusTag tone="revoked">ยกเลิกแล้ว</StatusTag> : session.current ? <StatusTag tone="current">เซสชันนี้</StatusTag> : <StatusTag tone="active">ใช้งานอยู่</StatusTag>
+        )} />
+        <TableColumn header="" body={(session: Session) => (
+          <Button variant="icon" danger disabled={Boolean(session.revokedAt)} onClick={() => void revokeSession(session)} title="ยกเลิกเซสชัน" aria-label="ยกเลิกเซสชัน"><Trash2 size={17} /></Button>
+        )} />
+      </DataTable>
+      {loading && <div className="table-state">กำลังโหลดเซสชัน</div>}
     </div>
   );
 }

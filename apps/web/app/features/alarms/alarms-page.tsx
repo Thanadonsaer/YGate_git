@@ -11,6 +11,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from ".
 import { Tabs, TabsList, TabsTrigger } from "../../components/ui/tabs";
 import { toast } from "../../components/ui/sonner";
 import { Button } from "../../components/ui/button";
+import { DataTable, TableColumn } from "../../components/ui/data-table";
 
 const severityTone: Record<AlarmRule["severity"], string> = {
   warning: "no_devices",
@@ -130,49 +131,58 @@ export function AlarmsPage() {
       </div>
       {error && <FormMessage>{error}</FormMessage>}
       {tab === "log" ? (
-        <div className="audit-table" role="table" aria-label="Alarm Log">
-          <div className="audit-row audit-head" role="row"><span>เวลา</span><span>Point</span><span>ค่า / Threshold</span><span>Severity</span><span>สถานะ</span></div>
-          {!loading && events.map((event) => (
-            <div className="audit-row" role="row" key={event.id}>
-              <div><strong>{formatDate(event.breachedAt)}</strong><small>{event.clearedAt ? `Cleared ${formatDate(event.clearedAt)}` : "เปิดอยู่"}</small></div>
-              <div>
-                <strong>{deviceName(event.deviceId)}</strong>
-                <small>{(event.conditionSnapshot ?? []).map((c) => c.pointKey).join(", ") || "-"}</small>
-              </div>
-              <div>
+        loading ? (
+          <div className="table-state">กำลังโหลดข้อมูล</div>
+        ) : (
+          <DataTable value={events} dataKey="id" aria-label="Alarm Log" emptyMessage={<div className="table-state">{error ? "" : "ยังไม่มี Alarm Event สำหรับโรงไฟฟ้านี้"}</div>}>
+            <TableColumn field="breachedAt" header="เวลา" sortable body={(event: AlarmEvent) => (
+              <div className="grid gap-1"><strong>{formatDate(event.breachedAt)}</strong><small className="block text-[11px] text-ink-soft">{event.clearedAt ? `Cleared ${formatDate(event.clearedAt)}` : "เปิดอยู่"}</small></div>
+            )} />
+            <TableColumn header="Point" body={(event: AlarmEvent) => (
+              <div className="grid gap-1"><strong>{deviceName(event.deviceId)}</strong><small className="block text-[11px] text-ink-soft">{(event.conditionSnapshot ?? []).map((c) => c.pointKey).join(", ") || "-"}</small></div>
+            )} />
+            <TableColumn header="ค่า / Threshold" body={(event: AlarmEvent) => (
+              <div className="grid gap-1">
                 {(event.conditionSnapshot ?? []).map((c) => (
                   <div key={c.pointKey}><strong>{c.breached ? "⚠ " : ""}{c.value.toLocaleString()}</strong><small> {conditionThreshold(c)}</small></div>
                 ))}
               </div>
-              <StatusTag tone={severityTone[event.severity]}>{event.severity}</StatusTag>
-              {event.acknowledgedBy ? (
+            )} />
+            <TableColumn field="severity" header="Severity" sortable body={(event: AlarmEvent) => <StatusTag tone={severityTone[event.severity]}>{event.severity}</StatusTag>} />
+            <TableColumn header="สถานะ" body={(event: AlarmEvent) => (
+              event.acknowledgedBy ? (
                 <StatusTag tone="active">Acked {event.acknowledgedAt ? formatDate(event.acknowledgedAt) : ""}</StatusTag>
               ) : (
                 <Button variant="icon" onClick={() => void acknowledge(event)} title="Acknowledge" aria-label={`Acknowledge alarm ${event.id}`}><Check size={17} /></Button>
-              )}
-            </div>
-          ))}
-          {loading && <div className="table-state">กำลังโหลดข้อมูล</div>}
-          {!loading && !error && events.length === 0 && <div className="table-state">ยังไม่มี Alarm Event สำหรับโรงไฟฟ้านี้</div>}
-        </div>
+              )
+            )} />
+          </DataTable>
+        )
       ) : (
-        <div className="plant-table" role="table" aria-label="Alarm Rules">
-          <div className="plant-row plant-head" role="row"><span>กฎ</span><span>Device / Point</span><span>Threshold</span><span>สถานะ</span><span aria-label="คำสั่ง" /></div>
-          {!loading && rules.map((rule) => (
-            <div className="plant-row" role="row" key={rule.id}>
-              <div><strong>{rule.label}</strong><small>{rule.severity}{notifyRoleName(rule.notifyRoleId) ? ` · แจ้ง ${notifyRoleName(rule.notifyRoleId)}` : ""}</small></div>
-              <div><span>{deviceName(rule.deviceId)}</span><small>{(rule.conditions ?? []).map((c) => c.pointKey).join(rule.conditionLogic === "OR" ? " หรือ " : " และ ")}</small></div>
-              <div>{(rule.conditions ?? []).map((c) => <div key={c.pointKey}><span>{c.pointKey}</span> <small>{conditionThreshold(c)}</small></div>)}</div>
+        loading ? (
+          <div className="table-state">กำลังโหลดข้อมูล</div>
+        ) : (
+          <DataTable value={rules} dataKey="id" aria-label="Alarm Rules" emptyMessage={<div className="table-state">{error ? "" : "ยังไม่มีกฎแจ้งเตือนสำหรับโรงไฟฟ้านี้"}</div>}>
+            <TableColumn field="label" header="กฎ" sortable body={(rule: AlarmRule) => (
+              <div className="grid gap-1"><strong>{rule.label}</strong><small className="block text-[11px] text-ink-soft">{rule.severity}{notifyRoleName(rule.notifyRoleId) ? ` · แจ้ง ${notifyRoleName(rule.notifyRoleId)}` : ""}</small></div>
+            )} />
+            <TableColumn header="Device / Point" body={(rule: AlarmRule) => (
+              <div className="grid gap-1"><span>{deviceName(rule.deviceId)}</span><small className="block text-[11px] text-ink-soft">{(rule.conditions ?? []).map((c) => c.pointKey).join(rule.conditionLogic === "OR" ? " หรือ " : " และ ")}</small></div>
+            )} />
+            <TableColumn header="Threshold" body={(rule: AlarmRule) => (
+              <div className="grid gap-1">{(rule.conditions ?? []).map((c) => <div key={c.pointKey}><span>{c.pointKey}</span> <small>{conditionThreshold(c)}</small></div>)}</div>
+            )} />
+            <TableColumn field="isActive" header="สถานะ" sortable body={(rule: AlarmRule) => (
               <StatusTag tone={rule.isActive ? "active" : "revoked"}>{rule.isActive ? "ใช้งาน" : "ปิดใช้งาน"}</StatusTag>
+            )} />
+            <TableColumn header="" body={(rule: AlarmRule) => (
               <div className="row-actions">
                 <Button variant="icon" onClick={() => setEditor(rule)} title="แก้ไขกฎ" aria-label={`แก้ไข ${rule.label}`}><Pencil size={17} /></Button>
                 <Button variant="icon" danger onClick={() => void deleteRule(rule)} title="ลบกฎ" aria-label={`ลบ ${rule.label}`}><Trash2 size={17} /></Button>
               </div>
-            </div>
-          ))}
-          {loading && <div className="table-state">กำลังโหลดข้อมูล</div>}
-          {!loading && !error && rules.length === 0 && <div className="table-state">ยังไม่มีกฎแจ้งเตือนสำหรับโรงไฟฟ้านี้</div>}
-        </div>
+            )} />
+          </DataTable>
+        )
       )}
       {editor && (
         <AlarmRuleEditor

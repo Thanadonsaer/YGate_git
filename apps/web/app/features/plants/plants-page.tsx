@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../../components/ui/select";
 import { toast } from "../../components/ui/sonner";
 import { Button } from "../../components/ui/button";
+import { DataTable, TableColumn } from "../../components/ui/data-table";
 
 export function PlantsPage({ defaultOrganizationId }: { defaultOrganizationId?: string }) {
   const [plants, setPlants] = useState<Plant[]>([]);
@@ -154,16 +155,34 @@ export function PlantsPage({ defaultOrganizationId }: { defaultOrganizationId?: 
         />
       </div>
       {error && <FormMessage>{error}</FormMessage>}
-      <div className="plant-table" role="table" aria-label="โรงไฟฟ้า">
-        <div className="plant-row plant-head" role="row">
-          <span>โรงไฟฟ้า</span><span>องค์กร</span><span>กำลังติดตั้ง</span><span>สถานะ</span><span aria-label="คำสั่ง" />
-        </div>
-        {!loading && visiblePlants.map((plant) => (
-          <div className="plant-row" role="row" key={plant.id}>
-            <div><strong>{plant.name}</strong><small><MapPin size={13} /> {plant.code} · {plant.timezone}</small></div>
-            <div><span>{plant.organizationName}</span><small>{plant.organizationId}</small></div>
-            <div><span>{plant.installedDcKw == null ? "-" : `${plant.installedDcKw.toLocaleString()} kWdc`}</span><small>{plant.installedAcKw == null ? "ไม่ระบุ AC" : `${plant.installedAcKw.toLocaleString()} kWac`}</small></div>
+      {loading ? (
+        <div className="table-state">กำลังโหลดข้อมูล</div>
+      ) : (
+        <DataTable
+          value={visiblePlants}
+          dataKey="id"
+          aria-label="โรงไฟฟ้า"
+          paginator
+          rows={20}
+          emptyMessage={
+            <div className="table-state">
+              {error ? "" : plants.length === 0 ? "ยังไม่มีโรงไฟฟ้าในขอบเขตที่คุณเข้าถึงได้" : `ไม่พบโรงไฟฟ้าที่ตรงกับ "${query}"`}
+            </div>
+          }
+        >
+          <TableColumn field="name" header="โรงไฟฟ้า" sortable body={(plant: Plant) => (
+            <div className="grid gap-1"><strong>{plant.name}</strong><small className="flex items-center gap-1 text-[11px] text-ink-soft"><MapPin size={13} /> {plant.code} · {plant.timezone}</small></div>
+          )} />
+          <TableColumn field="organizationName" header="องค์กร" sortable body={(plant: Plant) => (
+            <div className="grid gap-1"><span>{plant.organizationName}</span><small className="block text-[11px] text-ink-soft">{plant.organizationId}</small></div>
+          )} />
+          <TableColumn field="installedDcKw" header="กำลังติดตั้ง" sortable body={(plant: Plant) => (
+            <div className="grid gap-1"><span>{plant.installedDcKw == null ? "-" : `${plant.installedDcKw.toLocaleString()} kWdc`}</span><small className="block text-[11px] text-ink-soft">{plant.installedAcKw == null ? "ไม่ระบุ AC" : `${plant.installedAcKw.toLocaleString()} kWac`}</small></div>
+          )} />
+          <TableColumn field="isActive" header="สถานะ" sortable body={(plant: Plant) => (
             <StatusTag tone={plant.isActive ? "active" : "revoked"}>{plant.isActive ? "ใช้งาน" : "ปิดใช้งาน"}</StatusTag>
+          )} />
+          <TableColumn header="" body={(plant: Plant) => (
             <div className="row-actions">
               <Button variant="icon" onClick={() => setSelectedPlant(plant)} title="จัดการ Device" aria-label={`จัดการ Device ใน ${plant.name}`}><Cpu size={17} /></Button>
               <Button variant="icon" onClick={() => void exportOneCSV(plant)} title="Export CSV" aria-label={`Export CSV ของ ${plant.name}`}><Download size={17} /></Button>
@@ -171,12 +190,9 @@ export function PlantsPage({ defaultOrganizationId }: { defaultOrganizationId?: 
               {plant.isActive && <Button variant="icon" onClick={() => void decommissionPlant(plant)} title="ปิดใช้งาน" aria-label={`ปิดใช้งาน ${plant.name}`}><ArchiveX size={17} /></Button>}
               <Button variant="icon" danger onClick={() => void hardDeletePlant(plant)} title="ลบถาวร (Platform Admin)" aria-label={`ลบ ${plant.name} ถาวร`}><Trash2 size={17} /></Button>
             </div>
-          </div>
-        ))}
-        {loading && <div className="table-state">กำลังโหลดข้อมูล</div>}
-        {!loading && !error && plants.length === 0 && <div className="table-state">ยังไม่มีโรงไฟฟ้าในขอบเขตที่คุณเข้าถึงได้</div>}
-        {!loading && !error && plants.length > 0 && visiblePlants.length === 0 && <div className="table-state">ไม่พบโรงไฟฟ้าที่ตรงกับ &quot;{query}&quot;</div>}
-      </div>
+          )} />
+        </DataTable>
+      )}
       {editor && <PlantEditor plant={editor === "create" ? undefined : editor} defaultOrganizationId={defaultOrganizationId} onClose={() => setEditor(null)} onSaved={() => { setEditor(null); void loadPlants(); }} />}
     </div>
   );
@@ -317,20 +333,34 @@ function DeviceManagement({ plant, onBack }: { plant: Plant; onBack: () => void 
         <div className="bg-white p-4"><small className="font-bold text-slate-500">Reporting</small><strong className="mt-1 block text-xl text-slate-900">{latestReadings.length.toLocaleString()}</strong><span className="text-xs text-slate-500">Device ที่มีค่าล่าสุด</span></div>
         <div className="bg-white p-4"><small className="font-bold text-slate-500">Latest observed</small><strong className="mt-1 block text-sm text-slate-900">{lastObservedAt ? formatDate(lastObservedAt) : "ยังไม่มีข้อมูล"}</strong><span className="text-xs text-slate-500">Timezone: {plant.timezone}</span></div>
       </section>
-      <div className="device-table" role="table" aria-label={`Device ใน ${plant.name}`}>
-        <div className="device-row device-head" role="row">
-          <span>Device</span><span>รุ่น</span><span>ประเภท</span><span>ค่าล่าสุด</span><span>สถานะ</span><span aria-label="คำสั่ง" />
-        </div>
-        {!loading && devices.map((device) => {
-          const outcome = testOutcomes[device.id];
-          const canTest = Boolean(device.modbusHost && device.modbusPort);
-          return (
-            <div className="device-row" role="row" key={device.id}>
-              <div><strong>{device.name}</strong><small>{device.externalId}</small></div>
-              <div><span>{device.model}</span><small>{device.manufacturer}</small></div>
-              <div><span>{device.modbusHost ? `${device.modbusHost}:${device.modbusPort}` : "ไม่ใช่ Modbus device"}</span><small>{device.modbusHost ? `unit ${device.modbusUnitId}` : device.deviceType}</small></div>
-              <LatestValues reading={latestByDevice[device.id]} />
-              <StatusTag tone={device.isActive ? "active" : "revoked"}>{device.isActive ? "ใช้งาน" : "ปิดใช้งาน"}</StatusTag>
+      {loading ? (
+        <div className="table-state">กำลังโหลดข้อมูล</div>
+      ) : (
+        <DataTable
+          value={devices}
+          dataKey="id"
+          aria-label={`Device ใน ${plant.name}`}
+          paginator
+          rows={20}
+          emptyMessage={<div className="table-state">{error ? "" : "ยังไม่มี Device กดเพิ่ม Device หรือให้ Middleware auto onboard เมื่อส่งข้อมูลเข้ามา"}</div>}
+        >
+          <TableColumn field="name" header="Device" sortable body={(device: Device) => (
+            <div className="grid gap-1"><strong>{device.name}</strong><small className="block text-[11px] text-ink-soft">{device.externalId}</small></div>
+          )} />
+          <TableColumn field="model" header="รุ่น" sortable body={(device: Device) => (
+            <div className="grid gap-1"><span>{device.model}</span><small className="block text-[11px] text-ink-soft">{device.manufacturer}</small></div>
+          )} />
+          <TableColumn header="ประเภท" body={(device: Device) => (
+            <div className="grid gap-1"><span>{device.modbusHost ? `${device.modbusHost}:${device.modbusPort}` : "ไม่ใช่ Modbus device"}</span><small className="block text-[11px] text-ink-soft">{device.modbusHost ? `unit ${device.modbusUnitId}` : device.deviceType}</small></div>
+          )} />
+          <TableColumn header="ค่าล่าสุด" body={(device: Device) => <LatestValues reading={latestByDevice[device.id]} />} />
+          <TableColumn field="isActive" header="สถานะ" sortable body={(device: Device) => (
+            <StatusTag tone={device.isActive ? "active" : "revoked"}>{device.isActive ? "ใช้งาน" : "ปิดใช้งาน"}</StatusTag>
+          )} />
+          <TableColumn header="" body={(device: Device) => {
+            const outcome = testOutcomes[device.id];
+            const canTest = Boolean(device.modbusHost && device.modbusPort);
+            return (
               <div className="row-actions">
                 <Button variant="icon" disabled={!canTest || outcome?.pending} onClick={() => void runCommand("test-connection", device)} title={canTest ? "ทดสอบการเชื่อมต่อ" : "ต้องตั้งค่า IP/Port ก่อน"} aria-label={`ทดสอบการเชื่อมต่อ ${device.name}`}><PlugZap size={17} /></Button>
                 <Button variant="icon" disabled={!canTest || outcome?.pending} onClick={() => void runCommand("test-read", device)} title="ทดสอบอ่านค่า" aria-label={`ทดสอบอ่านค่า ${device.name}`}><RefreshCw size={17} /></Button>
@@ -339,12 +369,10 @@ function DeviceManagement({ plant, onBack }: { plant: Plant; onBack: () => void 
                 {device.isActive && <Button variant="icon" onClick={() => void decommissionDevice(device)} title="ปิดใช้งาน" aria-label={`ปิดใช้งาน ${device.name}`}><ArchiveX size={17} /></Button>}
                 <Button variant="icon" danger onClick={() => void hardDeleteDevice(device)} title="ลบถาวร (Platform Admin)" aria-label={`ลบ ${device.name} ถาวร`}><Trash2 size={17} /></Button>
               </div>
-            </div>
-          );
-        })}
-        {loading && <div className="table-state">กำลังโหลดข้อมูล</div>}
-        {!loading && !error && devices.length === 0 && <div className="table-state">ยังไม่มี Device กดเพิ่ม Device หรือให้ Middleware auto onboard เมื่อส่งข้อมูลเข้ามา</div>}
-      </div>
+            );
+          }} />
+        </DataTable>
+      )}
       {testReadResult && <TestReadDialog result={testReadResult} onClose={() => setTestReadResult(null)} />}
       {editor && <DeviceEditor plant={plant} device={editor === "create" ? undefined : editor} onClose={() => setEditor(null)} onSaved={() => { setEditor(null); void loadDevices(); }} />}
     </div>
@@ -428,7 +456,7 @@ function LatestValues({ reading }: { reading?: LatestTelemetry }) {
   if (!reading) return <div><span>-</span><small>ยังไม่มี telemetry</small></div>;
   const values = Object.entries(reading.dataItemMap).slice(0, 3);
   return (
-    <div className="latest-values" title={`รับเมื่อ ${formatDate(reading.receivedAt)}`}>
+    <div className="grid gap-0.5" title={`รับเมื่อ ${formatDate(reading.receivedAt)}`}>
       {values.map(([key, value]) => <small key={key}>{key}: {Number.isFinite(value) ? value.toLocaleString() : "-"}</small>)}
       {reading.parameterCount > values.length && <small>+{reading.parameterCount - values.length} parameters</small>}
     </div>

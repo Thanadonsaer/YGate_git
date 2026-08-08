@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../../components/ui/select";
 import { toast } from "../../components/ui/sonner";
 import { Button } from "../../components/ui/button";
+import { DataTable, TableColumn } from "../../components/ui/data-table";
 
 export function UsersPage({ currentUserId, defaultOrganizationId }: { currentUserId: string; defaultOrganizationId?: string }) {
   const [users, setUsers] = useState<ManagedUser[]>([]);
@@ -80,15 +81,26 @@ export function UsersPage({ currentUserId, defaultOrganizationId }: { currentUse
       </div>
     </div>
     {error && <FormMessage>{error}</FormMessage>}
-    <div className="user-table" role="table" aria-label="ผู้ใช้">
-      <div className="user-row user-head" role="row"><span>ผู้ใช้</span><span>องค์กร</span><span>Role</span><span>Login</span><span>สถานะ</span><span aria-label="คำสั่ง" /></div>
-      {!loading && users.map((item) => (
-        <div className="user-row" role="row" key={item.id}>
-          <div><strong>{item.displayName}</strong><small>{item.email}{item.username ? ` · ${item.username}` : ""}</small></div>
-          <div><span>{item.organizationName}</span><small>{item.organizationId}</small></div>
-          <div><span>{item.roles.join(", ") || "-"}</span><small>Role และ profile แก้ไขได้</small></div>
-          <div><span>{item.failedLoginCount.toLocaleString()} failed</span><small>{item.lockedUntil ? `Locked ${formatDate(item.lockedUntil)}` : `Updated ${formatDate(item.updatedAt)}`}</small></div>
+    {loading ? (
+      <div className="table-state">กำลังโหลดข้อมูลผู้ใช้</div>
+    ) : (
+      <DataTable value={users} dataKey="id" aria-label="ผู้ใช้" paginator rows={20} emptyMessage={<div className="table-state">{error ? "" : "ยังไม่มีผู้ใช้ในขอบเขตที่คุณเข้าถึงได้"}</div>}>
+        <TableColumn field="displayName" header="ผู้ใช้" sortable body={(item: ManagedUser) => (
+          <div className="grid gap-1"><strong>{item.displayName}</strong><small className="block text-[11px] text-ink-soft">{item.email}{item.username ? ` · ${item.username}` : ""}</small></div>
+        )} />
+        <TableColumn field="organizationName" header="องค์กร" sortable body={(item: ManagedUser) => (
+          <div className="grid gap-1"><span>{item.organizationName}</span><small className="block text-[11px] text-ink-soft">{item.organizationId}</small></div>
+        )} />
+        <TableColumn header="Role" body={(item: ManagedUser) => (
+          <div className="grid gap-1"><span>{item.roles.join(", ") || "-"}</span><small className="block text-[11px] text-ink-soft">Role และ profile แก้ไขได้</small></div>
+        )} />
+        <TableColumn field="failedLoginCount" header="Login" sortable body={(item: ManagedUser) => (
+          <div className="grid gap-1"><span>{item.failedLoginCount.toLocaleString()} failed</span><small className="block text-[11px] text-ink-soft">{item.lockedUntil ? `Locked ${formatDate(item.lockedUntil)}` : `Updated ${formatDate(item.updatedAt)}`}</small></div>
+        )} />
+        <TableColumn field="isActive" header="สถานะ" sortable body={(item: ManagedUser) => (
           <StatusTag tone={item.isActive ? "active" : "revoked"}>{item.isActive ? "ใช้งาน" : "ปิดใช้งาน"}</StatusTag>
+        )} />
+        <TableColumn header="" body={(item: ManagedUser) => (
           <div className="row-actions">
             <Button variant="icon" onClick={() => setEditor(item)} disabled={item.id === currentUserId} title="แก้ไข User/Role" aria-label={`แก้ไข ${item.displayName}`}><Pencil size={17} /></Button>
             <Button variant="icon" onClick={() => void unlockUser(item)} disabled={!item.lockedUntil && item.failedLoginCount === 0} title="ปลดล็อก" aria-label={`ปลดล็อก ${item.displayName}`}><RotateCcw size={17} /></Button>
@@ -96,11 +108,9 @@ export function UsersPage({ currentUserId, defaultOrganizationId }: { currentUse
             <Button variant="icon" danger onClick={() => void setUserActive(item, !item.isActive)} disabled={item.id === currentUserId} title={item.isActive ? "ปิดใช้งาน" : "เปิดใช้งาน"} aria-label={item.isActive ? `ปิดใช้งาน ${item.displayName}` : `เปิดใช้งาน ${item.displayName}`}>{item.isActive ? <UserX size={17} /> : <CheckCircle2 size={17} />}</Button>
             {canHardDelete && <Button variant="icon" danger onClick={() => void hardDeleteUser(item)} disabled={item.id === currentUserId} title="Hard Delete" aria-label={`Hard Delete ${item.displayName}`}><Trash2 size={17} /></Button>}
           </div>
-        </div>
-      ))}
-      {loading && <div className="table-state">กำลังโหลดข้อมูลผู้ใช้</div>}
-      {!loading && !error && users.length === 0 && <div className="table-state">ยังไม่มีผู้ใช้ในขอบเขตที่คุณเข้าถึงได้</div>}
-    </div>
+        )} />
+      </DataTable>
+    )}
     {editor && <UserEditor user={editor === "create" ? undefined : editor} roles={roles} organizations={organizations} defaultOrganizationId={defaultOrganizationId} onClose={() => setEditor(null)} onSaved={() => { setEditor(null); void loadUsers(); }} />}
     {resetTarget && <PasswordResetDialog user={resetTarget} onClose={() => setResetTarget(null)} onSaved={() => { setResetTarget(null); void loadUsers(); }} />}
   </div>;

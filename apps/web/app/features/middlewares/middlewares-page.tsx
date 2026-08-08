@@ -1,14 +1,15 @@
 "use client";
 
-import { ArchiveX, ArrowDownToLine, ArrowLeft, ArrowUpToLine, CheckCircle2, FileUp, Loader2, Pencil, Plus, RefreshCw, RotateCcw, Save, Settings2, Trash2, X } from "lucide-react";
+import { ArchiveX, ArrowDownToLine, ArrowLeft, ArrowRight, ArrowUpToLine, CheckCircle2, FileUp, Loader2, Pencil, Plus, RefreshCw, RotateCcw, Save, Search, Settings2, Trash2, X } from "lucide-react";
 import { Checkbox, FormMessage, StatusTag, TextInput } from "../../components/ui/form";
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { type ReactNode, FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { api, errorMessage, csrfToken } from "../../lib/api";
-import type { CreatedMiddlewareGateway, ImportMiddlewareConfigResult, MiddlewareConfigSnapshot, MiddlewareGateway, MiddlewarePatch, Plant } from "../../lib/types";
+import { inputClass } from "../../components/ui";
+import { cn } from "../../lib/cn";
+import type { CreatedMiddlewareGateway, ImportMiddlewareConfigResult, MiddlewareConfigSnapshot, MiddlewareConnection, MiddlewareGateway, MiddlewarePatch, Plant } from "../../lib/types";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody } from "../../components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../../components/ui/select";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "../../components/ui/tabs";
-import { Tooltip, TooltipTrigger, TooltipContent } from "../../components/ui/tooltip";
+import { DataTable, TableColumn } from "../../components/ui/data-table";
 import { toast } from "../../components/ui/sonner";
 import { Button } from "../../components/ui/button";
 
@@ -19,6 +20,7 @@ export function MiddlewaresPage({ defaultOrganizationId }: { defaultOrganization
   const [editor, setEditor] = useState<MiddlewareGateway | "create" | null>(null);
   const [createdKey, setCreatedKey] = useState<CreatedMiddlewareGateway | null>(null);
   const [selected, setSelected] = useState<MiddlewareGateway | null>(null);
+  const [search, setSearch] = useState("");
 
   const loadGateways = useCallback(async () => {
     setLoading(true);
@@ -36,6 +38,17 @@ export function MiddlewaresPage({ defaultOrganizationId }: { defaultOrganization
   }, []);
 
   useEffect(() => { void loadGateways(); }, [loadGateways]);
+
+  const filteredGateways = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return gateways;
+    return gateways.filter((gateway) =>
+      gateway.name.toLowerCase().includes(q)
+      || gateway.siteName?.toLowerCase().includes(q)
+      || gateway.organizationName?.toLowerCase().includes(q)
+      || gateway.id.toLowerCase().includes(q),
+    );
+  }, [gateways, search]);
 
   async function setGatewayActive(gateway: MiddlewareGateway, isActive: boolean) {
     if (!isActive && !window.confirm(`ปิดใช้งาน Middleware "${gateway.name}"? Gateway นี้จะเชื่อมต่อ realtime ไม่ได้ทันที`)) return;
@@ -67,7 +80,7 @@ export function MiddlewaresPage({ defaultOrganizationId }: { defaultOrganization
   }
 
   return (
-    <div className="content api-keys-content">
+    <div className="content">
       <div className="section-heading">
         <div><p>Site gateways</p><h2>Middleware Gateways</h2></div>
         <div className="heading-actions">
@@ -76,40 +89,55 @@ export function MiddlewaresPage({ defaultOrganizationId }: { defaultOrganization
         </div>
       </div>
       {createdKey && (
-        <section className="secret-panel">
-          <div><strong>API key ใหม่สำหรับ {createdKey.name}</strong><small>ระบบจะแสดง key เต็มเฉพาะครั้งนี้ ใช้ตั้งค่าที่ site ด้วย -api-key flag หรือ gateway-config</small></div>
-          <code>{createdKey.apiKey}</code>
+        <section className="mb-4 grid grid-cols-[minmax(180px,.8fr)_minmax(0,1.4fr)_auto_36px] items-center gap-3 border border-[#bce6d4] bg-[#ebf8f2] p-3.5">
+          <div className="grid min-w-0 gap-1">
+            <strong className="min-w-0 truncate text-ink">API key ใหม่สำหรับ {createdKey.name}</strong>
+            <small className="min-w-0 truncate text-[11px] text-[#0d6744]">ระบบจะแสดง key เต็มเฉพาะครั้งนี้ ใช้ตั้งค่าที่ site ด้วย -api-key flag หรือ gateway-config</small>
+          </div>
+          <code className="min-w-0 overflow-auto whitespace-nowrap rounded-[var(--radius-sm)] border border-[#bce6d4] bg-white px-2.5 py-2 font-mono text-xs text-[#0d3f2d]">{createdKey.apiKey}</code>
           <Button variant="secondary" compact onClick={() => void navigator.clipboard.writeText(createdKey.apiKey)}>คัดลอก</Button>
           <Button variant="icon" onClick={() => setCreatedKey(null)} title="ปิด" aria-label="ปิดข้อความ API key"><X size={17} /></Button>
         </section>
       )}
       {error && <FormMessage>{error}</FormMessage>}
-      <div className="api-key-table middleware-table" role="table" aria-label="Middleware Gateways">
-        <div className="api-key-row api-key-head" role="row">
-          <span>Gateway</span><span>Site</span><span>Key</span><span>Auto onboard</span><span>เชื่อมต่อ</span><span>Config version</span><span>สถานะ</span><span aria-label="คำสั่ง" />
-        </div>
-        {!loading && gateways.map((gateway) => (
-          <div className="api-key-row" role="row" key={gateway.id}>
-            <div><strong>{gateway.name}</strong><small>{gateway.id}</small></div>
-            <div><span>{gateway.siteName || "-"}</span><small>{gateway.organizationName}</small></div>
-            <div><span>{gateway.keyPrefix}...</span><small>ไม่แสดง secret หลังสร้าง</small></div>
-            <StatusTag tone={gateway.autoOnboard ? "active" : "revoked"}>{gateway.autoOnboard ? "เปิด" : "ปิด"}</StatusTag>
-            <StatusTag tone={gateway.isOnline ? "active" : "revoked"}>{gateway.isOnline ? "Online" : "Offline"}</StatusTag>
-            <div><span>v{gateway.configAppliedVersion} / v{gateway.configVersion}</span><small>{gateway.configAppliedVersion < gateway.configVersion ? "รอ push ไป gateway" : "อัปเดตล่าสุดแล้ว"}</small></div>
-            <StatusTag tone={gateway.isActive ? "active" : "revoked"}>{gateway.isActive ? "ใช้งาน" : "ปิดใช้งาน"}</StatusTag>
-            <div className="row-actions">
-              <Button variant="icon" onClick={() => setSelected(gateway)} title="ตั้งค่า Config" aria-label={`ตั้งค่า Config ของ ${gateway.name}`}><Settings2 size={17} /></Button>
-              <Button variant="icon" onClick={() => setEditor(gateway)} title="แก้ไข" aria-label={`แก้ไข ${gateway.name}`}><Pencil size={17} /></Button>
-              <Button variant="icon" onClick={() => void setGatewayActive(gateway, !gateway.isActive)} title={gateway.isActive ? "ปิดใช้งาน" : "เปิดใช้งาน"} aria-label={gateway.isActive ? `ปิดใช้งาน ${gateway.name}` : `เปิดใช้งาน ${gateway.name}`}>
-                {gateway.isActive ? <ArchiveX size={17} /> : <CheckCircle2 size={17} />}
-              </Button>
-              <Button variant="icon" danger onClick={() => void hardDeleteGateway(gateway)} title="ลบถาวร (System Admin)" aria-label={`ลบ ${gateway.name} ถาวร`}><Trash2 size={17} /></Button>
-            </div>
-          </div>
-        ))}
-        {loading && <div className="table-state">กำลังโหลด Middleware</div>}
-        {!loading && !error && gateways.length === 0 && <div className="table-state">ยังไม่มี Middleware Gateway</div>}
-      </div>
+      {loading ? (
+        <div className="table-state">กำลังโหลด Middleware</div>
+      ) : (
+        <>
+          <label className="relative mb-3 block w-full max-w-sm">
+            <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-soft" size={16} />
+            <span className="sr-only">ค้นหา Middleware</span>
+            <TextInput className={`${inputClass} pl-9`} type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="ค้นหา Middleware ด้วยชื่อ, Site หรือ Organization" />
+          </label>
+          <DataTable value={filteredGateways} dataKey="id" aria-label="Middleware Gateways" emptyMessage={<div className="table-state">{gateways.length === 0 ? "ยังไม่มี Middleware Gateway" : "ไม่พบ Middleware ที่ค้นหา"}</div>}>
+            <TableColumn field="name" header="Gateway" sortable body={(row: MiddlewareGateway) => (
+              <div className="grid min-w-0 gap-1"><strong className="truncate text-ink">{row.name}</strong><small className="truncate text-[11px] text-ink-soft">{row.id}</small></div>
+            )} />
+            <TableColumn field="siteName" header="Site" sortable body={(row: MiddlewareGateway) => (
+              <div className="grid min-w-0 gap-1"><span className="truncate">{row.siteName || "-"}</span><small className="truncate text-[11px] text-ink-soft">{row.organizationName}</small></div>
+            )} />
+            <TableColumn header="Key" body={(row: MiddlewareGateway) => (
+              <div className="grid min-w-0 gap-1"><span className="truncate">{row.keyPrefix}...</span><small className="truncate text-[11px] text-ink-soft">ไม่แสดง secret หลังสร้าง</small></div>
+            )} />
+            <TableColumn field="autoOnboard" header="Auto onboard" sortable body={(row: MiddlewareGateway) => <StatusTag tone={row.autoOnboard ? "active" : "revoked"}>{row.autoOnboard ? "เปิด" : "ปิด"}</StatusTag>} />
+            <TableColumn field="isOnline" header="เชื่อมต่อ" sortable body={(row: MiddlewareGateway) => <StatusTag tone={row.isOnline ? "active" : "revoked"}>{row.isOnline ? "Online" : "Offline"}</StatusTag>} />
+            <TableColumn field="configVersion" header="Config version" sortable body={(row: MiddlewareGateway) => (
+              <div className="grid min-w-0 gap-1"><span>v{row.configAppliedVersion} / v{row.configVersion}</span><small className="text-[11px] text-ink-soft">{row.configAppliedVersion < row.configVersion ? "รอ push ไป gateway" : "อัปเดตล่าสุดแล้ว"}</small></div>
+            )} />
+            <TableColumn field="isActive" header="สถานะ" sortable body={(row: MiddlewareGateway) => <StatusTag tone={row.isActive ? "active" : "revoked"}>{row.isActive ? "ใช้งาน" : "ปิดใช้งาน"}</StatusTag>} />
+            <TableColumn header="คำสั่ง" body={(row: MiddlewareGateway) => (
+              <div className="row-actions">
+                <Button variant="icon" onClick={() => setSelected(row)} title="ตั้งค่า Config" aria-label={`ตั้งค่า Config ของ ${row.name}`}><Settings2 size={17} /></Button>
+                <Button variant="icon" onClick={() => setEditor(row)} title="แก้ไข" aria-label={`แก้ไข ${row.name}`}><Pencil size={17} /></Button>
+                <Button variant="icon" onClick={() => void setGatewayActive(row, !row.isActive)} title={row.isActive ? "ปิดใช้งาน" : "เปิดใช้งาน"} aria-label={row.isActive ? `ปิดใช้งาน ${row.name}` : `เปิดใช้งาน ${row.name}`}>
+                  {row.isActive ? <ArchiveX size={17} /> : <CheckCircle2 size={17} />}
+                </Button>
+                <Button variant="icon" danger onClick={() => void hardDeleteGateway(row)} title="ลบถาวร (System Admin)" aria-label={`ลบ ${row.name} ถาวร`}><Trash2 size={17} /></Button>
+              </div>
+            )} />
+          </DataTable>
+        </>
+      )}
       {editor && (
         <MiddlewareEditor
           gateway={editor === "create" ? undefined : editor}
@@ -193,6 +221,173 @@ async function middlewareLifecycleError(response: Response, fallbackHint: string
   return body || `ดำเนินการไม่สำเร็จ (${fallbackHint})`;
 }
 
+/** Shared card shell for the single-page gateway dashboard. */
+function Card({ title, subtitle, className, children }: { title: string; subtitle?: ReactNode; className?: string; children: ReactNode }) {
+  return (
+    <section className={cn("rounded-[var(--radius-md)] border border-line bg-surface p-4", className)}>
+      <header className="mb-3">
+        <h3 className="text-sm font-bold text-ink">{title}</h3>
+        {subtitle && <p className="mt-1 text-xs text-ink-soft">{subtitle}</p>}
+      </header>
+      {children}
+    </section>
+  );
+}
+
+function PlantsCard({ assignedPlants, unassignedPlants, addPlantId, setAddPlantId, pending, loading, onAssign, onUnassign }: {
+  assignedPlants: Plant[];
+  unassignedPlants: Plant[];
+  addPlantId: string;
+  setAddPlantId: (value: string) => void;
+  pending: boolean;
+  loading: boolean;
+  onAssign: () => void;
+  onUnassign: (plant: Plant) => void;
+}) {
+  return (
+    <Card
+      title={`Plants (${assignedPlants.length})`}
+      subtitle="เลือก Device ที่ต้อง poll ผ่านหน้า Plants → Devices ของแต่ละ Plant — config ที่ส่งไป Middleware คำนวณอัตโนมัติจาก Device ที่ตั้งค่า IP/Port ไว้แล้ว"
+    >
+      <ul className="m-0 mb-3 flex list-none flex-col gap-1.5 p-0">
+        {assignedPlants.map((plant) => (
+          <li key={plant.id} className="flex items-center justify-between gap-2 rounded-[var(--radius-sm)] border border-line bg-canvas/40 px-3 py-2 text-sm">
+            <div className="min-w-0"><strong className="block truncate text-ink">{plant.name}</strong><small className="block truncate text-[11px] text-ink-soft">{plant.code} · {plant.timezone}</small></div>
+            <Button variant="icon" danger disabled={pending} onClick={() => onUnassign(plant)} title="เอาออก" aria-label={`เอา ${plant.name} ออก`}><Trash2 size={16} /></Button>
+          </li>
+        ))}
+        {!loading && assignedPlants.length === 0 && <li className="table-state">ยังไม่ได้มอบหมาย Plant ให้ Middleware นี้</li>}
+      </ul>
+      <div className="row-actions" style={{ justifyContent: "flex-start" }}>
+        <Select value={addPlantId} onValueChange={setAddPlantId} disabled={unassignedPlants.length === 0}>
+          <SelectTrigger className="w-56"><SelectValue placeholder="เลือก Plant ที่จะมอบหมาย..." /></SelectTrigger>
+          <SelectContent>{unassignedPlants.map((p) => <SelectItem key={p.id} value={p.id}>{p.code} - {p.name}</SelectItem>)}</SelectContent>
+        </Select>
+        <Button compact disabled={!addPlantId || pending} onClick={onAssign}><Plus size={16} /> เพิ่ม Plant</Button>
+      </div>
+    </Card>
+  );
+}
+
+function ConfigCard({ isOnline, pushing, importing, onPush, onImport }: { isOnline: boolean; pushing: boolean; importing: boolean; onPush: () => void; onImport: () => void }) {
+  return (
+    <Card title="Push / Pull Config" subtitle={'"ส่ง Config" เขียนทับค่าบน Middleware ด้วยค่าจาก ygate — "ดึง Config" อ่านค่าเดิมจาก Middleware เข้ามาไว้ใน ygate (ใช้ตอน onboard Middleware เก่า) — ไม่ส่งอัตโนมัติ ต้องกดเอง'}>
+      <div className="flex flex-col gap-2">
+        <Button variant="secondary" className="items-center justify-start text-left" disabled={pushing || importing} onClick={onPush}>
+          {pushing ? <Loader2 size={17} className="animate-spin shrink-0" /> : <ArrowUpToLine size={17} className="shrink-0" />}
+          <span className="flex flex-col items-start">
+            <span>{pushing ? "กำลังส่ง Config..." : "ส่ง Config ไปที่ Middleware"}</span>
+            <span className="text-[11px] font-normal text-ink-soft">เขียนทับค่าเดิมบน Middleware ด้วยค่าจาก ygate</span>
+          </span>
+        </Button>
+        <Button variant="secondary" className="items-center justify-start text-left" disabled={!isOnline || importing || pushing} onClick={onImport}>
+          {importing ? <Loader2 size={17} className="animate-spin shrink-0" /> : <ArrowDownToLine size={17} className="shrink-0" />}
+          <span className="flex flex-col items-start">
+            <span>ดึง Config จาก Middleware</span>
+            <span className="text-[11px] font-normal text-ink-soft">{!isOnline ? "Middleware ต้อง Online ก่อนจึงจะดึงได้" : importing ? "กำลังดึง Config..." : "อ่านค่าเดิมจาก Middleware เข้ามาไว้ใน ygate"}</span>
+          </span>
+        </Button>
+      </div>
+    </Card>
+  );
+}
+
+function SoftwareCard({ softwareVersion, patches, selectedPatchId, setSelectedPatchId, lifecycleBusy, uploading, staging, applying, rollingBack, restarting, onUpload, onStage, onApply, onRollback, onDeletePatch, onRestart }: {
+  softwareVersion?: string | null;
+  patches: MiddlewarePatch[];
+  selectedPatchId: string;
+  setSelectedPatchId: (value: string) => void;
+  lifecycleBusy: boolean;
+  uploading: boolean;
+  staging: boolean;
+  applying: boolean;
+  rollingBack: boolean;
+  restarting: boolean;
+  onUpload: (file: File) => void;
+  onStage: () => void;
+  onApply: () => void;
+  onRollback: () => void;
+  onDeletePatch: () => void;
+  onRestart: () => void;
+}) {
+  return (
+    <Card title="Software Update" subtitle={`Version ปัจจุบัน: ${softwareVersion || "ไม่ทราบ (Middleware ยังไม่เคยส่ง version มา)"} — upload patch, stage ไปที่เครื่องนี้, แล้วค่อย Apply แยกกัน (ไม่ auto)`}>
+      <div className="flex flex-col gap-3">
+        <div className="row-actions" style={{ justifyContent: "flex-start" }}>
+          <Select value={selectedPatchId} onValueChange={setSelectedPatchId} disabled={patches.length === 0}>
+            <SelectTrigger className="w-56"><SelectValue placeholder="เลือก Patch..." /></SelectTrigger>
+            <SelectContent>{patches.map((p) => <SelectItem key={p.id} value={p.id}>{p.version} ({p.os}/{p.arch})</SelectItem>)}</SelectContent>
+          </Select>
+          <label
+            className={cn(
+              "inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-[var(--radius-md)] border border-line bg-surface px-2.5 py-1.5 text-xs font-bold text-ink transition hover:bg-canvas focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus",
+              lifecycleBusy && "pointer-events-none opacity-48",
+            )}
+          >
+            {uploading ? <Loader2 size={16} className="animate-spin" /> : <FileUp size={16} />}
+            Upload Patch (.zip)
+            <input
+              type="file"
+              accept=".zip"
+              disabled={lifecycleBusy}
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (file) onUpload(file);
+              }}
+            />
+          </label>
+          <Button variant="text" compact danger disabled={!selectedPatchId || lifecycleBusy} onClick={onDeletePatch}>ลบ Patch</Button>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 rounded-[var(--radius-sm)] border border-dashed border-line bg-canvas/40 p-2.5">
+          <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-ink-soft text-[10px] font-bold text-white">1</span>
+          <Button variant="secondary" compact disabled={!selectedPatchId || lifecycleBusy} onClick={onStage}>{staging ? "กำลัง Stage..." : "Stage"}</Button>
+          <ArrowRight size={14} className="shrink-0 text-ink-soft" />
+          <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-ink-soft text-[10px] font-bold text-white">2</span>
+          <Button compact disabled={lifecycleBusy} onClick={onApply}>{applying ? "กำลัง Apply..." : "Apply"}</Button>
+          <span className="text-[11px] text-ink-soft">ต้อง Stage patch ก่อน — Apply จะ restart service</span>
+        </div>
+
+        <div className="row-actions" style={{ justifyContent: "flex-start" }}>
+          <Button variant="text" compact disabled={lifecycleBusy} onClick={onRollback}>{rollingBack ? "กำลัง Rollback..." : "Rollback ไป version ก่อนหน้า"}</Button>
+          <Button variant="text" compact disabled={lifecycleBusy} onClick={onRestart}>
+            {restarting ? <Loader2 size={15} className="animate-spin" /> : <RotateCcw size={15} />} {restarting ? "กำลัง Restart..." : "Restart Service"}
+          </Button>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function ConnectionsCard({ snapshot }: { snapshot: MiddlewareConfigSnapshot | null }) {
+  const connections = snapshot?.connections ?? [];
+  return (
+    <Card
+      title={`Connections${snapshot ? ` (v${snapshot.version})` : ""}`}
+      subtitle="อ่านอย่างเดียว — มาจาก Device ในแต่ละ Plant ที่มอบหมายไว้ในการ์ด Plants ด้านบน"
+    >
+      <DataTable
+        value={connections}
+        dataKey="connectionId"
+        aria-label="Connections"
+        paginator={connections.length > 10}
+        rows={10}
+        emptyMessage={<div className="table-state">ยังไม่มี Device ที่ตั้งค่า IP/Port ใน Plant ที่มอบหมายไว้</div>}
+      >
+        <TableColumn header="Connection" body={(row: MiddlewareConnection) => (
+          <div className="grid min-w-0 gap-1"><strong className="truncate text-ink">{row.connectionName}</strong><small className="truncate text-[11px] text-ink-soft">{row.devDn || "-"}</small></div>
+        )} />
+        <TableColumn header="Host:Port" body={(row: MiddlewareConnection) => `${row.host}:${row.port}`} />
+        <TableColumn header="Device Set" body={(row: MiddlewareConnection) => snapshot?.deviceSets.find((ds) => ds.deviceSetId === row.deviceSetId)?.devModel ?? "-"} />
+        <TableColumn field="plantCode" header="Plant" sortable body={(row: MiddlewareConnection) => row.plantCode || "-"} />
+        <TableColumn field="enabled" header="สถานะ" sortable body={(row: MiddlewareConnection) => <StatusTag tone={row.enabled ? "active" : "revoked"}>{row.enabled ? "เปิด" : "ปิด"}</StatusTag>} />
+      </DataTable>
+    </Card>
+  );
+}
+
 function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGateway; onBack: () => void }) {
   const [snapshot, setSnapshot] = useState<MiddlewareConfigSnapshot | null>(null);
   const [assignedPlants, setAssignedPlants] = useState<Plant[]>([]);
@@ -208,7 +403,11 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
   const [uploading, setUploading] = useState(false);
   const [staging, setStaging] = useState(false);
   const [applying, setApplying] = useState(false);
-  const [softwareVersion, setSoftwareVersion] = useState<string | null | undefined>(gateway.softwareVersion);
+  // Tracks the freshest copy of this gateway's own list-row fields (online
+  // state, config version, software version) so the status header above the
+  // cards reflects reality after a push/apply instead of the stale snapshot
+  // captured at the moment the operator clicked into this page.
+  const [liveGateway, setLiveGateway] = useState<MiddlewareGateway>(gateway);
   const [rollingBack, setRollingBack] = useState(false);
   const [restarting, setRestarting] = useState(false);
   const lifecycleBusy = uploading || staging || applying || rollingBack || restarting;
@@ -231,7 +430,7 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
       if (patchesResponse.ok) setPatches((await patchesResponse.json()) as MiddlewarePatch[]);
       if (gatewaysResponse.ok) {
         const current = ((await gatewaysResponse.json()) as MiddlewareGateway[]).find((item) => item.id === gateway.id);
-        setSoftwareVersion(current?.softwareVersion);
+        if (current) setLiveGateway(current);
       }
     } catch (cause) {
       setError(errorMessage(cause));
@@ -251,7 +450,7 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
       const response = await api("/api/v1/admin/middlewares");
       if (!response.ok) continue;
       const current = ((await response.json()) as MiddlewareGateway[]).find((item) => item.id === gateway.id);
-      setSoftwareVersion(current?.softwareVersion);
+      if (current) setLiveGateway(current);
       if (current?.softwareVersion === target) return true;
     }
     return false;
@@ -336,7 +535,7 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
       if (result.deviceCount === 0) {
         toast.error(
           result.plantCount === 0
-            ? "ไม่มี Plant ที่ assign ให้ Middleware นี้ — ไปที่แท็บ Plants ก่อน"
+            ? "ไม่มี Plant ที่ assign ให้ Middleware นี้ — ไปที่การ์ด Plants ก่อน"
             : "Assign Plant แล้วแต่ไม่มี Device พร้อม push — ตรวจว่า Device ตั้ง Modbus host/port ครบ และ Device Model มี Register Metadata ที่กรอก Modbus Function Code/Register แล้ว",
         );
       } else if (result.delivered) {
@@ -475,153 +674,68 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
   }
 
   return (
-    <div className="content api-keys-content">
+    <div className="content">
       <div className="section-heading">
         <div className="registry-title">
           <Button variant="icon" onClick={onBack} title="กลับไป Middleware" aria-label="กลับไป Middleware"><ArrowLeft size={18} /></Button>
           <div><p>{gateway.siteName || gateway.name}</p><h2>{gateway.name}</h2></div>
         </div>
         <div className="row-actions">
-          <StatusTag tone={gateway.isOnline ? "active" : "revoked"}>{gateway.isOnline ? "Online" : "Offline"}</StatusTag>
           <Button variant="icon" onClick={() => void load()} title="รีเฟรช" aria-label="รีเฟรช"><RefreshCw size={18} /></Button>
         </div>
       </div>
       {error && <FormMessage>{error}</FormMessage>}
       {loading && <div className="table-state">กำลังโหลดข้อมูล</div>}
 
-      <Tabs defaultValue="plants">
-        <TabsList>
-          <TabsTrigger value="plants">Plants</TabsTrigger>
-          <TabsTrigger value="config">Push / Pull Config</TabsTrigger>
-          <TabsTrigger value="update">Software Update</TabsTrigger>
-          <TabsTrigger value="connections">Connections</TabsTrigger>
-        </TabsList>
+      <div className="mb-4 flex flex-wrap items-center gap-x-5 gap-y-2 rounded-[var(--radius-md)] border border-line bg-surface px-4 py-3 text-sm">
+        <StatusTag tone={liveGateway.isOnline ? "active" : "revoked"}>{liveGateway.isOnline ? "Online" : "Offline"}</StatusTag>
+        <span className="text-ink-soft">Config <strong className="text-ink">v{liveGateway.configAppliedVersion}</strong> / <strong className="text-ink">v{liveGateway.configVersion}</strong></span>
+        <StatusTag tone={liveGateway.configAppliedVersion < liveGateway.configVersion ? "revoked" : "active"}>
+          {liveGateway.configAppliedVersion < liveGateway.configVersion ? "รอ push" : "อัปเดตล่าสุดแล้ว"}
+        </StatusTag>
+        <span className="text-ink-soft">Software <strong className="text-ink">{liveGateway.softwareVersion || "ไม่ทราบ"}</strong></span>
+      </div>
 
-        <TabsContent value="plants">
-          <div className="section-heading">
-            <div><h3>Plants ที่ Middleware นี้ดูแล</h3><p>เลือก Device ที่ต้อง poll ผ่านหน้า Plants → Devices ของแต่ละ Plant — config ที่ส่งไป Middleware คำนวณอัตโนมัติจาก Device ที่ตั้งค่า IP/Port ไว้แล้ว</p></div>
-          </div>
-          <div className="api-key-table" role="table" aria-label="Assigned Plants">
-            <div className="api-key-row api-key-head" role="row"><span>Plant</span><span>Timezone</span><span aria-label="คำสั่ง" /></div>
-            {assignedPlants.map((plant) => (
-              <div className="api-key-row" role="row" key={plant.id}>
-                <div><strong>{plant.name}</strong><small>{plant.code}</small></div>
-                <span>{plant.timezone}</span>
-                <div className="row-actions"><Button variant="icon" danger disabled={pending} onClick={() => void unassignPlant(plant)} title="เอาออก" aria-label={`เอา ${plant.name} ออก`}><Trash2 size={17} /></Button></div>
-              </div>
-            ))}
-            {!loading && assignedPlants.length === 0 && <div className="table-state">ยังไม่ได้มอบหมาย Plant ให้ Middleware นี้</div>}
-          </div>
-          <div className="row-actions" style={{ marginTop: 12 }}>
-            <Select value={addPlantId} onValueChange={setAddPlantId} disabled={unassignedPlants.length === 0}>
-              <SelectTrigger className="w-64"><SelectValue placeholder="เลือก Plant ที่จะมอบหมาย..." /></SelectTrigger>
-              <SelectContent>{unassignedPlants.map((p) => <SelectItem key={p.id} value={p.id}>{p.code} - {p.name}</SelectItem>)}</SelectContent>
-            </Select>
-            <Button compact disabled={!addPlantId || pending} onClick={() => void assignPlant()}><Plus size={16} /> มอบหมาย Plant</Button>
-          </div>
-        </TabsContent>
-
-        <TabsContent value="config">
-          <div className="section-heading">
-            <div><h3>Push / Pull Config (Manual)</h3><p>Config ไม่ถูกส่งอัตโนมัติอีกต่อไป — เลือกทิศทางเอง: "ส่ง Config" เขียนทับค่าบน Middleware ด้วยค่าจาก ygate, "ดึง Config" อ่านค่าเดิมจาก Middleware เข้ามาไว้ใน ygate (ใช้ตอน onboard Middleware เก่า)</p></div>
-            <div className="heading-actions">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="secondary" compact iconOnly disabled={pushing || importing} onClick={() => void pushConfig()} aria-label="ส่ง Config ไปที่ Middleware">
-                    {pushing ? <Loader2 size={17} className="animate-spin" /> : <ArrowUpToLine size={17} />}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{pushing ? "กำลังส่ง Config..." : "ส่ง Config ไปที่ Middleware (เขียนทับค่าบน Middleware)"}</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="secondary" compact iconOnly disabled={!gateway.isOnline || importing || pushing} onClick={() => void importConfig()} aria-label="ดึง Config จาก Middleware">
-                    {importing ? <Loader2 size={17} className="animate-spin" /> : <ArrowDownToLine size={17} />}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{!gateway.isOnline ? "Middleware ต้อง Online ก่อน" : importing ? "กำลังดึง Config..." : "ดึง Config จาก Middleware"}</TooltipContent>
-              </Tooltip>
-            </div>
-          </div>
-        </TabsContent>
-
-        <TabsContent value="update">
-          <div className="section-heading">
-            <div>
-              <h3>Software Update (Platform Admin)</h3>
-              <p>Version ปัจจุบัน: {softwareVersion || "ไม่ทราบ (Middleware ยังไม่เคยส่ง version มา)"} — upload patch, stage ไปที่เครื่องนี้, แล้วค่อย Apply แยกกัน (ไม่ auto)</p>
-            </div>
-            <div className="heading-actions">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <label
-                    className={`inline-flex items-center justify-center gap-1.5 rounded-[var(--radius-md)] border border-line bg-surface px-2.5 py-1.5 text-xs font-bold text-ink transition hover:bg-canvas focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus ${lifecycleBusy ? "pointer-events-none opacity-48" : "cursor-pointer"}`}
-                    aria-label="Upload Patch (.zip)"
-                  >
-                    {uploading ? <Loader2 size={17} className="animate-spin" /> : <FileUp size={17} />}
-                    <input
-                      type="file"
-                      accept=".zip"
-                      disabled={lifecycleBusy}
-                      style={{ display: "none" }}
-                      onChange={(event) => {
-                        const file = event.target.files?.[0];
-                        event.target.value = "";
-                        if (file) void uploadPatch(file);
-                      }}
-                    />
-                  </label>
-                </TooltipTrigger>
-                <TooltipContent>{uploading ? "กำลัง Upload..." : "Upload Patch (.zip)"}</TooltipContent>
-              </Tooltip>
-            </div>
-          </div>
-          <div className="row-actions" style={{ marginTop: 12 }}>
-            <Select value={selectedPatchId} onValueChange={setSelectedPatchId} disabled={patches.length === 0}>
-              <SelectTrigger className="w-64"><SelectValue placeholder="เลือก Patch..." /></SelectTrigger>
-              <SelectContent>
-                {patches.map((p) => <SelectItem key={p.id} value={p.id}>{p.version} ({p.os}/{p.arch})</SelectItem>)}
-              </SelectContent>
-            </Select>
-            <Button variant="secondary" compact disabled={!selectedPatchId || lifecycleBusy} onClick={() => void stageUpdate()}>
-              {staging ? "กำลัง Stage..." : "Stage"}
-            </Button>
-            <Button variant="text" compact danger disabled={!selectedPatchId || lifecycleBusy} onClick={() => void deletePatch()}>ลบ Patch</Button>
-            <Button compact disabled={lifecycleBusy} onClick={() => void applyUpdate()}>
-              {applying ? "กำลัง Apply..." : "Apply"}
-            </Button>
-            <Button variant="text" compact disabled={lifecycleBusy} onClick={() => void rollbackUpdate()}>
-              {rollingBack ? "กำลัง Rollback..." : "Rollback"}
-            </Button>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="text" compact iconOnly disabled={lifecycleBusy} onClick={() => void restartMiddlewareService()} aria-label="Restart Service">
-                  {restarting ? <Loader2 size={17} className="animate-spin" /> : <RotateCcw size={17} />}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{restarting ? "กำลัง Restart..." : "Restart service (ไม่เปลี่ยน binary แค่ restart)"}</TooltipContent>
-            </Tooltip>
-          </div>
-        </TabsContent>
-
-        <TabsContent value="connections">
-          <div className="section-heading"><div><h3>Config ที่คำนวณล่าสุด{snapshot ? ` (v${snapshot.version})` : ""}</h3><p>อ่านอย่างเดียว — มาจาก Device ในแต่ละ Plant ที่มอบหมายไว้ในแท็บ Plants</p></div></div>
-          <div className="device-table" role="table" aria-label="Connections">
-            <div className="device-row device-head" role="row"><span>Connection</span><span>Host:Port</span><span>Device Set</span><span>Plant</span><span>สถานะ</span><span aria-label="คำสั่ง" /></div>
-            {snapshot?.connections.map((connection) => (
-              <div className="device-row" role="row" key={connection.connectionId}>
-                <div><strong>{connection.connectionName}</strong><small>{connection.devDn || "-"}</small></div>
-                <span>{connection.host}:{connection.port}</span>
-                <span>{snapshot.deviceSets.find((ds) => ds.deviceSetId === connection.deviceSetId)?.devModel ?? "-"}</span>
-                <span>{connection.plantCode || "-"}</span>
-                <StatusTag tone={connection.enabled ? "active" : "revoked"}>{connection.enabled ? "เปิด" : "ปิด"}</StatusTag>
-                <span />
-              </div>
-            ))}
-            {!loading && (!snapshot || snapshot.connections.length === 0) && <div className="table-state">ยังไม่มี Device ที่ตั้งค่า IP/Port ใน Plant ที่มอบหมายไว้</div>}
-          </div>
-        </TabsContent>
-      </Tabs>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <PlantsCard
+          assignedPlants={assignedPlants}
+          unassignedPlants={unassignedPlants}
+          addPlantId={addPlantId}
+          setAddPlantId={setAddPlantId}
+          pending={pending}
+          loading={loading}
+          onAssign={() => void assignPlant()}
+          onUnassign={(plant) => void unassignPlant(plant)}
+        />
+        <ConfigCard
+          isOnline={liveGateway.isOnline}
+          pushing={pushing}
+          importing={importing}
+          onPush={() => void pushConfig()}
+          onImport={() => void importConfig()}
+        />
+        <SoftwareCard
+          softwareVersion={liveGateway.softwareVersion}
+          patches={patches}
+          selectedPatchId={selectedPatchId}
+          setSelectedPatchId={setSelectedPatchId}
+          lifecycleBusy={lifecycleBusy}
+          uploading={uploading}
+          staging={staging}
+          applying={applying}
+          rollingBack={rollingBack}
+          restarting={restarting}
+          onUpload={(file) => void uploadPatch(file)}
+          onStage={() => void stageUpdate()}
+          onApply={() => void applyUpdate()}
+          onRollback={() => void rollbackUpdate()}
+          onDeletePatch={() => void deletePatch()}
+          onRestart={() => void restartMiddlewareService()}
+        />
+        <div className="lg:col-span-2">
+          <ConnectionsCard snapshot={snapshot} />
+        </div>
+      </div>
     </div>
   );
 }

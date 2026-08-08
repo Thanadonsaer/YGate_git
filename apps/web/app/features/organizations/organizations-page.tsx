@@ -7,6 +7,7 @@ import { api, errorMessage, csrfToken, formatDate } from "../../lib/api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody } from "../../components/ui/dialog";
 import { toast } from "../../components/ui/sonner";
 import { Button } from "../../components/ui/button";
+import { DataTable, TableColumn } from "../../components/ui/data-table";
 import type { Organization } from "../../lib/types";
 
 export function OrganizationsPage() {
@@ -42,24 +43,25 @@ export function OrganizationsPage() {
         </div>
       </div>
       {error && <FormMessage>{error}</FormMessage>}
-      <div className="organization-table" role="table" aria-label="Organization">
-        <div className="organization-row organization-head" role="row">
-          <span>Organization</span><span>รหัส</span><span>สถานะ</span><span>อัปเดตล่าสุด</span><span aria-label="คำสั่ง" />
-        </div>
-        {!loading && organizations.map((organization) => (
-          <div className="organization-row" role="row" key={organization.id}>
-            <div><strong>{organization.name}</strong><small>{organization.id}</small></div>
-            <span>{organization.code}</span>
+      {loading ? (
+        <div className="table-state">กำลังโหลดข้อมูล</div>
+      ) : (
+        <DataTable value={organizations} dataKey="id" aria-label="Organization" emptyMessage={<div className="table-state">{error ? "" : "ยังไม่มี Organization ในขอบเขตที่คุณเข้าถึงได้"}</div>}>
+          <TableColumn field="name" header="Organization" sortable body={(organization: Organization) => (
+            <div className="grid gap-1"><strong>{organization.name}</strong><small className="block text-[11px] text-ink-soft">{organization.id}</small></div>
+          )} />
+          <TableColumn field="code" header="รหัส" sortable body={(organization: Organization) => <span>{organization.code}</span>} />
+          <TableColumn field="isActive" header="สถานะ" sortable body={(organization: Organization) => (
             <StatusTag tone={organization.isActive ? "active" : "revoked"}>{organization.isActive ? "ใช้งาน" : "ปิดใช้งาน"}</StatusTag>
-            <span>{formatDate(organization.updatedAt)}</span>
+          )} />
+          <TableColumn field="updatedAt" header="อัปเดตล่าสุด" sortable body={(organization: Organization) => <span>{formatDate(organization.updatedAt)}</span>} />
+          <TableColumn header="" body={(organization: Organization) => (
             <div className="row-actions">
               <Button variant="icon" onClick={() => setEditor(organization)} title="แก้ไข Organization" aria-label={`แก้ไข ${organization.name}`}><Pencil size={17} /></Button>
             </div>
-          </div>
-        ))}
-        {loading && <div className="table-state">กำลังโหลดข้อมูล</div>}
-        {!loading && !error && organizations.length === 0 && <div className="table-state">ยังไม่มี Organization ในขอบเขตที่คุณเข้าถึงได้</div>}
-      </div>
+          )} />
+        </DataTable>
+      )}
       {editor && (
         <OrganizationEditor
           organization={editor === "create" ? undefined : editor}

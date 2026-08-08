@@ -30,8 +30,14 @@ export function PasswordInput({
     <Password
       toggleMask
       feedback={false}
-      showIcon={<Eye size={18} />}
-      hideIcon={<EyeOff size={18} />}
+      // These MUST stay functions. PrimeReact builds the toggle's props
+      // (onClick/onKeyDown/role/tabIndex/aria) then calls IconUtils.getJSXIcon
+      // -> ObjectUtils.getJSXElement, which only applies them when the icon is
+      // a function -- a bare JSX element is returned verbatim, silently
+      // dropping onClick, so the eye renders but clicking never unmasks. The
+      // <span> is what `.password-field > div > span` positions against input.
+      showIcon={(options) => <span {...(options.iconProps as React.HTMLAttributes<HTMLSpanElement>)}><Eye size={18} /></span>}
+      hideIcon={(options) => <span {...(options.iconProps as React.HTMLAttributes<HTMLSpanElement>)}><EyeOff size={18} /></span>}
       // PrimeReact forwards `pt.iconField`/`pt.inputIcon` into nested
       // components rather than applying them here, so the wrapper and the
       // toggle are positioned from globals.css (`.password-field`) instead.

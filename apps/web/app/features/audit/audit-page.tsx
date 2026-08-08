@@ -5,6 +5,7 @@ import { FormMessage } from "../../components/ui/form";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "../../components/ui/sonner";
 import { Button } from "../../components/ui/button";
+import { DataTable, TableColumn } from "../../components/ui/data-table";
 import { api, errorMessage, csrfToken, formatDate } from "../../lib/api";
 import type { AuditEvent } from "../../lib/types";
 
@@ -55,21 +56,35 @@ export function AuditPage() {
       </div>
     </div>
     {error && <FormMessage>{error}</FormMessage>}
-    <div className="audit-table" role="table" aria-label="Audit Log">
-      <div className="audit-row audit-head" role="row"><span>เวลา</span><span>Action</span><span>Plant</span><span>Actor</span><span>Target</span><span>รายละเอียด</span></div>
-      {!loading && visibleEvents.map((event) => (
-        <div className="audit-row" role="row" key={event.id}>
-          <div><strong>{formatDate(event.occurredAt)}</strong><small>{event.sourceIp || "ไม่ระบุ IP"}</small></div>
-          <div><strong>{event.action}</strong><small>{event.correlationId || `#${event.id}`}</small></div>
-          <div><span>{middlewarePlant(event.afterData)}</span></div>
-          <div><span>{event.actorEmail || event.actorUserId || "system"}</span><small>{event.organizationId || "global"}</small></div>
-          <div><span>{event.targetType}</span><small>{event.targetId || "-"}</small></div>
-          <AuditDetails beforeData={event.beforeData} afterData={event.afterData} />
-        </div>
-      ))}
-      {loading && <div className="table-state">กำลังโหลด Audit Log</div>}
-      {!loading && !error && visibleEvents.length === 0 && <div className="table-state">{filter === "middleware" ? "ยังไม่มี Middleware Log ในขอบเขตที่เข้าถึงได้" : "ยังไม่มี Audit Event ในขอบเขตที่เข้าถึงได้"}</div>}
-    </div>
+    {loading ? (
+      <div className="table-state">กำลังโหลด Audit Log</div>
+    ) : (
+      <DataTable
+        value={visibleEvents}
+        dataKey="id"
+        aria-label="Audit Log"
+        emptyMessage={
+          <div className="table-state">
+            {error ? "" : filter === "middleware" ? "ยังไม่มี Middleware Log ในขอบเขตที่เข้าถึงได้" : "ยังไม่มี Audit Event ในขอบเขตที่เข้าถึงได้"}
+          </div>
+        }
+      >
+        <TableColumn field="occurredAt" header="เวลา" sortable body={(event: AuditEvent) => (
+          <div className="grid gap-1"><strong>{formatDate(event.occurredAt)}</strong><small className="block text-[11px] text-ink-soft">{event.sourceIp || "ไม่ระบุ IP"}</small></div>
+        )} />
+        <TableColumn field="action" header="Action" sortable body={(event: AuditEvent) => (
+          <div className="grid gap-1"><strong>{event.action}</strong><small className="block text-[11px] text-ink-soft">{event.correlationId || `#${event.id}`}</small></div>
+        )} />
+        <TableColumn header="Plant" body={(event: AuditEvent) => <span>{middlewarePlant(event.afterData)}</span>} />
+        <TableColumn field="actorEmail" header="Actor" sortable body={(event: AuditEvent) => (
+          <div className="grid gap-1"><span>{event.actorEmail || event.actorUserId || "system"}</span><small className="block text-[11px] text-ink-soft">{event.organizationId || "global"}</small></div>
+        )} />
+        <TableColumn field="targetType" header="Target" sortable body={(event: AuditEvent) => (
+          <div className="grid gap-1"><span>{event.targetType}</span><small className="block text-[11px] text-ink-soft">{event.targetId || "-"}</small></div>
+        )} />
+        <TableColumn header="รายละเอียด" body={(event: AuditEvent) => <AuditDetails beforeData={event.beforeData} afterData={event.afterData} />} />
+      </DataTable>
+    )}
   </div>;
 }
 

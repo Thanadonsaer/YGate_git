@@ -7,11 +7,13 @@ import {
   Handle,
   MiniMap,
   NodeResizer,
+  Panel,
   Position,
   ReactFlow,
   addEdge,
   applyEdgeChanges,
   applyNodeChanges,
+  getNodesBounds,
   type Connection,
   type Edge,
   type EdgeChange,
@@ -23,10 +25,17 @@ import {
 } from "@xyflow/react";
 import {
   Activity,
+  AlignHorizontalJustifyCenter,
+  AlignHorizontalJustifyEnd,
+  AlignHorizontalJustifyStart,
+  AlignVerticalJustifyCenter,
+  AlignVerticalJustifyEnd,
+  AlignVerticalJustifyStart,
   ArrowLeft,
   BellRing,
   CircleGauge,
   Clock3,
+  Copy,
   Eye,
   FilePlus2,
   Fullscreen,
@@ -36,6 +45,7 @@ import {
   LoaderCircle,
   Pencil,
   Radio,
+  Redo2,
   RefreshCw,
   RotateCcw,
   Rows3,
@@ -48,6 +58,7 @@ import {
   TextQuote,
   Trash2,
   Type as TypeIcon,
+  Undo2,
   Workflow,
   Zap,
 } from "lucide-react";
@@ -75,7 +86,14 @@ import type {
   ScadaScreenVersion,
 } from "../../lib/types";
 
-type RuntimeScadaNodeData = ScadaNodeData & { latest?: LatestTelemetry; latestByDevice?: Record<string, LatestTelemetry> };
+type RuntimeScadaNodeData = ScadaNodeData & {
+  latest?: LatestTelemetry;
+  latestByDevice?: Record<string, LatestTelemetry>;
+  // Canvas-only, stripped in emit() before persisting -- powers double-click-to-edit-in-place.
+  editing?: boolean;
+  onEditCommit?: (patch: Partial<ScadaNodeData>) => void;
+  onEditCancel?: () => void;
+};
 type FlowNode = Node<RuntimeScadaNodeData>;
 type FlowEdge = Edge;
 type BuilderMode = "edit" | "preview" | "published";
@@ -407,15 +425,23 @@ export function ScadaCanvas({ design, editable, devices, latestByDevice, version
   const [nodes, setNodes] = useState<FlowNode[]>(() => design.nodes.map((node) => ({ ...node, zIndex: node.type === "section" ? -1 : 0, style: node.width && node.height ? { width: node.width, height: node.height } : undefined })));
   const [edges, setEdges] = useState<FlowEdge[]>(() => design.edges.map((edge) => ({ ...edge, animated: false })));
   const [viewport, setViewport] = useState<Viewport>(design.viewport);
-  const [selectedID, setSelectedID] = useState("");
+  const [selectedIDs, setSelectedIDs] = useState<string[]>([]);
+  const [editingID, setEditingID] = useState("");
+  const [historyTick, setHistoryTick] = useState(0);
   const stageRef = useRef<HTMLDivElement>(null);
+  // ponytail: full ScadaDesign snapshots per undo step, capped at 50 -- fine at builder scale (a
+  // few hundred nodes/edges), a diff-based history would only earn its keep past that.
+  const historyRef = useRef<{ past: { nodes: FlowNode[]; edges: FlowEdge[] }[]; future: { nodes: FlowNode[]; edges: FlowEdge[] }[] }>({ past: [], future: [] });
+  const clipboardRef = useRef<FlowNode[]>([]);
+  const pasteCountRef = useRef(0);
+  const selectedID = selectedIDs.length === 1 ? selectedIDs[0] : "";
   const selected = nodes.find((node) => node.id === selectedID);
 
   function emit(nextNodes: FlowNode[], nextEdges: FlowEdge[], nextViewport = viewport) {
     onDesignChange({
       version: 1,
       nodes: nextNodes.map((node) => {
-        const { latest: _latest, latestByDevice: _latestByDevice, ...data } = node.data;
+        const { latest: _latest, latestByDevice: _latestByDevice, editing: _editing, onEditCommit: _onEditCommit, onEditCancel: _onEditCancel, ...data } = node.data;
         const width = node.measured?.width ?? node.width;
         const height = node.measured?.height ?? node.height;
         return { id: node.id, type: node.type as ScadaNodeType, position: node.position, data, ...(width ? { width } : {}), ...(height ? { height } : {}) };
@@ -425,8 +451,41 @@ export function ScadaCanvas({ design, editable, devices, latestByDevice, version
     });
   }
 
+  // Undo/redo checkpoint. Called before discrete structural actions (add/remove/connect/
+  // align/duplicate/paste/inline-edit/drag-start) -- not on every keystroke or drag pixel,
+  // so a single undo reverts one meaningful action instead of one character or one frame.
+  function pushHistory() {
+    historyRef.current.past.push({ nodes, edges });
+    if (historyRef.current.past.length > 50) historyRef.current.past.shift();
+    historyRef.current.future = [];
+    setHistoryTick((tick) => tick + 1);
+  }
+
+  function undo() {
+    if (!editable) return;
+    const previous = historyRef.current.past.pop();
+    if (!previous) return;
+    historyRef.current.future.push({ nodes, edges });
+    setNodes(previous.nodes);
+    setEdges(previous.edges);
+    setHistoryTick((tick) => tick + 1);
+    emit(previous.nodes, previous.edges);
+  }
+
+  function redo() {
+    if (!editable) return;
+    const next = historyRef.current.future.pop();
+    if (!next) return;
+    historyRef.current.past.push({ nodes, edges });
+    setNodes(next.nodes);
+    setEdges(next.edges);
+    setHistoryTick((tick) => tick + 1);
+    emit(next.nodes, next.edges);
+  }
+
   function nodesChanged(changes: NodeChange<FlowNode>[]) {
     if (!editable) return;
+    if (changes.some((change) => change.type === "remove")) pushHistory();
     const next = applyNodeChanges(changes, nodes);
     setNodes(next);
     emit(next, edges);
@@ -434,6 +493,7 @@ export function ScadaCanvas({ design, editable, devices, latestByDevice, version
 
   function edgesChanged(changes: EdgeChange<FlowEdge>[]) {
     if (!editable) return;
+    if (changes.some((change) => change.type === "remove")) pushHistory();
     const next = applyEdgeChanges(changes, edges);
     setEdges(next);
     emit(nodes, next);
@@ -442,6 +502,7 @@ export function ScadaCanvas({ design, editable, devices, latestByDevice, version
   function connect(connection: Connection) {
     if (!editable || !connection.source || !connection.target || connection.source === connection.target) return;
     if (edges.some((edge) => edge.source === connection.source && edge.target === connection.target)) return;
+    pushHistory();
     const next = addEdge({ ...connection, id: `edge-${crypto.randomUUID()}`, type: "smoothstep", animated: false }, edges);
     setEdges(next);
     emit(nodes, next);
@@ -450,6 +511,7 @@ export function ScadaCanvas({ design, editable, devices, latestByDevice, version
   function addNode(type: ScadaNodeType) {
     if (!editable) return;
     if (paletteEntries.find((entry) => entry.type === type)?.requiresDevice && devices.length === 0) return;
+    pushHistory();
     const id = `${type}-${crypto.randomUUID()}`;
     const firstPointKey = devices[0] ? Object.keys(latestByDevice[devices[0].id]?.dataItemMap || {}).sort()[0] : undefined;
     const binding = devices[0] ? { deviceId: devices[0].id, pointKey: firstPointKey || "", unit: "", decimals: 1 } : undefined;
@@ -471,7 +533,7 @@ export function ScadaCanvas({ design, editable, devices, latestByDevice, version
     const nextNode: FlowNode = { id, type, position: { x: 100 + nodes.length * 28, y: 100 + nodes.length * 24 }, data: defaults[type], zIndex: type === "section" ? -1 : 0, ...dimensions, ...(dimensions.width && dimensions.height ? { style: dimensions } : {}) };
     const next = [...nodes, nextNode];
     setNodes(next);
-    setSelectedID(id);
+    setSelectedIDs([id]);
     emit(next, edges);
   }
 
@@ -482,20 +544,136 @@ export function ScadaCanvas({ design, editable, devices, latestByDevice, version
   }
 
   function removeSelected() {
+    if (!selectedID) return;
+    pushHistory();
     const nextNodes = nodes.filter((node) => node.id !== selectedID);
     const nextEdges = edges.filter((edge) => edge.source !== selectedID && edge.target !== selectedID);
-    setNodes(nextNodes); setEdges(nextEdges); setSelectedID(""); emit(nextNodes, nextEdges);
+    setNodes(nextNodes); setEdges(nextEdges); setSelectedIDs([]); emit(nextNodes, nextEdges);
   }
+
+  function removeSelection() {
+    if (!editable || selectedIDs.length === 0) return;
+    pushHistory();
+    const nextNodes = nodes.filter((node) => !selectedIDs.includes(node.id));
+    const nextEdges = edges.filter((edge) => !selectedIDs.includes(edge.source) && !selectedIDs.includes(edge.target));
+    setNodes(nextNodes); setEdges(nextEdges); setSelectedIDs([]); emit(nextNodes, nextEdges);
+  }
+
+  function alignSelection(edge: "left" | "center-h" | "right" | "top" | "middle-v" | "bottom") {
+    if (!editable || selectedIDs.length < 2) return;
+    const targets = nodes.filter((node) => selectedIDs.includes(node.id));
+    const bounds = getNodesBounds(targets);
+    pushHistory();
+    const next = nodes.map((node) => {
+      if (!selectedIDs.includes(node.id)) return node;
+      const width = node.measured?.width ?? node.width ?? 0;
+      const height = node.measured?.height ?? node.height ?? 0;
+      const position = { ...node.position };
+      if (edge === "left") position.x = bounds.x;
+      else if (edge === "right") position.x = bounds.x + bounds.width - width;
+      else if (edge === "center-h") position.x = bounds.x + bounds.width / 2 - width / 2;
+      else if (edge === "top") position.y = bounds.y;
+      else if (edge === "bottom") position.y = bounds.y + bounds.height - height;
+      else position.y = bounds.y + bounds.height / 2 - height / 2;
+      return { ...node, position };
+    });
+    setNodes(next);
+    emit(next, edges);
+  }
+
+  function cloneNodes(source: FlowNode[], offset: number): FlowNode[] {
+    return source.map((node) => ({ ...node, id: `${node.type}-${crypto.randomUUID()}`, position: { x: node.position.x + offset, y: node.position.y + offset }, selected: true }));
+  }
+
+  function duplicateSelection() {
+    if (!editable || selectedIDs.length === 0) return;
+    pushHistory();
+    const copies = cloneNodes(nodes.filter((node) => selectedIDs.includes(node.id)), 24);
+    const next = [...nodes.map((node) => ({ ...node, selected: false })), ...copies];
+    setNodes(next);
+    setSelectedIDs(copies.map((node) => node.id));
+    emit(next, edges);
+  }
+
+  function copySelection() {
+    if (selectedIDs.length === 0) return;
+    clipboardRef.current = nodes.filter((node) => selectedIDs.includes(node.id));
+    pasteCountRef.current = 0;
+  }
+
+  function pasteClipboard() {
+    if (!editable || clipboardRef.current.length === 0) return;
+    pasteCountRef.current += 1;
+    pushHistory();
+    const copies = cloneNodes(clipboardRef.current, 24 * pasteCountRef.current);
+    const next = [...nodes.map((node) => ({ ...node, selected: false })), ...copies];
+    setNodes(next);
+    setSelectedIDs(copies.map((node) => node.id));
+    emit(next, edges);
+  }
+
+  function commitEdit(id: string, patch: Partial<ScadaNodeData>) {
+    pushHistory();
+    const next = nodes.map((node) => node.id === id ? { ...node, data: { ...node.data, ...patch } } : node);
+    setNodes(next);
+    setEditingID("");
+    emit(next, edges);
+  }
+
+  // Window-level so shortcuts fire regardless of which canvas element has focus. Rebinding on
+  // every nodes/edges/selectedIDs change keeps the closures fresh (cheap: add/removeEventListener).
+  useEffect(() => {
+    if (!editable) return;
+    function isTypingTarget(target: EventTarget | null) {
+      return target instanceof HTMLElement && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (isTypingTarget(event.target) || !(event.ctrlKey || event.metaKey)) return;
+      const key = event.key.toLowerCase();
+      if (key === "c") copySelection();
+      else if (key === "v") pasteClipboard();
+      else if (key === "d") { event.preventDefault(); duplicateSelection(); }
+      else if (key === "z" && event.shiftKey) { event.preventDefault(); redo(); }
+      else if (key === "z") { event.preventDefault(); undo(); }
+      else if (key === "y") { event.preventDefault(); redo(); }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [editable, nodes, edges, selectedIDs]);
 
   return <div className={editable ? "scada-workbench editing scada-dark" : hideInspector ? "scada-workbench solo scada-dark" : "scada-workbench viewing scada-dark"}>
     {editable && <aside className="scada-palette"><header><Grid2X2 size={17} /><div><strong>Node palette</strong><small>เพิ่มองค์ประกอบลง fixed canvas</small></div></header>{paletteEntries.map(({ type, title, description, icon: Icon, requiresDevice }) => <Button variant="bare" key={type} onClick={() => addNode(type)} disabled={requiresDevice && devices.length === 0} title={requiresDevice && devices.length === 0 ? "Plant นี้ยังไม่มี Device" : undefined}><Icon size={18} /><span><strong>{title}</strong><small>{description}</small></span></Button>)}<div className="palette-note"><Workflow size={16} /><p>ใช้ Edge ของ React Flow สำหรับเส้นและลูกศรระหว่าง Node</p></div></aside>}
     <section className="scada-stage-shell" ref={stageRef}>
-      <div className="scada-stage-toolbar"><span>{editable ? "Draft canvas · Snap 20px" : "Operational viewer · Read only"}</span><Button variant="icon" onClick={() => void stageRef.current?.requestFullscreen()} title="เต็มจอ" aria-label="แสดง SCADA เต็มจอ"><Fullscreen size={17} /></Button></div>
+      <div className="scada-stage-toolbar">
+        <span>{editable ? "Draft canvas · Snap 20px" : "Operational viewer · Read only"}</span>
+        <div className="flex items-center gap-1">
+          {editable && <Button variant="icon" disabled={historyRef.current.past.length === 0} onClick={undo} title="เลิกทำ (Ctrl+Z)" aria-label="เลิกทำ"><Undo2 size={16} /></Button>}
+          {editable && <Button variant="icon" disabled={historyRef.current.future.length === 0} onClick={redo} title="ทำซ้ำ (Ctrl+Shift+Z)" aria-label="ทำซ้ำ"><Redo2 size={16} /></Button>}
+          <Button variant="icon" onClick={() => void stageRef.current?.requestFullscreen()} title="เต็มจอ" aria-label="แสดง SCADA เต็มจอ"><Fullscreen size={17} /></Button>
+        </div>
+      </div>
       <div className="scada-stage">
-        <ReactFlow<FlowNode, FlowEdge> nodes={nodes.map((node) => ({ ...node, data: { ...node.data, latest: latestByDevice[node.data.binding?.deviceId || ""], latestByDevice } }))} edges={edges} nodeTypes={nodeTypes} onNodesChange={nodesChanged} onEdgesChange={edgesChanged} onConnect={connect} onNodeClick={(_, node) => setSelectedID(node.id)} onPaneClick={() => setSelectedID("")} onMoveEnd={(_, next) => { setViewport(next); if (editable) emit(nodes, edges, next); }} defaultViewport={viewport} nodesDraggable={editable} nodesConnectable={editable} elementsSelectable={editable} deleteKeyCode={editable ? ["Backspace", "Delete"] : null} panOnDrag={!locked} panOnScroll={!locked} zoomOnScroll={!locked} zoomOnPinch={!locked} zoomOnDoubleClick={!locked} snapToGrid snapGrid={[20, 20]} fitView minZoom={0.1} maxZoom={4} attributionPosition="bottom-left">
+        <ReactFlow<FlowNode, FlowEdge> nodes={nodes.map((node) => ({ ...node, data: { ...node.data, latest: latestByDevice[node.data.binding?.deviceId || ""], latestByDevice, editing: node.id === editingID, onEditCommit: (patch: Partial<ScadaNodeData>) => commitEdit(node.id, patch), onEditCancel: () => setEditingID("") } }))} edges={edges} nodeTypes={nodeTypes} onNodesChange={nodesChanged} onEdgesChange={edgesChanged} onConnect={connect} onNodeDragStart={() => { if (editable) pushHistory(); }} onSelectionChange={({ nodes: selectedNodes }) => setSelectedIDs(selectedNodes.map((node) => node.id))} onNodeDoubleClick={(_, node) => { if (editable && (node.type === "label" || node.type === "section" || node.type === "ticker")) setEditingID(node.id); }} onMoveEnd={(_, next) => { setViewport(next); if (editable) emit(nodes, edges, next); }} defaultViewport={viewport} nodesDraggable={editable} nodesConnectable={editable} elementsSelectable={editable} deleteKeyCode={editable ? ["Backspace", "Delete"] : null} panOnDrag={!locked} panOnScroll={!locked} zoomOnScroll={!locked} zoomOnPinch={!locked} zoomOnDoubleClick={!locked} snapToGrid snapGrid={[20, 20]} fitView minZoom={0.1} maxZoom={4} attributionPosition="bottom-left">
           <Background variant={BackgroundVariant.Lines} gap={20} size={1} color="var(--line)" />
           {showMinimap && <MiniMap pannable zoomable nodeColor={(node) => node.type === "metric" ? "var(--action)" : node.type === "equipment" ? "var(--warning)" : "var(--muted)"} />}
           {!locked && <Controls showInteractive={false} />}
+          {editable && selectedIDs.length >= 2 && (
+            <Panel position="top-center">
+              <div className="flex items-center gap-1 rounded-[var(--radius-sm)] border border-line bg-surface p-1 shadow-[var(--shadow-lg)]">
+                <Button variant="icon" compact onClick={() => alignSelection("left")} title="ชิดซ้าย" aria-label="จัดชิดซ้าย"><AlignHorizontalJustifyStart size={16} /></Button>
+                <Button variant="icon" compact onClick={() => alignSelection("center-h")} title="กึ่งกลางแนวนอน" aria-label="จัดกึ่งกลางแนวนอน"><AlignHorizontalJustifyCenter size={16} /></Button>
+                <Button variant="icon" compact onClick={() => alignSelection("right")} title="ชิดขวา" aria-label="จัดชิดขวา"><AlignHorizontalJustifyEnd size={16} /></Button>
+                <span className="mx-1 h-5 w-px bg-line" />
+                <Button variant="icon" compact onClick={() => alignSelection("top")} title="ชิดบน" aria-label="จัดชิดบน"><AlignVerticalJustifyStart size={16} /></Button>
+                <Button variant="icon" compact onClick={() => alignSelection("middle-v")} title="กึ่งกลางแนวตั้ง" aria-label="จัดกึ่งกลางแนวตั้ง"><AlignVerticalJustifyCenter size={16} /></Button>
+                <Button variant="icon" compact onClick={() => alignSelection("bottom")} title="ชิดล่าง" aria-label="จัดชิดล่าง"><AlignVerticalJustifyEnd size={16} /></Button>
+                <span className="mx-1 h-5 w-px bg-line" />
+                <Button variant="icon" compact onClick={duplicateSelection} title="ทำซ้ำ (Ctrl+D)" aria-label="ทำซ้ำ Node ที่เลือก"><Copy size={16} /></Button>
+                <Button variant="icon" compact danger onClick={removeSelection} title="ลบ (Backspace)" aria-label="ลบ Node ที่เลือก"><Trash2 size={16} /></Button>
+                <span className="px-1.5 text-xs font-bold text-ink-soft">{selectedIDs.length} รายการ</span>
+              </div>
+            </Panel>
+          )}
         </ReactFlow>
       </div>
     </section>
@@ -570,16 +748,44 @@ function DataItemsEditor({ items, devices, latestByDevice, alarms, onChange }: {
   return <section className="scada-item-editor"><div className="item-editor-heading"><strong>{alarms ? "Alarm points" : "Table rows"}</strong><Button type="button" variant="icon" disabled={items.length >= 20 || devices.length === 0} onClick={() => onChange([...items, { label: `Point ${items.length + 1}`, binding: fallback }])} title="เพิ่ม point" aria-label="เพิ่ม point">+</Button></div>{items.map((item, index) => <div className="scada-item-row" key={`${index}-${item.binding.deviceId}`}><label>Label<TextInput value={item.label} maxLength={100} onChange={(event) => patch(index, { label: event.target.value })} /></label><BindingEditor binding={item.binding} devices={devices} latestByDevice={latestByDevice} onChange={(binding) => patch(index, { binding })} />{alarms && <div className="inspector-grid"><NumberField label="Low alarm" value={item.minAlarm} onChange={(minAlarm) => patch(index, { minAlarm })} /><NumberField label="High alarm" value={item.maxAlarm} onChange={(maxAlarm) => patch(index, { maxAlarm })} /></div>}<Button type="button" variant="text" danger disabled={items.length <= 1} onClick={() => onChange(items.filter((_, itemIndex) => itemIndex !== index))}>ลบแถว</Button></div>)}</section>;
 }
 
+// "group" lets NodeHandles reveal its dots on hover via Tailwind group-hover, without any
+// JS hover-tracking state -- the class also carries the existing selected-state modifier.
+function nodeClass(kind: string, selected?: boolean) {
+  return `scada-node ${kind} group${selected ? " selected" : ""}`;
+}
+
+// Shared double-click-to-edit input for Label/Section/Ticker nodes. "nodrag nopan" are React
+// Flow's built-in escape hatches so typing/clicking inside doesn't start a node drag or pan.
+function InlineTextEdit({ value, className, onCommit, onCancel }: { value: string; className?: string; onCommit: (value: string) => void; onCancel: () => void }) {
+  const [draft, setDraft] = useState(value);
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => { inputRef.current?.focus(); inputRef.current?.select(); }, []);
+  return <input
+    ref={inputRef}
+    className={`nodrag nopan ${className || ""}`}
+    value={draft}
+    maxLength={200}
+    onChange={(event) => setDraft(event.target.value)}
+    onKeyDown={(event) => {
+      if (event.key === "Enter") { event.preventDefault(); onCommit(draft); }
+      else if (event.key === "Escape") { event.preventDefault(); onCancel(); }
+    }}
+    onBlur={() => onCommit(draft)}
+  />;
+}
+
+const inlineEditClass = "w-full rounded-[var(--radius-sm)] border border-focus bg-surface px-1.5 py-1 text-sm font-bold text-ink outline-none";
+
 function EquipmentNode({ data, selected }: NodeProps<FlowNode>) {
   const icons = { "solar-panel": SunMedium, inverter: Zap, meter: CircleGauge, grid: Workflow };
   const Icon = icons[data.equipmentKind || "inverter"];
-  return <div className={selected ? "scada-node equipment selected" : "scada-node equipment"}><NodeHandles /><Icon size={23} /><strong>{data.label}</strong><small>{data.equipmentKind}</small></div>;
+  return <div className={nodeClass("equipment", selected)}><NodeHandles selected={selected} /><Icon size={23} /><strong>{data.label}</strong><small>{data.equipmentKind}</small></div>;
 }
 
 function MetricNode({ data, selected }: NodeProps<FlowNode>) {
   const reading = readBinding(data, data.binding);
   const min = data.minValue ?? 0; const max = data.maxValue ?? 100; const value = reading.value ?? min;
-  return <div className={selected ? "scada-node metric selected" : "scada-node metric"}><NodeHandles /><small>{data.label}</small>{(data.displayType === "gauge" || data.displayType === "progress") && <MetricBar percent={((value - min) / Math.max(1, max - min)) * 100} />}{data.displayType === "tank" && <div className="metric-tank" aria-hidden="true"><span style={{ height: `${Math.max(0, Math.min(100, ((value - min) / Math.max(1, max - min)) * 100))}%` }} /></div>}<strong>{reading.missing ? "—" : reading.formatted} <em>{data.binding?.unit}</em></strong><Quality reading={reading} /></div>;
+  return <div className={nodeClass("metric", selected)}><NodeHandles selected={selected} /><small>{data.label}</small>{(data.displayType === "gauge" || data.displayType === "progress") && <MetricBar percent={((value - min) / Math.max(1, max - min)) * 100} />}{data.displayType === "tank" && <div className="metric-tank" aria-hidden="true"><span style={{ height: `${Math.max(0, Math.min(100, ((value - min) / Math.max(1, max - min)) * 100))}%` }} /></div>}<strong>{reading.missing ? "—" : reading.formatted} <em>{data.binding?.unit}</em></strong><Quality reading={reading} /></div>;
 }
 
 // Gauge/progress metric fill. PrimeReact ProgressBar sets the width inline, so
@@ -596,54 +802,83 @@ function MetricBar({ percent }: { percent: number }) {
 }
 
 function LabelNode({ data, selected }: NodeProps<FlowNode>) {
-  return <div className={selected ? "scada-node label selected" : "scada-node label"}><NodeHandles /><strong>{data.label}</strong></div>;
+  return <div className={nodeClass("label", selected)}>
+    <NodeHandles selected={selected} />
+    {data.editing
+      ? <InlineTextEdit className={inlineEditClass} value={data.label} onCommit={(value) => data.onEditCommit?.({ label: value || data.label })} onCancel={() => data.onEditCancel?.()} />
+      : <strong>{data.label}</strong>}
+  </div>;
 }
 
 function ShapeNode({ data, selected }: NodeProps<FlowNode>) {
-  return <div className={selected ? "scada-node shape selected" : "scada-node shape"}><NodeResizer minWidth={60} minHeight={40} isVisible={selected} /><NodeHandles /><div className={`shape-body ${data.shapeKind || "rectangle"}`}><strong>{data.label}</strong></div></div>;
+  return <div className={nodeClass("shape", selected)}><NodeResizer minWidth={60} minHeight={40} isVisible={selected} /><NodeHandles selected={selected} /><div className={`shape-body ${data.shapeKind || "rectangle"}`}><strong>{data.label}</strong></div></div>;
 }
 
 function SectionNode({ data, selected }: NodeProps<FlowNode>) {
-  return <div className={selected ? "scada-node section selected" : "scada-node section"}><NodeResizer minWidth={180} minHeight={120} isVisible={selected} /><NodeHandles /><strong>{data.label}</strong></div>;
+  return <div className={nodeClass("section", selected)}>
+    <NodeResizer minWidth={180} minHeight={120} isVisible={selected} />
+    <NodeHandles selected={selected} />
+    {data.editing
+      ? <InlineTextEdit className={`${inlineEditClass} max-w-[80%]`} value={data.label} onCommit={(value) => data.onEditCommit?.({ label: value || data.label })} onCancel={() => data.onEditCancel?.()} />
+      : <strong>{data.label}</strong>}
+  </div>;
 }
 
 function LedNode({ data, selected }: NodeProps<FlowNode>) {
   const reading = readBinding(data, data.binding); const active = !reading.missing && reading.value === (data.onValue ?? 1);
-  return <div className={selected ? "scada-node led selected" : "scada-node led"}><NodeHandles /><span className={active ? "led-lamp active" : "led-lamp"} aria-hidden="true" /><strong>{data.label}</strong><span className={`node-quality ${reading.missing ? "missing" : active ? "good" : "normal"}`}>{reading.missing ? "No data" : active ? "ON" : "OFF"}</span></div>;
+  return <div className={nodeClass("led", selected)}><NodeHandles selected={selected} /><span className={active ? "led-lamp active" : "led-lamp"} aria-hidden="true" /><strong>{data.label}</strong><span className={`node-quality ${reading.missing ? "missing" : active ? "good" : "normal"}`}>{reading.missing ? "No data" : active ? "ON" : "OFF"}</span></div>;
 }
 
 function ClockNode({ data, selected }: NodeProps<FlowNode>) {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => { const timer = window.setInterval(() => setNow(new Date()), 1000); return () => window.clearInterval(timer); }, []);
   let time = "Invalid timezone"; try { time = new Intl.DateTimeFormat("en-GB", { timeZone: data.timezone || "Asia/Bangkok", dateStyle: "medium", timeStyle: "medium" }).format(now); } catch { /* backend validation prevents this after save */ }
-  return <div className={selected ? "scada-node clock selected" : "scada-node clock"}><NodeHandles /><Clock3 size={18} /><strong>{data.label}</strong><time>{time}</time><small>{data.timezone || "Asia/Bangkok"}</small></div>;
+  return <div className={nodeClass("clock", selected)}><NodeHandles selected={selected} /><Clock3 size={18} /><strong>{data.label}</strong><time>{time}</time><small>{data.timezone || "Asia/Bangkok"}</small></div>;
 }
 
 function ImageNode({ data, selected }: NodeProps<FlowNode>) {
-  return <div className={selected ? "scada-node image selected" : "scada-node image"}><NodeResizer minWidth={100} minHeight={80} isVisible={selected} /><NodeHandles />{data.imageUrl ? <img src={data.imageUrl} alt={data.label} /> : <div className="image-placeholder"><ImageIcon size={24} /><span>No image set</span></div>}<small>{data.label}</small></div>;
+  return <div className={nodeClass("image", selected)}><NodeResizer minWidth={100} minHeight={80} isVisible={selected} /><NodeHandles selected={selected} />{data.imageUrl ? <img src={data.imageUrl} alt={data.label} /> : <div className="image-placeholder"><ImageIcon size={24} /><span>No image set</span></div>}<small>{data.label}</small></div>;
 }
 
 function DataTableNode({ data, selected }: NodeProps<FlowNode>) {
-  return <div className={selected ? "scada-node data-table selected" : "scada-node data-table"}><NodeResizer minWidth={220} minHeight={130} isVisible={selected} /><NodeHandles /><strong>{data.label}</strong><table><tbody>{(data.items || []).map((item, index) => { const reading = readBinding(data, item.binding); return <tr key={`${index}-${item.binding.pointKey}`}><th>{item.label}</th><td>{reading.missing ? "—" : reading.formatted} <small>{item.binding.unit}</small></td></tr>; })}</tbody></table></div>;
+  return <div className={nodeClass("data-table", selected)}><NodeResizer minWidth={220} minHeight={130} isVisible={selected} /><NodeHandles selected={selected} /><strong>{data.label}</strong><table><tbody>{(data.items || []).map((item, index) => { const reading = readBinding(data, item.binding); return <tr key={`${index}-${item.binding.pointKey}`}><th>{item.label}</th><td>{reading.missing ? "—" : reading.formatted} <small>{item.binding.unit}</small></td></tr>; })}</tbody></table></div>;
 }
 
 function DeviceSummaryNode({ data, selected }: NodeProps<FlowNode>) {
   const reading = data.latestByDevice?.[data.deviceId || ""];
   const entries = reading ? Object.entries(reading.dataItemMap).sort(([a], [b]) => a.localeCompare(b)) : [];
-  return <div className={selected ? "scada-node data-table selected" : "scada-node data-table"}><NodeResizer minWidth={220} minHeight={130} isVisible={selected} /><NodeHandles /><strong>{data.label}</strong><table><tbody>{entries.map(([key, value]) => <tr key={key}><th>{key}</th><td>{Number.isFinite(value) ? value.toLocaleString() : "—"}</td></tr>)}{entries.length === 0 && <tr><td colSpan={2}>No data</td></tr>}</tbody></table></div>;
+  return <div className={nodeClass("data-table", selected)}><NodeResizer minWidth={220} minHeight={130} isVisible={selected} /><NodeHandles selected={selected} /><strong>{data.label}</strong><table><tbody>{entries.map(([key, value]) => <tr key={key}><th>{key}</th><td>{Number.isFinite(value) ? value.toLocaleString() : "—"}</td></tr>)}{entries.length === 0 && <tr><td colSpan={2}>No data</td></tr>}</tbody></table></div>;
 }
 
 function AlarmListNode({ data, selected }: NodeProps<FlowNode>) {
-  return <div className={selected ? "scada-node alarm-list selected" : "scada-node alarm-list"}><NodeResizer minWidth={240} minHeight={130} isVisible={selected} /><NodeHandles /><strong><BellRing size={15} /> {data.label}</strong><div className="alarm-items">{(data.items || []).map((item, index) => { const reading = readBinding(data, item.binding); const alarm = !reading.missing && ((item.minAlarm != null && reading.value! < item.minAlarm) || (item.maxAlarm != null && reading.value! > item.maxAlarm)); return <div key={`${index}-${item.binding.pointKey}`}><span>{item.label}<small>{reading.missing ? "—" : `${reading.formatted} ${item.binding.unit}`}</small></span><b className={reading.missing ? "missing" : alarm ? "alarm" : "normal"}>{reading.missing ? "No data" : alarm ? "Alarm" : "Normal"}</b></div>; })}</div></div>;
+  return <div className={nodeClass("alarm-list", selected)}><NodeResizer minWidth={240} minHeight={130} isVisible={selected} /><NodeHandles selected={selected} /><strong><BellRing size={15} /> {data.label}</strong><div className="alarm-items">{(data.items || []).map((item, index) => { const reading = readBinding(data, item.binding); const alarm = !reading.missing && ((item.minAlarm != null && reading.value! < item.minAlarm) || (item.maxAlarm != null && reading.value! > item.maxAlarm)); return <div key={`${index}-${item.binding.pointKey}`}><span>{item.label}<small>{reading.missing ? "—" : `${reading.formatted} ${item.binding.unit}`}</small></span><b className={reading.missing ? "missing" : alarm ? "alarm" : "normal"}>{reading.missing ? "No data" : alarm ? "Alarm" : "Normal"}</b></div>; })}</div></div>;
 }
 
 function TextTickerNode({ data, selected }: NodeProps<FlowNode>) {
   const reading = data.binding ? readBinding(data, data.binding) : undefined;
-  return <div className={selected ? "scada-node ticker selected" : "scada-node ticker"}><NodeHandles /><TextQuote size={15} /><strong>{data.label}</strong><span>{reading ? (reading.missing ? "No data" : `${reading.formatted} ${data.binding?.unit}`) : data.text || "—"}</span></div>;
+  return <div className={nodeClass("ticker", selected)}>
+    <NodeHandles selected={selected} />
+    <TextQuote size={15} />
+    <strong>{data.label}</strong>
+    {data.editing
+      ? <InlineTextEdit className="w-full rounded-[var(--radius-sm)] border border-focus bg-surface px-1.5 py-1 text-xs text-ink outline-none" value={data.text || ""} onCommit={(value) => data.onEditCommit?.({ text: value })} onCancel={() => data.onEditCancel?.()} />
+      : <span>{reading ? (reading.missing ? "No data" : `${reading.formatted} ${data.binding?.unit}`) : data.text || "—"}</span>}
+  </div>;
 }
 
-function NodeHandles() {
-  return <><Handle type="target" position={Position.Left} /><Handle type="source" position={Position.Right} /><Handle id="top" type="target" position={Position.Top} /><Handle id="bottom" type="source" position={Position.Bottom} /></>;
+// Handles stay mounted at all times (React Flow needs them to route existing edges) but are
+// only visually + interactively active while the node is selected or hovered, matching Figma.
+function NodeHandles({ selected }: { selected?: boolean }) {
+  const visibility = selected
+    ? "opacity-100 pointer-events-auto"
+    : "opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto";
+  const cls = `transition-opacity duration-150 ${visibility}`;
+  return <>
+    <Handle type="target" position={Position.Left} className={cls} />
+    <Handle type="source" position={Position.Right} className={cls} />
+    <Handle id="top" type="target" position={Position.Top} className={cls} />
+    <Handle id="bottom" type="source" position={Position.Bottom} className={cls} />
+  </>;
 }
 
 type BindingReading = { value?: number; formatted: string; missing: boolean; observedAt?: string };

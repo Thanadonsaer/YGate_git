@@ -1,5 +1,5 @@
-import { api } from "./api";
-import type { Device, DeviceModelRegisterMetadata, LatestTelemetry, RegisterMetadata, TelemetryHistoryPage } from "./types";
+import { api } from "./api.ts";
+import type { Device, DeviceModelRegisterMetadata, LatestTelemetry, RegisterMetadata, TelemetryHistoryPage } from "./types.ts";
 
 /** The server rejects anything above this (services/platform-api telemetry.go). */
 const PAGE_LIMIT = 500;
@@ -82,7 +82,7 @@ export async function loadRegisterCatalog(plantId: string, device: Device, signa
   const tagByKey = new Map(modelLevel.map((entry) => [entry.addressKey, registerTag(entry)]));
   const catalog: Record<string, PointMeta> = {};
   for (const entry of plantLevel) {
-    catalog[entry.addressKey] = {
+    const meta: PointMeta = {
       key: entry.addressKey,
       displayName: entry.displayName || entry.addressKey,
       unit: entry.unit,
@@ -90,8 +90,25 @@ export async function loadRegisterCatalog(plantId: string, device: Device, signa
       tag: tagByKey.get(entry.addressKey) || entry.addressKey,
       isEnabled: entry.isEnabled,
     };
+    catalog[entry.addressKey] = meta;
+    // Metadata is keyed "reg40072" (what auto-onboard and import-config write)
+    // but telemetry.mapped_data_items() emits the bare address "40072", so a
+    // lookup by the telemetry key misses every row and the picker falls back
+    // to showing the address instead of the display name. Index both spellings
+    // -- the same both-forms match that SQL function already does on its side.
+    const bare = bareAddressKey(entry.addressKey);
+    if (bare && !catalog[bare]) catalog[bare] = meta;
   }
   return catalog;
+}
+
+/**
+ * "reg40072" -> "40072". Empty for anything else, so a curated named key like
+ * "regulation_mode" never aliases itself to a truncated "ulation_mode".
+ */
+export function bareAddressKey(addressKey: string): string {
+  const match = /^reg(\d+(?:_fc\d+)?)$/.exec(addressKey);
+  return match ? match[1] : "";
 }
 
 /** Fills in a placeholder for a key that has telemetry but no metadata row. */

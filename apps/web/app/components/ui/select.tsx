@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { Dropdown } from "primereact/dropdown";
-import { Check, ChevronDown } from "lucide-react";
+import { Check, ChevronDown, Search } from "lucide-react";
 import { collectByType } from "./collect-children";
 import { cn } from "../../lib/cn";
 
@@ -50,6 +50,13 @@ function Select({
 
   return (
     <Dropdown
+      // A search box over four fixed choices (Shape, Timezone, Display...) is
+      // just noise; it earns its place once the list stops fitting on screen.
+      filter={options.length > 7}
+      filterBy="label"
+      filterPlaceholder="ค้นหา..."
+      resetFilterOnHide
+      filterIcon={<Search size={14} />}
       value={value}
       onChange={(event) => onValueChange?.(event.value as string)}
       disabled={disabled}
@@ -72,8 +79,16 @@ function Select({
       pt={{
         input: { className: "flex-1 min-w-0 truncate text-left outline-none" },
         trigger: { className: "ml-auto flex shrink-0 items-center text-ink-soft" },
-        wrapper: { className: "max-h-96 overflow-y-auto" },
+        header: { className: "flex items-center gap-2 border-b border-line p-2" },
+        filterContainer: { className: "relative flex-1" },
+        filterInput: { className: "h-9 w-full rounded-[var(--radius-sm)] border border-line bg-canvas pl-8 pr-2 text-sm outline-none focus:border-focus" },
+        filterIcon: { className: "pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-soft" },
+        // overscroll-contain stops the panel handing its leftover scroll to the
+        // page once the list hits an end -- otherwise scrolling the options
+        // scrolls the whole view out from under the open dropdown.
+        wrapper: { className: "max-h-96 overflow-y-auto overscroll-contain" },
         list: { className: "flex flex-col gap-0.5 p-1" },
+        emptyMessage: { className: "px-3 py-2 text-sm text-ink-soft" },
         item: (options: { context: { focused: boolean; disabled: boolean } }) => ({
           className: cn(
             "relative flex w-full cursor-pointer select-none items-center rounded-[var(--radius-sm)] py-2 pr-2 text-sm text-ink outline-none",

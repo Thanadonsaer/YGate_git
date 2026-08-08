@@ -69,7 +69,10 @@ function MultiSelect({
         filterInput: { className: "h-9 w-full rounded-[var(--radius-sm)] border border-line bg-canvas pl-8 pr-2 text-sm outline-none focus:border-focus" },
         filterIcon: { className: "pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-soft" },
         headerCheckboxContainer: { className: "hidden" },
-        wrapper: { className: "max-h-72 overflow-y-auto" },
+        // overscroll-contain stops the panel handing its leftover scroll to the
+        // page once the list hits an end -- otherwise scrolling the options
+        // scrolls the whole view out from under the open dropdown.
+        wrapper: { className: "max-h-72 overflow-y-auto overscroll-contain" },
         list: { className: "flex flex-col gap-0.5 p-1" },
         emptyMessage: { className: "px-3 py-2 text-sm text-ink-soft" },
         item: (options: { context: { focused: boolean; selected: boolean; disabled: boolean } }) => ({

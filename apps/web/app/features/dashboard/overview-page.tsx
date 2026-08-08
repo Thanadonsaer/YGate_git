@@ -10,6 +10,7 @@ import { usePlatformSession } from "../../components/platform-shell";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody } from "../../components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../../components/ui/select";
 import { Button } from "../../components/ui/button";
+import { DataTable, TableColumn } from "../../components/ui/data-table";
 
 type ChartWidgetSlot = "timeseries-line" | "energy-line";
 const CHART_WIDGET_ADD_LABELS: Record<ChartWidgetSlot, string> = { "timeseries-line": "เพิ่มกราฟ", "energy-line": "เพิ่มกราฟพลังงาน" };
@@ -183,20 +184,32 @@ function DashboardCanvas({ dashboard, dashboardError, onRefresh }: { dashboard: 
     return (
       <div className="dashboard-widget-body">
         {dashboardError && <FormMessage>{dashboardError}</FormMessage>}
-        <div className="dashboard-table" role="table" aria-label="สถานะการรับข้อมูลแต่ละโรงไฟฟ้า">
-          <div className="dashboard-row dashboard-head" role="row"><span>โรงไฟฟ้า</span><span>Device</span><span>Reporting</span><span>ข้อมูลล่าสุด</span><span>สถานะ</span></div>
-          {dashboard?.plants.map((plant) => (
-            <div className="dashboard-row" role="row" key={plant.plantId}>
-              <div><strong>{plant.name}</strong><small>{plant.code} · {plant.timezone}</small></div>
-              <div><span>{plant.activeDeviceCount.toLocaleString()} active</span><small>{plant.deviceCount.toLocaleString()} ทั้งหมด</small></div>
-              <div><span>{plant.reportingDeviceCount.toLocaleString()}</span><small>{plant.staleDeviceCount} stale · {plant.offlineDeviceCount} offline</small></div>
-              <div><span>{plant.lastObservedAt ? formatDate(plant.lastObservedAt) : "-"}</span><small>เกณฑ์ stale {dashboard.staleAfterSeconds} วินาที</small></div>
-              <StatusTag tone={plant.communicationStatus.toLowerCase()}>{dashboardStatusLabel(plant.communicationStatus)}</StatusTag>
+        <DataTable
+          value={dashboard?.plants ?? []}
+          dataKey="plantId"
+          aria-label="สถานะการรับข้อมูลแต่ละโรงไฟฟ้า"
+          emptyMessage={
+            <div className="table-state">
+              {!dashboard && !dashboardError ? "กำลังโหลดข้อมูล" : dashboard && dashboard.plants.length === 0 ? "ยังไม่มีโรงไฟฟ้าในขอบเขตที่เข้าถึงได้" : ""}
             </div>
-          ))}
-          {!dashboard && !dashboardError && <div className="table-state">กำลังโหลดข้อมูล</div>}
-          {dashboard && dashboard.plants.length === 0 && <div className="table-state">ยังไม่มีโรงไฟฟ้าในขอบเขตที่เข้าถึงได้</div>}
-        </div>
+          }
+        >
+          <TableColumn field="name" header="โรงไฟฟ้า" sortable body={(plant: DashboardPlantStatus) => (
+            <div className="grid gap-1"><strong>{plant.name}</strong><small className="block text-[11px] text-ink-soft">{plant.code} · {plant.timezone}</small></div>
+          )} />
+          <TableColumn header="Device" body={(plant: DashboardPlantStatus) => (
+            <div className="grid gap-1"><span>{plant.activeDeviceCount.toLocaleString()} active</span><small className="block text-[11px] text-ink-soft">{plant.deviceCount.toLocaleString()} ทั้งหมด</small></div>
+          )} />
+          <TableColumn field="reportingDeviceCount" header="Reporting" sortable body={(plant: DashboardPlantStatus) => (
+            <div className="grid gap-1"><span>{plant.reportingDeviceCount.toLocaleString()}</span><small className="block text-[11px] text-ink-soft">{plant.staleDeviceCount} stale · {plant.offlineDeviceCount} offline</small></div>
+          )} />
+          <TableColumn field="lastObservedAt" header="ข้อมูลล่าสุด" sortable body={(plant: DashboardPlantStatus) => (
+            <div className="grid gap-1"><span>{plant.lastObservedAt ? formatDate(plant.lastObservedAt) : "-"}</span><small className="block text-[11px] text-ink-soft">เกณฑ์ stale {dashboard?.staleAfterSeconds} วินาที</small></div>
+          )} />
+          <TableColumn field="communicationStatus" header="สถานะ" sortable body={(plant: DashboardPlantStatus) => (
+            <StatusTag tone={plant.communicationStatus.toLowerCase()}>{dashboardStatusLabel(plant.communicationStatus)}</StatusTag>
+          )} />
+        </DataTable>
       </div>
     );
   }
