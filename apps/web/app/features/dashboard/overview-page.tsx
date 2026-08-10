@@ -27,7 +27,9 @@ export function OverviewPage() {
 
   const loadDashboard = useCallback(async () => {
     try {
-      const response = await api("/api/v1/dashboard/overview?staleAfterSeconds=300");
+      // No staleAfterSeconds override: the server default (10 min) is the single
+      // source of truth, so Overview and Site map can't drift on what DEGRADED means.
+      const response = await api("/api/v1/dashboard/overview");
       if (!response.ok) throw new Error(response.status === 403 ? "บัญชีนี้ไม่มีสิทธิ์ดูข้อมูล Device" : "ไม่สามารถโหลดภาพรวมระบบได้");
       setDashboard((await response.json()) as DashboardOverview);
       setDashboardError("");
