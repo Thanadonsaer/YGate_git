@@ -117,6 +117,7 @@ export type Plant = {
   longitude?: number | null;
   installedDcKw?: number | null;
   installedAcKw?: number | null;
+  lifecycleStatus: "IN_CONSTRUCTION" | "OPERATIONAL" | "OFFLINE" | "RETIRED";
   imageUrl?: string | null;
   isActive: boolean;
   createdAt: string;
@@ -319,6 +320,23 @@ export type AlarmEvent = {
   acknowledgedBy?: string | null;
   acknowledgedAt?: string | null;
   acknowledgedNote?: string | null;
+};
+
+export type EventLogbookEntry = {
+  id: string;
+  organizationId: string;
+  plantId: string;
+  deviceId?: string | null;
+  eventType: "FAULT" | "MAINTENANCE" | "CURTAILMENT" | "NOTE";
+  category: string;
+  title: string;
+  startsAt: string;
+  endsAt?: string | null;
+  note: string;
+  source: "MANUAL" | "SYSTEM";
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type LiveMessage =

@@ -349,7 +349,8 @@ type PlantPlant struct {
 	CreatedAt      pgtype.Timestamptz
 	UpdatedAt      pgtype.Timestamptz
 	// Relative API path for the Plant primary image
-	ImageUrl pgtype.Text
+	ImageUrl        pgtype.Text
+	LifecycleStatus string
 }
 
 type ScadaScadaScreen struct {

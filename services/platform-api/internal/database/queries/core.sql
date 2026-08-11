@@ -33,7 +33,7 @@ SELECT p.id, p.organization_id, o.name AS organization_name,
        p.installed_dc_kw,
        p.installed_ac_kw,
        p.image_url,
-       p.is_active, p.created_at, p.updated_at
+       p.lifecycle_status, p.is_active, p.created_at, p.updated_at
 FROM plant.plant p
 JOIN organization o ON o.id = p.organization_id
 WHERE EXISTS (
@@ -57,7 +57,7 @@ SELECT p.id, p.organization_id, o.name AS organization_name,
        p.installed_dc_kw,
        p.installed_ac_kw,
        p.image_url,
-       p.is_active, p.created_at, p.updated_at
+       p.lifecycle_status, p.is_active, p.created_at, p.updated_at
 FROM plant.plant p
 JOIN organization o ON o.id = p.organization_id
 WHERE p.id = sqlc.arg(plant_id)
@@ -81,7 +81,7 @@ SELECT p.id, p.organization_id, o.name AS organization_name,
        p.installed_dc_kw,
        p.installed_ac_kw,
        p.image_url,
-       p.is_active, p.created_at, p.updated_at
+       p.lifecycle_status, p.is_active, p.created_at, p.updated_at
 FROM plant.plant p
 JOIN organization o ON o.id = p.organization_id
 WHERE p.id = sqlc.arg(plant_id)
@@ -103,17 +103,18 @@ FOR UPDATE OF p;
 -- name: CreatePlant :one
 INSERT INTO plant.plant (
     id, organization_id, code, name, timezone, latitude, longitude,
-    installed_dc_kw, installed_ac_kw
+    installed_dc_kw, installed_ac_kw, lifecycle_status
 ) VALUES (
     sqlc.arg(id), sqlc.arg(organization_id), sqlc.arg(code), sqlc.arg(name), sqlc.arg(timezone),
     sqlc.narg(latitude)::double precision, sqlc.narg(longitude)::double precision,
-    sqlc.narg(installed_dc_kw)::double precision, sqlc.narg(installed_ac_kw)::double precision
+    sqlc.narg(installed_dc_kw)::double precision, sqlc.narg(installed_ac_kw)::double precision,
+    sqlc.arg(lifecycle_status)
 )
 RETURNING id, organization_id, code, name, timezone, latitude, longitude,
           installed_dc_kw,
           installed_ac_kw,
           image_url,
-          is_active, created_at, updated_at;
+          lifecycle_status, is_active, created_at, updated_at;
 
 -- name: UpdatePlant :one
 UPDATE plant.plant
@@ -122,13 +123,14 @@ SET code = sqlc.arg(code), name = sqlc.arg(name), timezone = sqlc.arg(timezone),
     longitude = sqlc.narg(longitude)::double precision,
     installed_dc_kw = sqlc.narg(installed_dc_kw)::double precision,
     installed_ac_kw = sqlc.narg(installed_ac_kw)::double precision,
+    lifecycle_status = sqlc.arg(lifecycle_status),
     is_active = sqlc.arg(is_active), updated_at = now()
 WHERE id = sqlc.arg(id)
 RETURNING id, organization_id, code, name, timezone, latitude, longitude,
           installed_dc_kw,
           installed_ac_kw,
           image_url,
-          is_active, created_at, updated_at;
+          lifecycle_status, is_active, created_at, updated_at;
 
 -- name: CreateAuditEventFull :exec
 INSERT INTO audit_log (

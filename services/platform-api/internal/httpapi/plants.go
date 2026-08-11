@@ -18,6 +18,7 @@ type createPlantRequest struct {
 	Longitude      *float64 `json:"longitude"`
 	InstalledDcKW  *float64 `json:"installedDcKw"`
 	InstalledAcKW  *float64 `json:"installedAcKw"`
+	LifecycleStatus string  `json:"lifecycleStatus"`
 }
 
 type updatePlantRequest struct {
@@ -28,6 +29,7 @@ type updatePlantRequest struct {
 	Longitude     *float64 `json:"longitude"`
 	InstalledDcKW *float64 `json:"installedDcKw"`
 	InstalledAcKW *float64 `json:"installedAcKw"`
+	LifecycleStatus string `json:"lifecycleStatus"`
 	IsActive      *bool    `json:"isActive"`
 }
 
@@ -72,7 +74,7 @@ func createPlantHandler(service *core.Service) func(http.ResponseWriter, *http.R
 		plant, err := service.CreatePlant(r.Context(), principal, core.CreatePlantInput{
 			OrganizationID: request.OrganizationID, Code: request.Code, Name: request.Name, Timezone: request.Timezone,
 			Latitude: request.Latitude, Longitude: request.Longitude,
-			InstalledDcKW: request.InstalledDcKW, InstalledAcKW: request.InstalledAcKW,
+			InstalledDcKW: request.InstalledDcKW, InstalledAcKW: request.InstalledAcKW, LifecycleStatus: request.LifecycleStatus,
 		}, remoteIP(r.RemoteAddr))
 		if writePlantError(w, err) {
 			return
@@ -94,7 +96,7 @@ func updatePlantHandler(service *core.Service) func(http.ResponseWriter, *http.R
 		plant, err := service.UpdatePlant(r.Context(), principal, r.PathValue("plantId"), core.UpdatePlantInput{
 			Code: request.Code, Name: request.Name, Timezone: request.Timezone,
 			Latitude: request.Latitude, Longitude: request.Longitude,
-			InstalledDcKW: request.InstalledDcKW, InstalledAcKW: request.InstalledAcKW, IsActive: *request.IsActive,
+			InstalledDcKW: request.InstalledDcKW, InstalledAcKW: request.InstalledAcKW, LifecycleStatus: request.LifecycleStatus, IsActive: *request.IsActive,
 		}, remoteIP(r.RemoteAddr))
 		if writePlantError(w, err) {
 			return

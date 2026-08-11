@@ -85,6 +85,7 @@ type Plant struct {
 	Longitude        *float64  `json:"longitude"`
 	InstalledDcKW    *float64  `json:"installedDcKw"`
 	InstalledAcKW    *float64  `json:"installedAcKw"`
+	LifecycleStatus   string    `json:"lifecycleStatus"`
 	ImageURL         *string   `json:"imageUrl,omitempty"`
 	IsActive         bool      `json:"isActive"`
 	CreatedAt        time.Time `json:"createdAt"`
@@ -100,6 +101,7 @@ type CreatePlantInput struct {
 	Longitude      *float64
 	InstalledDcKW  *float64
 	InstalledAcKW  *float64
+	LifecycleStatus string
 	ImageURL       *string `json:"imageUrl,omitempty"`
 }
 
@@ -111,8 +113,25 @@ type UpdatePlantInput struct {
 	Longitude     *float64
 	InstalledDcKW *float64
 	InstalledAcKW *float64
+	LifecycleStatus string
 	ImageURL      *string `json:"imageUrl,omitempty"`
 	IsActive      bool
+}
+
+const (
+	PlantLifecycleInConstruction = "IN_CONSTRUCTION"
+	PlantLifecycleOperational    = "OPERATIONAL"
+	PlantLifecycleOffline        = "OFFLINE"
+	PlantLifecycleRetired        = "RETIRED"
+)
+
+func validatePlantLifecycle(status string) error {
+	switch strings.TrimSpace(status) {
+	case PlantLifecycleInConstruction, PlantLifecycleOperational, PlantLifecycleOffline, PlantLifecycleRetired:
+		return nil
+	default:
+		return ErrInvalid
+	}
 }
 
 func (s *Service) Plants(ctx context.Context, principal auth.Principal) ([]Plant, error) {
@@ -133,7 +152,7 @@ func (s *Service) Plants(ctx context.Context, principal auth.Principal) ([]Plant
 	for _, row := range rows {
 		plants = append(plants, plantFromFields(
 			row.ID, row.OrganizationID, row.OrganizationName, row.Code, row.Name, row.Timezone,
-			row.Latitude, row.Longitude, row.InstalledDcKw, row.InstalledAcKw, textPointer(row.ImageUrl),
+			row.Latitude, row.Longitude, row.InstalledDcKw, row.InstalledAcKw, row.LifecycleStatus, textPointer(row.ImageUrl),
 			row.IsActive, row.CreatedAt, row.UpdatedAt,
 		))
 	}
@@ -156,7 +175,7 @@ func (s *Service) Plant(ctx context.Context, principal auth.Principal, plantID s
 	}
 	return plantFromFields(
 		row.ID, row.OrganizationID, row.OrganizationName, row.Code, row.Name, row.Timezone,
-		row.Latitude, row.Longitude, row.InstalledDcKw, row.InstalledAcKw, textPointer(row.ImageUrl),
+		row.Latitude, row.Longitude, row.InstalledDcKw, row.InstalledAcKw, row.LifecycleStatus, textPointer(row.ImageUrl),
 		row.IsActive, row.CreatedAt, row.UpdatedAt,
 	), nil
 }
@@ -171,7 +190,10 @@ func (s *Service) CreatePlant(ctx context.Context, principal auth.Principal, inp
 		}
 	}
 	input.Code, input.Name, input.Timezone, err = validatePlant(input.Code, input.Name, input.Timezone, input.Latitude, input.Longitude, input.InstalledDcKW, input.InstalledAcKW)
-	if err != nil || !organizationID.Valid {
+	if input.LifecycleStatus == "" {
+		input.LifecycleStatus = PlantLifecycleOperational
+	}
+	if err != nil || validatePlantLifecycle(input.LifecycleStatus) != nil || !organizationID.Valid {
 		return Plant{}, ErrInvalid
 	}
 	id, err := newUUID()
@@ -200,7 +222,7 @@ func (s *Service) CreatePlant(ctx context.Context, principal auth.Principal, inp
 	row, err := q.CreatePlant(ctx, dbgen.CreatePlantParams{
 		ID: id, OrganizationID: organizationID, Code: input.Code, Name: input.Name, Timezone: input.Timezone,
 		Latitude: nullableFloat(input.Latitude), Longitude: nullableFloat(input.Longitude),
-		InstalledDcKw: nullableFloat(input.InstalledDcKW), InstalledAcKw: nullableFloat(input.InstalledAcKW),
+		InstalledDcKw: nullableFloat(input.InstalledDcKW), InstalledAcKw: nullableFloat(input.InstalledAcKW), LifecycleStatus: input.LifecycleStatus,
 	})
 	if err != nil {
 		return Plant{}, mapWriteError(err)
@@ -214,7 +236,7 @@ func (s *Service) CreatePlant(ctx context.Context, principal auth.Principal, inp
 	}
 	plant := plantFromFields(
 		row.ID, row.OrganizationID, organizationName, row.Code, row.Name, row.Timezone,
-		row.Latitude, row.Longitude, row.InstalledDcKw, row.InstalledAcKw, textPointer(row.ImageUrl),
+		row.Latitude, row.Longitude, row.InstalledDcKw, row.InstalledAcKw, row.LifecycleStatus, textPointer(row.ImageUrl),
 		row.IsActive, row.CreatedAt, row.UpdatedAt,
 	)
 	after, _ := json.Marshal(plant)
@@ -236,7 +258,7 @@ func (s *Service) UpdatePlant(ctx context.Context, principal auth.Principal, pla
 		return Plant{}, ErrNotFound
 	}
 	input.Code, input.Name, input.Timezone, err = validatePlant(input.Code, input.Name, input.Timezone, input.Latitude, input.Longitude, input.InstalledDcKW, input.InstalledAcKW)
-	if err != nil {
+	if err != nil || validatePlantLifecycle(input.LifecycleStatus) != nil {
 		return Plant{}, ErrInvalid
 	}
 	correlationID, err := newUUID()
@@ -258,20 +280,20 @@ func (s *Service) UpdatePlant(ctx context.Context, principal auth.Principal, pla
 	}
 	beforePlant := plantFromFields(
 		current.ID, current.OrganizationID, current.OrganizationName, current.Code, current.Name, current.Timezone,
-		current.Latitude, current.Longitude, current.InstalledDcKw, current.InstalledAcKw, textPointer(current.ImageUrl),
+		current.Latitude, current.Longitude, current.InstalledDcKw, current.InstalledAcKw, current.LifecycleStatus, textPointer(current.ImageUrl),
 		current.IsActive, current.CreatedAt, current.UpdatedAt,
 	)
 	row, err := q.UpdatePlant(ctx, dbgen.UpdatePlantParams{
 		ID: id, Code: input.Code, Name: input.Name, Timezone: input.Timezone,
 		Latitude: nullableFloat(input.Latitude), Longitude: nullableFloat(input.Longitude),
-		InstalledDcKw: nullableFloat(input.InstalledDcKW), InstalledAcKw: nullableFloat(input.InstalledAcKW), IsActive: input.IsActive,
+		InstalledDcKw: nullableFloat(input.InstalledDcKW), InstalledAcKw: nullableFloat(input.InstalledAcKW), LifecycleStatus: input.LifecycleStatus, IsActive: input.IsActive,
 	})
 	if err != nil {
 		return Plant{}, mapWriteError(err)
 	}
 	plant := plantFromFields(
 		row.ID, row.OrganizationID, current.OrganizationName, row.Code, row.Name, row.Timezone,
-		row.Latitude, row.Longitude, row.InstalledDcKw, row.InstalledAcKw, textPointer(row.ImageUrl),
+		row.Latitude, row.Longitude, row.InstalledDcKw, row.InstalledAcKw, row.LifecycleStatus, textPointer(row.ImageUrl),
 		row.IsActive, row.CreatedAt, row.UpdatedAt,
 	)
 	before, _ := json.Marshal(beforePlant)
@@ -341,12 +363,12 @@ func numericPointer(value pgtype.Numeric) *float64 {
 
 func plantFromFields(
 	id, organizationID pgtype.UUID, organizationName, code, name, timezone string,
-	latitude, longitude pgtype.Float8, installedDcKW, installedAcKW pgtype.Numeric, imageURL *string,
+	latitude, longitude pgtype.Float8, installedDcKW, installedAcKW pgtype.Numeric, lifecycleStatus string, imageURL *string,
 	isActive bool, createdAt, updatedAt pgtype.Timestamptz,
 ) Plant {
 	return Plant{
 		ID: uuidString(id), OrganizationID: uuidString(organizationID), OrganizationName: organizationName,
-		Code: code, Name: name, Timezone: timezone, Latitude: floatPointer(latitude), Longitude: floatPointer(longitude),
+		Code: code, Name: name, Timezone: timezone, Latitude: floatPointer(latitude), Longitude: floatPointer(longitude), LifecycleStatus: lifecycleStatus,
 		InstalledDcKW: numericPointer(installedDcKW), InstalledAcKW: numericPointer(installedAcKW), ImageURL: imageURL,
 		IsActive: isActive, CreatedAt: createdAt.Time, UpdatedAt: updatedAt.Time,
 	}

@@ -342,6 +342,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .ea-up { font-style: normal; font-weight: 800; color: var(--success); }
 .ea-down { font-style: normal; font-weight: 800; color: var(--danger); }
 .ea-picker { margin-bottom: 14px; }
+.ea-analysis-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
 .ea-panel { margin-bottom: 18px; padding: 16px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); }
 .ea-panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
 .ea-panel-head h3 { margin: 0; font-size: 15px; }
@@ -351,6 +352,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .ea-bar { width: 68%; min-height: 1px; border-radius: 2px 2px 0 0; background: var(--action); }
 .ea-bar-base { position: absolute; bottom: 0; width: 68%; background: color-mix(in srgb, var(--muted) 34%, transparent); }
 .ea-bar-slot small { padding-top: 4px; overflow: hidden; text-align: center; white-space: nowrap; font-size: 10px; color: var(--muted); }
+.xy-analysis-chart { display: block; width: 100%; min-height: 260px; color: var(--muted); }
+.xy-analysis-chart text { fill: currentColor; font-size: 10px; }
 @media (max-width: 700px) { .ea-filters > .ea-field { flex-basis: 100%; } }
 .dashboard-kpi { border-radius: var(--radius-md); }
 .dashboard-widget { box-shadow: var(--shadow-sm); }
@@ -432,6 +435,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .alarm-conditions-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 12px; font-weight: 700; color: var(--muted); }
 .alarm-condition-row { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr) 38px; gap: 8px; align-items: center; }
 .alarm-condition-row input { height: 38px; }
+.alarm-logbook-form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: end; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); }
+.alarm-logbook-form label { display: grid; gap: 6px; font-size: 12px; font-weight: 800; color: var(--ink); }
+.alarm-logbook-form .full-field { grid-column: 1 / -1; }
+@media (max-width: 850px) { .alarm-logbook-form { grid-template-columns: 1fr; } .alarm-logbook-form .full-field { grid-column: auto; } }
 .permission-picker { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 14px 16px; display: grid; gap: 12px; max-height: 320px; overflow-y: auto; }
 .permission-picker legend { padding: 0 4px; color: var(--muted); font-size: 10px; font-weight: 800; text-transform: uppercase; }
 .permission-picker-hint { margin: 0 0 2px; font-size: 11px; color: var(--muted); }
@@ -741,3 +748,14 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .plant-image-field > small { color: var(--muted); font-size: 11px; }
 .site-map-popup-image, .site-map-popup-fallback { width: 100%; max-height: 140px; min-height: 80px; margin: 0 0 8px; border-radius: 6px; object-fit: cover; }
 .site-map-popup-fallback { display: grid; place-items: center; color: var(--muted); background: var(--canvas); font-size: 11px; }
+
+.report-layout { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(280px, .85fr); gap: 16px; }
+.report-form, .report-scope { display: grid; gap: 16px; align-content: start; }
+.report-form label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; }
+.report-date-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.report-stat { display: grid; gap: 2px; padding: 18px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--canvas); }
+.report-stat strong { font-size: 34px; color: var(--ink); }
+.report-stat span { color: var(--muted); font-size: 12px; }
+.report-types { display: flex; gap: 8px; flex-wrap: wrap; }
+.spin { animation: live-pulse-scroll .9s linear infinite; }
+@media (max-width: 760px) { .report-layout, .report-date-grid { grid-template-columns: 1fr; } }

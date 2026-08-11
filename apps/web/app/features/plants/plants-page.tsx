@@ -21,6 +21,7 @@ export function PlantsPage({ defaultOrganizationId }: { defaultOrganizationId?: 
   const [editor, setEditor] = useState<Plant | "create" | null>(null);
   const [selectedPlant, setSelectedPlant] = useState<Plant | null>(null);
   const [query, setQuery] = useState("");
+  const [lifecycleFilter, setLifecycleFilter] = useState("ALL");
 
   const loadPlants = useCallback(async () => {
     setLoading(true);
@@ -56,7 +57,7 @@ export function PlantsPage({ defaultOrganizationId }: { defaultOrganizationId?: 
     const response = await api(`/api/v1/plants/${plant.id}`, {
       method: "PUT",
       headers: { "X-CSRF-Token": csrfToken() },
-      body: JSON.stringify({ code: plant.code, name: plant.name, timezone: plant.timezone, latitude: plant.latitude, longitude: plant.longitude, installedDcKw: plant.installedDcKw, installedAcKw: plant.installedAcKw, isActive: false }),
+      body: JSON.stringify({ code: plant.code, name: plant.name, timezone: plant.timezone, latitude: plant.latitude, longitude: plant.longitude, installedDcKw: plant.installedDcKw, installedAcKw: plant.installedAcKw, lifecycleStatus: "OFFLINE", isActive: false }),
     });
     if (response.ok) { toast.success(`ปิดใช้งานโรงไฟฟ้า "${plant.name}" แล้ว`); void loadPlants(); }
     else setError("ไม่สามารถปิดใช้งานโรงไฟฟ้าได้");
@@ -121,6 +122,7 @@ export function PlantsPage({ defaultOrganizationId }: { defaultOrganizationId?: 
       || plant.code.toLowerCase().includes(normalizedQuery)
       || plant.organizationName.toLowerCase().includes(normalizedQuery))
     : plants;
+  const filteredPlants = lifecycleFilter === "ALL" ? visiblePlants : visiblePlants.filter((plant) => plant.lifecycleStatus === lifecycleFilter);
 
   return (
     <div className="content plants-content">
@@ -153,20 +155,30 @@ export function PlantsPage({ defaultOrganizationId }: { defaultOrganizationId?: 
           placeholder="ค้นหาโรงไฟฟ้า ด้วยชื่อ, รหัส หรือ องค์กร"
           aria-label="ค้นหาโรงไฟฟ้า"
         />
+        <Select value={lifecycleFilter} onValueChange={setLifecycleFilter}>
+          <SelectTrigger className="min-w-44" aria-label="กรอง Lifecycle"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="ALL">ทุก Lifecycle</SelectItem>
+            <SelectItem value="IN_CONSTRUCTION">In Construction</SelectItem>
+            <SelectItem value="OPERATIONAL">Operational</SelectItem>
+            <SelectItem value="OFFLINE">Offline</SelectItem>
+            <SelectItem value="RETIRED">Retired</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
       {error && <FormMessage>{error}</FormMessage>}
       {loading ? (
         <div className="table-state">กำลังโหลดข้อมูล</div>
       ) : (
         <DataTable
-          value={visiblePlants}
+          value={filteredPlants}
           dataKey="id"
           aria-label="โรงไฟฟ้า"
           paginator
           rows={20}
           emptyMessage={
             <div className="table-state">
-              {error ? "" : plants.length === 0 ? "ยังไม่มีโรงไฟฟ้าในขอบเขตที่คุณเข้าถึงได้" : `ไม่พบโรงไฟฟ้าที่ตรงกับ "${query}"`}
+              {error ? "" : plants.length === 0 ? "ยังไม่มีโรงไฟฟ้าในขอบเขตที่คุณเข้าถึงได้" : "ไม่พบโรงไฟฟ้าที่ตรงกับตัวกรอง"}
             </div>
           }
         >
@@ -179,6 +191,7 @@ export function PlantsPage({ defaultOrganizationId }: { defaultOrganizationId?: 
           <TableColumn field="installedDcKw" header="กำลังติดตั้ง" sortable body={(plant: Plant) => (
             <div className="grid gap-1"><span>{plant.installedDcKw == null ? "-" : `${plant.installedDcKw.toLocaleString()} kWdc`}</span><small className="block text-[11px] text-ink-soft">{plant.installedAcKw == null ? "ไม่ระบุ AC" : `${plant.installedAcKw.toLocaleString()} kWac`}</small></div>
           )} />
+          <TableColumn field="lifecycleStatus" header="Lifecycle" sortable body={(plant: Plant) => <StatusTag tone={plant.lifecycleStatus === "OPERATIONAL" ? "active" : plant.lifecycleStatus === "OFFLINE" ? "offline" : "degraded"}>{plant.lifecycleStatus.replace("_", " ")}</StatusTag>} />
           <TableColumn field="isActive" header="สถานะ" sortable body={(plant: Plant) => (
             <StatusTag tone={plant.isActive ? "active" : "revoked"}>{plant.isActive ? "ใช้งาน" : "ปิดใช้งาน"}</StatusTag>
           )} />
@@ -558,6 +571,7 @@ function PlantEditor({ plant, defaultOrganizationId, onClose, onSaved }: { plant
   const [longitude, setLongitude] = useState(plant?.longitude?.toString() ?? "");
   const [installedDcKw, setInstalledDcKw] = useState(plant?.installedDcKw?.toString() ?? "");
   const [installedAcKw, setInstalledAcKw] = useState(plant?.installedAcKw?.toString() ?? "");
+  const [lifecycleStatus, setLifecycleStatus] = useState<Plant["lifecycleStatus"]>(plant?.lifecycleStatus ?? "OPERATIONAL");
   const [isActive, setIsActive] = useState(plant?.isActive ?? true);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
@@ -652,6 +666,7 @@ function PlantEditor({ plant, defaultOrganizationId, onClose, onSaved }: { plant
       longitude: parsedLongitude,
       installedDcKw: optionalNumber(installedDcKw),
       installedAcKw: optionalNumber(installedAcKw),
+      lifecycleStatus,
       ...(plant ? { isActive } : {}),
     };
     try {
@@ -687,6 +702,17 @@ function PlantEditor({ plant, defaultOrganizationId, onClose, onSaved }: { plant
             <label>Longitude<TextInput type="text" inputMode="decimal" placeholder="101.853718 หรือ 101.853718 E" value={longitude} onChange={(event) => setLongitude(event.target.value)} /></label>
             <label>Installed DC (kW)<TextInput type="number" min="0" step="any" value={installedDcKw} onChange={(event) => setInstalledDcKw(event.target.value)} /></label>
             <label>Installed AC (kW)<TextInput type="number" min="0" step="any" value={installedAcKw} onChange={(event) => setInstalledAcKw(event.target.value)} /></label>
+            <label>Plant Lifecycle
+              <Select value={lifecycleStatus} onValueChange={(value) => setLifecycleStatus(value as Plant["lifecycleStatus"])}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="IN_CONSTRUCTION">In Construction</SelectItem>
+                  <SelectItem value="OPERATIONAL">Operational</SelectItem>
+                  <SelectItem value="OFFLINE">Offline</SelectItem>
+                  <SelectItem value="RETIRED">Retired</SelectItem>
+                </SelectContent>
+              </Select>
+            </label>
             {plant && <div className="plant-image-field full-field">
               <span className="field-label">รูปโรงไฟฟ้า</span>
               {imagePreview ? <img className="plant-image-preview" src={imagePreview} alt={"รูป " + plant.name} /> : <div className="plant-image-fallback">ยังไม่มีรูป</div>}

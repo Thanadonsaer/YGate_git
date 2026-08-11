@@ -219,7 +219,7 @@ function DashboardCanvas({ dashboard, dashboardError, onRefresh }: { dashboard: 
   return (
     <section className={editing ? "dashboard-canvas editing" : "dashboard-canvas"}>
       <div className="section-heading dashboard-toolbar">
-        <div><p>My dashboard</p><h2>ภาพรวมการดำเนินงาน</h2></div>
+        <div><p>Portfolio dashboard</p><h2>Portfolio Monitoring</h2></div>
         <div className="heading-actions">
           {published && <span className={hasUnpublishedChanges ? "dashboard-version draft" : "dashboard-version"}>{hasUnpublishedChanges ? `Draft v${saved?.version}` : `Published v${published.version}`}</span>}
           <Button variant="icon" onClick={() => { void onRefresh(); if (!editing) void loadLayouts(); }} disabled={pending} title="รีเฟรช" aria-label="รีเฟรชภาพรวม"><RefreshCw size={18} /></Button>

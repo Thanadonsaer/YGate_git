@@ -5,7 +5,7 @@ import { Checkbox, FormMessage, StatusTag, TextInput } from "../../components/ui
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { api, errorMessage, csrfToken, formatDate } from "../../lib/api";
 import { useRealtimeSocket } from "../../lib/realtime";
-import type { AlarmEvent, AlarmNotifyRole, AlarmRule, AlarmRuleCondition, Device, Plant } from "../../lib/types";
+import type { AlarmEvent, AlarmNotifyRole, AlarmRule, AlarmRuleCondition, Device, EventLogbookEntry, Plant } from "../../lib/types";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody } from "../../components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../../components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "../../components/ui/tabs";
@@ -22,9 +22,10 @@ const severityTone: Record<AlarmRule["severity"], string> = {
 export function AlarmsPage() {
   const [plants, setPlants] = useState<Plant[]>([]);
   const [plantId, setPlantId] = useState("");
-  const [tab, setTab] = useState<"log" | "rules">("log");
+  const [tab, setTab] = useState<"log" | "logbook" | "rules">("log");
   const [rules, setRules] = useState<AlarmRule[]>([]);
   const [events, setEvents] = useState<AlarmEvent[]>([]);
+  const [logbook, setLogbook] = useState<EventLogbookEntry[]>([]);
   const [devices, setDevices] = useState<Device[]>([]);
   const [notifyRoles, setNotifyRoles] = useState<AlarmNotifyRole[]>([]);
   const [loading, setLoading] = useState(true);
@@ -47,16 +48,18 @@ export function AlarmsPage() {
     setLoading(true);
     setError("");
     try {
-      const [rulesResponse, eventsResponse, devicesResponse, notifyRolesResponse] = await Promise.all([
+      const [rulesResponse, eventsResponse, devicesResponse, notifyRolesResponse, logbookResponse] = await Promise.all([
         api(`/api/v1/plants/${plantId}/alarms/rules`),
         api(`/api/v1/plants/${plantId}/alarms/events`),
         api(`/api/v1/plants/${plantId}/devices`),
         api(`/api/v1/plants/${plantId}/alarms/notify-roles`),
+        api(`/api/v1/plants/${plantId}/alarms/logbook`),
       ]);
       if (rulesResponse.status === 403 || eventsResponse.status === 403) throw new Error("บัญชีนี้ไม่มีสิทธิ์ดู Alarm ของโรงไฟฟ้านี้");
       if (!rulesResponse.ok || !eventsResponse.ok) throw new Error("ไม่สามารถโหลดข้อมูล Alarm ได้");
       setRules((await rulesResponse.json()) as AlarmRule[]);
       setEvents((await eventsResponse.json()) as AlarmEvent[]);
+      setLogbook(logbookResponse.ok ? (await logbookResponse.json()) as EventLogbookEntry[] : []);
       setDevices(devicesResponse.ok ? (await devicesResponse.json()) as Device[] : []);
       setNotifyRoles(notifyRolesResponse.ok ? (await notifyRolesResponse.json()) as AlarmNotifyRole[] : []);
     } catch (cause) {
@@ -98,6 +101,24 @@ export function AlarmsPage() {
     else setError("ไม่สามารถ Acknowledge Alarm ได้");
   }
 
+  async function createLogbookEntry(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const response = await api(`/api/v1/plants/${plantId}/alarms/logbook`, {
+      method: "POST",
+      headers: { "X-CSRF-Token": csrfToken() },
+      body: JSON.stringify({
+        deviceId: String(form.get("deviceId") || ""), eventType: String(form.get("eventType") || "NOTE"),
+        category: String(form.get("category") || ""), title: String(form.get("title") || ""),
+        startsAt: new Date(String(form.get("startsAt"))).toISOString(), note: String(form.get("note") || ""), source: "MANUAL",
+      }),
+    });
+    if (!response.ok) { setError(response.status === 403 ? "บัญชีนี้ไม่มีสิทธิ์เพิ่ม Event Logbook" : "ไม่สามารถบันทึก Event Logbook ได้"); return; }
+    toast.success("บันทึก Event Logbook แล้ว");
+    event.currentTarget.reset();
+    await loadAlarms();
+  }
+
   function deviceName(deviceId: string) {
     return devices.find((device) => device.id === deviceId)?.name ?? deviceId;
   }
@@ -119,9 +140,10 @@ export function AlarmsPage() {
             <SelectTrigger className="w-48" aria-label="เลือกโรงไฟฟ้า"><SelectValue /></SelectTrigger>
             <SelectContent>{plants.map((plant) => <SelectItem key={plant.id} value={plant.id}>{plant.name}</SelectItem>)}</SelectContent>
           </Select>
-          <Tabs value={tab} onValueChange={(value) => setTab(value as "log" | "rules")}>
+          <Tabs value={tab} onValueChange={(value) => setTab(value as "log" | "logbook" | "rules")}>
             <TabsList aria-label="มุมมอง Alarm">
               <TabsTrigger value="log">Log</TabsTrigger>
+              <TabsTrigger value="logbook">Event Logbook</TabsTrigger>
               <TabsTrigger value="rules">Rules</TabsTrigger>
             </TabsList>
           </Tabs>
@@ -158,6 +180,28 @@ export function AlarmsPage() {
             )} />
           </DataTable>
         )
+      ) : tab === "logbook" ? (
+        <div className="grid gap-4">
+          <form className="alarm-logbook-form" onSubmit={(event) => void createLogbookEntry(event)}>
+            <label>ประเภท
+              <select className="ea-input" name="eventType" defaultValue="NOTE"><option value="FAULT">Fault</option><option value="MAINTENANCE">Maintenance</option><option value="CURTAILMENT">Curtailment</option><option value="NOTE">Note</option></select>
+            </label>
+            <label>Device (ถ้ามี)
+              <select className="ea-input" name="deviceId" defaultValue=""><option value="">ทั้ง Plant</option>{devices.map((device) => <option key={device.id} value={device.id}>{device.name}</option>)}</select>
+            </label>
+            <label>หัวข้อ<TextInput name="title" required maxLength={200} placeholder="เช่น Inverter inspection" /></label>
+            <label>เวลาเริ่ม<TextInput name="startsAt" type="datetime-local" required /></label>
+            <label>หมวดหมู่<TextInput name="category" maxLength={100} placeholder="เช่น Preventive Maintenance" /></label>
+            <label className="full-field">รายละเอียด<TextInput name="note" maxLength={4000} placeholder="บันทึกรายละเอียดเหตุการณ์" /></label>
+            <Button type="submit" compact><Plus size={17} /> เพิ่ม Event</Button>
+          </form>
+          <DataTable value={logbook} dataKey="id" aria-label="Event Logbook" emptyMessage={<div className="table-state">ยังไม่มี Event Logbook</div>}>
+            <TableColumn field="startsAt" header="เวลา" sortable body={(entry: EventLogbookEntry) => <div className="grid gap-1"><strong>{formatDate(entry.startsAt)}</strong>{entry.endsAt && <small>ถึง {formatDate(entry.endsAt)}</small>}</div>} />
+            <TableColumn field="eventType" header="ประเภท" sortable body={(entry: EventLogbookEntry) => <StatusTag tone={entry.eventType === "FAULT" ? "offline" : entry.eventType === "MAINTENANCE" ? "degraded" : "active"}>{entry.eventType}</StatusTag>} />
+            <TableColumn header="หัวข้อ" body={(entry: EventLogbookEntry) => <div className="grid gap-1"><strong>{entry.title}</strong><small className="text-ink-soft">{entry.category || "-"}{entry.deviceId ? ` · ${deviceName(entry.deviceId)}` : " · ทั้ง Plant"}</small></div>} />
+            <TableColumn field="note" header="รายละเอียด" />
+          </DataTable>
+        </div>
       ) : (
         loading ? (
           <div className="table-state">กำลังโหลดข้อมูล</div>

@@ -53,45 +53,48 @@ func (q *Queries) CreateAuditEventFull(ctx context.Context, arg CreateAuditEvent
 const createPlant = `-- name: CreatePlant :one
 INSERT INTO plant.plant (
     id, organization_id, code, name, timezone, latitude, longitude,
-    installed_dc_kw, installed_ac_kw
+    installed_dc_kw, installed_ac_kw, lifecycle_status
 ) VALUES (
     $1, $2, $3, $4, $5,
     $6::double precision, $7::double precision,
-    $8::double precision, $9::double precision
+    $8::double precision, $9::double precision,
+    $10
 )
 RETURNING id, organization_id, code, name, timezone, latitude, longitude,
           installed_dc_kw,
           installed_ac_kw,
           image_url,
-          is_active, created_at, updated_at
+          lifecycle_status, is_active, created_at, updated_at
 `
 
 type CreatePlantParams struct {
-	ID             pgtype.UUID
-	OrganizationID pgtype.UUID
-	Code           string
-	Name           string
-	Timezone       string
-	Latitude       pgtype.Float8
-	Longitude      pgtype.Float8
-	InstalledDcKw  pgtype.Float8
-	InstalledAcKw  pgtype.Float8
+	ID              pgtype.UUID
+	OrganizationID  pgtype.UUID
+	Code            string
+	Name            string
+	Timezone        string
+	Latitude        pgtype.Float8
+	Longitude       pgtype.Float8
+	InstalledDcKw   pgtype.Float8
+	InstalledAcKw   pgtype.Float8
+	LifecycleStatus string
 }
 
 type CreatePlantRow struct {
-	ID             pgtype.UUID
-	OrganizationID pgtype.UUID
-	Code           string
-	Name           string
-	Timezone       string
-	Latitude       pgtype.Float8
-	Longitude      pgtype.Float8
-	InstalledDcKw  pgtype.Numeric
-	InstalledAcKw  pgtype.Numeric
-	ImageUrl       pgtype.Text
-	IsActive       bool
-	CreatedAt      pgtype.Timestamptz
-	UpdatedAt      pgtype.Timestamptz
+	ID              pgtype.UUID
+	OrganizationID  pgtype.UUID
+	Code            string
+	Name            string
+	Timezone        string
+	Latitude        pgtype.Float8
+	Longitude       pgtype.Float8
+	InstalledDcKw   pgtype.Numeric
+	InstalledAcKw   pgtype.Numeric
+	ImageUrl        pgtype.Text
+	LifecycleStatus string
+	IsActive        bool
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
 }
 
 func (q *Queries) CreatePlant(ctx context.Context, arg CreatePlantParams) (CreatePlantRow, error) {
@@ -105,6 +108,7 @@ func (q *Queries) CreatePlant(ctx context.Context, arg CreatePlantParams) (Creat
 		arg.Longitude,
 		arg.InstalledDcKw,
 		arg.InstalledAcKw,
+		arg.LifecycleStatus,
 	)
 	var i CreatePlantRow
 	err := row.Scan(
@@ -118,6 +122,7 @@ func (q *Queries) CreatePlant(ctx context.Context, arg CreatePlantParams) (Creat
 		&i.InstalledDcKw,
 		&i.InstalledAcKw,
 		&i.ImageUrl,
+		&i.LifecycleStatus,
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -131,7 +136,7 @@ SELECT p.id, p.organization_id, o.name AS organization_name,
        p.installed_dc_kw,
        p.installed_ac_kw,
        p.image_url,
-       p.is_active, p.created_at, p.updated_at
+       p.lifecycle_status, p.is_active, p.created_at, p.updated_at
 FROM plant.plant p
 JOIN organization o ON o.id = p.organization_id
 WHERE p.id = $1
@@ -168,6 +173,7 @@ type GetAuthorizedPlantRow struct {
 	InstalledDcKw    pgtype.Numeric
 	InstalledAcKw    pgtype.Numeric
 	ImageUrl         pgtype.Text
+	LifecycleStatus  string
 	IsActive         bool
 	CreatedAt        pgtype.Timestamptz
 	UpdatedAt        pgtype.Timestamptz
@@ -188,6 +194,7 @@ func (q *Queries) GetAuthorizedPlant(ctx context.Context, arg GetAuthorizedPlant
 		&i.InstalledDcKw,
 		&i.InstalledAcKw,
 		&i.ImageUrl,
+		&i.LifecycleStatus,
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -201,7 +208,7 @@ SELECT p.id, p.organization_id, o.name AS organization_name,
        p.installed_dc_kw,
        p.installed_ac_kw,
        p.image_url,
-       p.is_active, p.created_at, p.updated_at
+       p.lifecycle_status, p.is_active, p.created_at, p.updated_at
 FROM plant.plant p
 JOIN organization o ON o.id = p.organization_id
 WHERE p.id = $1
@@ -238,6 +245,7 @@ type GetAuthorizedPlantForUpdateRow struct {
 	InstalledDcKw    pgtype.Numeric
 	InstalledAcKw    pgtype.Numeric
 	ImageUrl         pgtype.Text
+	LifecycleStatus  string
 	IsActive         bool
 	CreatedAt        pgtype.Timestamptz
 	UpdatedAt        pgtype.Timestamptz
@@ -258,6 +266,7 @@ func (q *Queries) GetAuthorizedPlantForUpdate(ctx context.Context, arg GetAuthor
 		&i.InstalledDcKw,
 		&i.InstalledAcKw,
 		&i.ImageUrl,
+		&i.LifecycleStatus,
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -344,7 +353,7 @@ SELECT p.id, p.organization_id, o.name AS organization_name,
        p.installed_dc_kw,
        p.installed_ac_kw,
        p.image_url,
-       p.is_active, p.created_at, p.updated_at
+       p.lifecycle_status, p.is_active, p.created_at, p.updated_at
 FROM plant.plant p
 JOIN organization o ON o.id = p.organization_id
 WHERE EXISTS (
@@ -375,6 +384,7 @@ type ListAuthorizedPlantsRow struct {
 	InstalledDcKw    pgtype.Numeric
 	InstalledAcKw    pgtype.Numeric
 	ImageUrl         pgtype.Text
+	LifecycleStatus  string
 	IsActive         bool
 	CreatedAt        pgtype.Timestamptz
 	UpdatedAt        pgtype.Timestamptz
@@ -401,6 +411,7 @@ func (q *Queries) ListAuthorizedPlants(ctx context.Context, userID pgtype.UUID) 
 			&i.InstalledDcKw,
 			&i.InstalledAcKw,
 			&i.ImageUrl,
+			&i.LifecycleStatus,
 			&i.IsActive,
 			&i.CreatedAt,
 			&i.UpdatedAt,
@@ -422,41 +433,44 @@ SET code = $1, name = $2, timezone = $3,
     longitude = $5::double precision,
     installed_dc_kw = $6::double precision,
     installed_ac_kw = $7::double precision,
-    is_active = $8, updated_at = now()
-WHERE id = $9
+    lifecycle_status = $8,
+    is_active = $9, updated_at = now()
+WHERE id = $10
 RETURNING id, organization_id, code, name, timezone, latitude, longitude,
           installed_dc_kw,
           installed_ac_kw,
           image_url,
-          is_active, created_at, updated_at
+          lifecycle_status, is_active, created_at, updated_at
 `
 
 type UpdatePlantParams struct {
-	Code          string
-	Name          string
-	Timezone      string
-	Latitude      pgtype.Float8
-	Longitude     pgtype.Float8
-	InstalledDcKw pgtype.Float8
-	InstalledAcKw pgtype.Float8
-	IsActive      bool
-	ID            pgtype.UUID
+	Code            string
+	Name            string
+	Timezone        string
+	Latitude        pgtype.Float8
+	Longitude       pgtype.Float8
+	InstalledDcKw   pgtype.Float8
+	InstalledAcKw   pgtype.Float8
+	LifecycleStatus string
+	IsActive        bool
+	ID              pgtype.UUID
 }
 
 type UpdatePlantRow struct {
-	ID             pgtype.UUID
-	OrganizationID pgtype.UUID
-	Code           string
-	Name           string
-	Timezone       string
-	Latitude       pgtype.Float8
-	Longitude      pgtype.Float8
-	InstalledDcKw  pgtype.Numeric
-	InstalledAcKw  pgtype.Numeric
-	ImageUrl       pgtype.Text
-	IsActive       bool
-	CreatedAt      pgtype.Timestamptz
-	UpdatedAt      pgtype.Timestamptz
+	ID              pgtype.UUID
+	OrganizationID  pgtype.UUID
+	Code            string
+	Name            string
+	Timezone        string
+	Latitude        pgtype.Float8
+	Longitude       pgtype.Float8
+	InstalledDcKw   pgtype.Numeric
+	InstalledAcKw   pgtype.Numeric
+	ImageUrl        pgtype.Text
+	LifecycleStatus string
+	IsActive        bool
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
 }
 
 func (q *Queries) UpdatePlant(ctx context.Context, arg UpdatePlantParams) (UpdatePlantRow, error) {
@@ -468,6 +482,7 @@ func (q *Queries) UpdatePlant(ctx context.Context, arg UpdatePlantParams) (Updat
 		arg.Longitude,
 		arg.InstalledDcKw,
 		arg.InstalledAcKw,
+		arg.LifecycleStatus,
 		arg.IsActive,
 		arg.ID,
 	)
@@ -483,6 +498,7 @@ func (q *Queries) UpdatePlant(ctx context.Context, arg UpdatePlantParams) (Updat
 		&i.InstalledDcKw,
 		&i.InstalledAcKw,
 		&i.ImageUrl,
+		&i.LifecycleStatus,
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,

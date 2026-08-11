@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"time"
 
 	"ygate/platform-api/internal/auth"
 	"ygate/platform-api/internal/core"
@@ -42,6 +43,17 @@ func (r saveAlarmRuleRequest) conditions() []core.ConditionInput {
 
 type acknowledgeAlarmEventRequest struct {
 	Note string `json:"note"`
+}
+
+type createEventLogbookRequest struct {
+	DeviceID  string     `json:"deviceId"`
+	EventType string     `json:"eventType"`
+	Category  string     `json:"category"`
+	Title     string     `json:"title"`
+	StartsAt  time.Time  `json:"startsAt"`
+	EndsAt    *time.Time `json:"endsAt"`
+	Note      string     `json:"note"`
+	Source    string     `json:"source"`
 }
 
 func listAlarmRulesHandler(service *core.Service) func(http.ResponseWriter, *http.Request, auth.Principal) {
@@ -136,6 +148,34 @@ func acknowledgeAlarmEventHandler(service *core.Service) func(http.ResponseWrite
 	}
 }
 
+func listEventLogbookHandler(service *core.Service) func(http.ResponseWriter, *http.Request, auth.Principal) {
+	return func(w http.ResponseWriter, r *http.Request, principal auth.Principal) {
+		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+		entries, err := service.ListEventLogbook(r.Context(), principal, r.PathValue("plantId"), limit)
+		if writeAlarmError(w, err) {
+			return
+		}
+		writeJSON(w, http.StatusOK, entries)
+	}
+}
+
+func createEventLogbookHandler(service *core.Service) func(http.ResponseWriter, *http.Request, auth.Principal) {
+	return func(w http.ResponseWriter, r *http.Request, principal auth.Principal) {
+		var request createEventLogbookRequest
+		if !decodeJSON(w, r, &request, 16<<10) {
+			return
+		}
+		entry, err := service.CreateEventLogbook(r.Context(), principal, r.PathValue("plantId"), core.CreateEventLogbookInput{
+			DeviceID: request.DeviceID, EventType: request.EventType, Category: request.Category, Title: request.Title,
+			StartsAt: request.StartsAt, EndsAt: request.EndsAt, Note: request.Note, Source: request.Source,
+		}, remoteIP(r.RemoteAddr))
+		if writeAlarmError(w, err) {
+			return
+		}
+		writeJSON(w, http.StatusCreated, entry)
+	}
+}
+
 func writeAlarmError(w http.ResponseWriter, err error) bool {
 	switch {
 	case err == nil:
@@ -148,6 +188,8 @@ func writeAlarmError(w http.ResponseWriter, err error) bool {
 		http.Error(w, "plant or alarm rule not found", http.StatusNotFound)
 	case errors.Is(err, core.ErrAlarmEventNotFound):
 		http.Error(w, "alarm event not found", http.StatusNotFound)
+	case errors.Is(err, core.ErrEventLogbookInvalid):
+		http.Error(w, "invalid event logbook data", http.StatusBadRequest)
 	default:
 		log.Printf("alarm write failed: %v", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)

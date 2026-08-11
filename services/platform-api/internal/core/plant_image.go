@@ -96,7 +96,7 @@ func (s *Service) UploadPlantImage(ctx context.Context, principal auth.Principal
 	}
 	beforePlant := plantFromFields(
 		current.ID, current.OrganizationID, current.OrganizationName, current.Code, current.Name, current.Timezone,
-		current.Latitude, current.Longitude, current.InstalledDcKw, current.InstalledAcKw, textPointer(current.ImageUrl),
+		current.Latitude, current.Longitude, current.InstalledDcKw, current.InstalledAcKw, PlantLifecycleOperational, textPointer(current.ImageUrl),
 		current.IsActive, current.CreatedAt, current.UpdatedAt,
 	)
 	imageURL := "/api/v1/plants/" + plantID + "/image/" + filename
@@ -137,7 +137,7 @@ func (s *Service) DeletePlantImage(ctx context.Context, principal auth.Principal
 	}
 	beforePlant := plantFromFields(
 		current.ID, current.OrganizationID, current.OrganizationName, current.Code, current.Name, current.Timezone,
-		current.Latitude, current.Longitude, current.InstalledDcKw, current.InstalledAcKw, textPointer(current.ImageUrl),
+		current.Latitude, current.Longitude, current.InstalledDcKw, current.InstalledAcKw, PlantLifecycleOperational, textPointer(current.ImageUrl),
 		current.IsActive, current.CreatedAt, current.UpdatedAt,
 	)
 	if beforePlant.ImageURL == nil {

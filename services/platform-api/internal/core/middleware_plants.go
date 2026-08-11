@@ -52,7 +52,7 @@ ORDER BY p.code`, id)
 		if err := rows.Scan(&plantID, &organizationID, &organizationName, &code, &name, &timezone, &latitude, &longitude, &installedDcKW, &installedAcKW, &imageURL, &isActive, &createdAt, &updatedAt); err != nil {
 			return nil, fmt.Errorf("scan middleware plant: %w", err)
 		}
-		plants = append(plants, plantFromFields(plantID, organizationID, organizationName, code, name, timezone, latitude, longitude, installedDcKW, installedAcKW, imageURL, isActive, createdAt, updatedAt))
+		plants = append(plants, plantFromFields(plantID, organizationID, organizationName, code, name, timezone, latitude, longitude, installedDcKW, installedAcKW, PlantLifecycleOperational, imageURL, isActive, createdAt, updatedAt))
 	}
 	return plants, rows.Err()
 }

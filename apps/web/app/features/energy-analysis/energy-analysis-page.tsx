@@ -20,6 +20,7 @@ import { MultiSelect } from "../../components/ui/multi-select";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../../components/ui/select";
 import { Button } from "../../components/ui/button";
 import type { Device, Plant } from "../../lib/types";
+import { buildScatterPoints, findSignalKey, type ScatterPoint } from "../../lib/xy-scatter";
 
 const PRESETS = [
   { label: "24 ชม.", hours: 24 },
@@ -44,6 +45,7 @@ export function EnergyAnalysisPage() {
   const [deviceId, setDeviceId] = useState("");
   const [range, setRange] = useState(() => rangeOfHours(24));
   const [compare, setCompare] = useState(false);
+  const [analysisView, setAnalysisView] = useState<"trend" | "xy" | "solar">("trend");
   const [catalog, setCatalog] = useState<Record<string, PointMeta>>({});
   const [current, setCurrent] = useState<Loaded>({ seriesByKey: {}, truncated: false });
   const [baseline, setBaseline] = useState<Record<string, Point[]>>({});
@@ -148,6 +150,13 @@ export function EnergyAnalysisPage() {
   const metric = metricKey ? pointMeta(catalog, metricKey) : undefined;
   const metricPoints = metricKey ? current.seriesByKey[metricKey] ?? [] : [];
   const basePoints = metricKey ? baseline[metricKey] ?? [] : [];
+  const solarXKey = findSignalKey(availableKeys, /irradiance|irradiation|sun/i) ?? selectedKeys[0];
+  const solarYKey = findSignalKey(availableKeys, /active.?power|power.?ac|ac.?power/i) ?? selectedKeys[1];
+  const analysisXKey = analysisView === "solar" ? solarXKey : selectedKeys[0];
+  const analysisYKey = analysisView === "solar" ? solarYKey : selectedKeys[1];
+  const analysisPoints = analysisXKey && analysisYKey
+    ? buildScatterPoints(current.seriesByKey[analysisXKey] ?? [], current.seriesByKey[analysisYKey] ?? [])
+    : [];
   const barStep: "hour" | "day" = range.to.getTime() - range.from.getTime() > DAILY_BARS_AFTER_MS ? "day" : "hour";
 
   const buckets = useMemo(
@@ -292,19 +301,36 @@ export function EnergyAnalysisPage() {
             />
           </div>
 
-          <section className="ea-panel">
-            {selectedKeys.length === 0 ? (
-              <div className="timeseries-empty"><ChartLine size={24} /><span>เลือก Parameter เพื่อ plot กราฟ</span></div>
-            ) : (
-              <TimeSeriesChart
-                series={series}
-                from={range.from.getTime()}
-                to={range.to.getTime()}
-                onZoom={(from, to) => setRange({ from, to })}
-                onResetZoom={() => setRange(rangeOfHours(24))}
+          <div className="ea-analysis-tabs" role="tablist" aria-label="Analytics view">
+            <Button variant={analysisView === "trend" ? "primary" : "secondary"} compact onClick={() => setAnalysisView("trend")}>Trend Viewer</Button>
+            <Button variant={analysisView === "xy" ? "primary" : "secondary"} compact onClick={() => setAnalysisView("xy")}>XY Scatter</Button>
+            <Button variant={analysisView === "solar" ? "primary" : "secondary"} compact onClick={() => setAnalysisView("solar")}>Solar Power Curve</Button>
+          </div>
+
+          {analysisView === "trend" ? (
+            <section className="ea-panel">
+              {selectedKeys.length === 0 ? (
+                <div className="timeseries-empty"><ChartLine size={24} /><span>เลือก Parameter เพื่อ plot กราฟ</span></div>
+              ) : (
+                <TimeSeriesChart
+                  series={series}
+                  from={range.from.getTime()}
+                  to={range.to.getTime()}
+                  onZoom={(from, to) => setRange({ from, to })}
+                  onResetZoom={() => setRange(rangeOfHours(24))}
+                />
+              )}
+            </section>
+          ) : (
+            <section className="ea-panel">
+              <ScatterAnalysis
+                points={analysisPoints}
+                xLabel={analysisXKey ? pointMeta(catalog, analysisXKey).displayName : "X"}
+                yLabel={analysisYKey ? pointMeta(catalog, analysisYKey).displayName : "Y"}
+                title={analysisView === "solar" ? "Solar Power Curve" : "XY Scatter Analysis"}
               />
-            )}
-          </section>
+            </section>
+          )}
 
           <section className="ea-panel">
             <div className="ea-panel-head">
@@ -317,6 +343,33 @@ export function EnergyAnalysisPage() {
           {loading && <p className="ts-hint">กำลังโหลดข้อมูล…</p>}
         </>
       )}
+    </div>
+  );
+}
+
+function ScatterAnalysis({ points, xLabel, yLabel, title }: { points: ScatterPoint[]; xLabel: string; yLabel: string; title: string }) {
+  if (points.length === 0) return <div className="timeseries-empty"><ChartLine size={24} /><span>เลือก Parameter ที่มี timestamp ตรงกันอย่างน้อย 2 ชุดเพื่อสร้าง {title}</span></div>;
+  const width = 720;
+  const height = 300;
+  const margin = 34;
+  const minX = Math.min(...points.map((point) => point.x));
+  const maxX = Math.max(...points.map((point) => point.x));
+  const minY = Math.min(...points.map((point) => point.y));
+  const maxY = Math.max(...points.map((point) => point.y));
+  const spanX = maxX - minX || 1;
+  const spanY = maxY - minY || 1;
+  const pointX = (value: number) => margin + ((value - minX) / spanX) * (width - margin * 2);
+  const pointY = (value: number) => height - margin - ((value - minY) / spanY) * (height - margin * 2);
+  return (
+    <div className="xy-analysis" aria-label={title}>
+      <div className="ea-panel-head"><h3>{title}</h3><span className="ts-unit">{xLabel} × {yLabel} · {points.length.toLocaleString()} points</span></div>
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${title}: ${xLabel} versus ${yLabel}`} className="xy-analysis-chart">
+        <line x1={margin} y1={height - margin} x2={width - margin} y2={height - margin} stroke="currentColor" opacity=".25" />
+        <line x1={margin} y1={margin} x2={margin} y2={height - margin} stroke="currentColor" opacity=".25" />
+        {points.map((point) => <circle key={`${point.t}-${point.x}-${point.y}`} cx={pointX(point.x)} cy={pointY(point.y)} r="3" fill="var(--accent)" opacity=".7" />)}
+        <text x={width / 2} y={height - 8} textAnchor="middle">{xLabel}</text>
+        <text x="12" y={height / 2} textAnchor="middle" transform={`rotate(-90 12 ${height / 2})`}>{yLabel}</text>
+      </svg>
     </div>
   );
 }
