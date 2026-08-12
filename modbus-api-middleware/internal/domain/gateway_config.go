@@ -7,4 +7,7 @@ type GatewayConfig struct {
 	APIPollingEnabled   bool   `json:"apiPollingEnabled"`
 	SendIntervalSeconds int    `json:"sendIntervalSeconds"`
 	SendTimeoutSeconds  int    `json:"sendTimeoutSeconds"`
+	// Longest a device may go without a stored reading while its register
+	// values are not moving. See app.DefaultIdleHeartbeat for what it is for.
+	IdleHeartbeatSeconds int `json:"idleHeartbeatSeconds"`
 }

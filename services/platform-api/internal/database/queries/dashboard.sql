@@ -12,11 +12,10 @@ SELECT p.id AS plant_id, p.code, p.name, p.timezone, p.is_active,
        max(tl.observed_at) FILTER (WHERE d.is_active) AS last_observed_at
 FROM plant.plant p
 LEFT JOIN plant.device d ON d.organization_id = p.organization_id AND d.plant_id = p.id
--- ponytail: the view's DISTINCT ON walks the whole device-time index once per
--- dashboard load. Cheap next to the mapping view it replaced, but still
--- O(readings) in index entries -- if it shows up in slow-query logs, replace
--- with a correlated LATERAL max() per device, hand-written (sqlc's analyzer
--- cannot resolve lateral aliases).
+-- The view is a correlated LATERAL over plant.device (migration 000045), so
+-- this costs one index descent per device rather than the O(all readings) sort
+-- its earlier DISTINCT ON form did. Kept as a view so sqlc still sees a plain
+-- relation -- its analyzer cannot resolve lateral aliases written inline here.
 LEFT JOIN telemetry.raw_register_reading_latest tl
        ON tl.organization_id = d.organization_id AND tl.device_id = d.id
 WHERE EXISTS (

@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"ygate/platform-api/internal/core"
 	"ygate/platform-api/internal/notify"
 )
 
@@ -24,6 +25,7 @@ type alarmConditionSnapshot struct {
 	MinValue *float64 `json:"minValue"`
 	MaxValue *float64 `json:"maxValue"`
 	Breached bool     `json:"breached"`
+	Logic    string   `json:"logic"`
 }
 
 // alarmBreach describes a newly-opened alarm_event (not a repeat of one
@@ -39,29 +41,36 @@ type alarmBreach struct {
 // evaluateAlarms runs inside the same transaction as the telemetry insert
 // (see ingestReading in service.go), immediately after the reading becomes
 // the device's latest value. Every active rule for the device has its
-// conditions (one or more point/threshold checks, combined with AND/OR)
-// checked against this reading: a breach opens an alarm_event (a no-op if
+// conditions (one or more point/threshold checks, each carrying the AND/OR
+// that joins it to the previous one) checked against this reading: a breach
+// opens an alarm_event (a no-op if
 // one is already open, enforced by the alarm_event_open_rule_unique partial
 // index so repeated breaches never duplicate), and no-longer-breaching
 // clears any open event for that rule. Returns only the breaches that newly
 // opened an event, i.e. the ones worth notifying about.
 func evaluateAlarms(ctx context.Context, tx pgx.Tx, organizationID, plantID, deviceID pgtype.UUID, plantCode, plantName, deviceName string, dataItemMap map[string]float64, observedAt time.Time) ([]alarmBreach, error) {
+	// lastBreachedAt rides along on this query rather than costing a second
+	// round trip per rule -- alarm_event_rule_recent_idx makes it one index
+	// descent. It feeds the Alarm Delay check below.
 	rows, err := tx.Query(ctx, `
-SELECT id, label, severity, condition_logic, notify_role_id
-FROM alarm.alarm_rule
-WHERE organization_id=$1 AND device_id=$2 AND is_active`, organizationID, deviceID)
+SELECT r.id, r.label, r.severity, r.notify_role_id, r.alarm_delay_seconds,
+       (SELECT max(e.breached_at) FROM alarm.alarm_event e WHERE e.alarm_rule_id = r.id)
+FROM alarm.alarm_rule r
+WHERE r.organization_id=$1 AND r.device_id=$2 AND r.is_active`, organizationID, deviceID)
 	if err != nil {
 		return nil, fmt.Errorf("list active alarm rules: %w", err)
 	}
 	type rule struct {
-		id                              pgtype.UUID
-		label, severity, conditionLogic string
-		notifyRoleID                    pgtype.UUID
+		id              pgtype.UUID
+		label, severity string
+		notifyRoleID    pgtype.UUID
+		delaySeconds    int32
+		lastBreachedAt  pgtype.Timestamptz
 	}
 	var rules []rule
 	for rows.Next() {
 		var r rule
-		if err = rows.Scan(&r.id, &r.label, &r.severity, &r.conditionLogic, &r.notifyRoleID); err != nil {
+		if err = rows.Scan(&r.id, &r.label, &r.severity, &r.notifyRoleID, &r.delaySeconds, &r.lastBreachedAt); err != nil {
 			rows.Close()
 			return nil, fmt.Errorf("scan alarm rule: %w", err)
 		}
@@ -74,18 +83,19 @@ WHERE organization_id=$1 AND device_id=$2 AND is_active`, organizationID, device
 
 	var breaches []alarmBreach
 	for _, r := range rules {
-		conditionRows, err := tx.Query(ctx, `SELECT point_key, min_value, max_value FROM alarm.alarm_rule_condition WHERE alarm_rule_id=$1 ORDER BY position`, r.id)
+		conditionRows, err := tx.Query(ctx, `SELECT point_key, min_value, max_value, logic FROM alarm.alarm_rule_condition WHERE alarm_rule_id=$1 ORDER BY position`, r.id)
 		if err != nil {
 			return nil, fmt.Errorf("list alarm rule conditions: %w", err)
 		}
 		type condition struct {
 			pointKey           string
 			minValue, maxValue pgtype.Float8
+			logic              string
 		}
 		var conditions []condition
 		for conditionRows.Next() {
 			var c condition
-			if err = conditionRows.Scan(&c.pointKey, &c.minValue, &c.maxValue); err != nil {
+			if err = conditionRows.Scan(&c.pointKey, &c.minValue, &c.maxValue, &c.logic); err != nil {
 				conditionRows.Close()
 				return nil, fmt.Errorf("scan alarm rule condition: %w", err)
 			}
@@ -101,7 +111,8 @@ WHERE organization_id=$1 AND device_id=$2 AND is_active`, organizationID, device
 		// skipped rather than partially evaluated. Upgrade to per-point cached
 		// last-known-values if points start arriving across separate readings.
 		snapshots := make([]alarmConditionSnapshot, 0, len(conditions))
-		breachedCount := 0
+		breached := make([]bool, 0, len(conditions))
+		logic := make([]string, 0, len(conditions))
 		allPresent := true
 		for _, c := range conditions {
 			value, present := dataItemMap[c.pointKey]
@@ -109,18 +120,28 @@ WHERE organization_id=$1 AND device_id=$2 AND is_active`, organizationID, device
 				allPresent = false
 				break
 			}
-			breached := (c.minValue.Valid && value < c.minValue.Float64) || (c.maxValue.Valid && value > c.maxValue.Float64)
-			if breached {
-				breachedCount++
-			}
-			snapshots = append(snapshots, alarmConditionSnapshot{PointKey: c.pointKey, Value: value, MinValue: floatPointerOf(c.minValue), MaxValue: floatPointerOf(c.maxValue), Breached: breached})
+			isBreached := (c.minValue.Valid && value < c.minValue.Float64) || (c.maxValue.Valid && value > c.maxValue.Float64)
+			breached = append(breached, isBreached)
+			logic = append(logic, c.logic)
+			snapshots = append(snapshots, alarmConditionSnapshot{PointKey: c.pointKey, Value: value, MinValue: floatPointerOf(c.minValue), MaxValue: floatPointerOf(c.maxValue), Breached: isBreached, Logic: c.logic})
 		}
 		if !allPresent {
 			continue
 		}
-		ruleBreach := breachedCount > 0
-		if r.conditionLogic == "AND" {
-			ruleBreach = len(conditions) > 0 && breachedCount == len(conditions)
+		// Each condition carries the AND/OR joining it to the one before it, so
+		// the verdict is a sum of products rather than one all-or-any rule --
+		// core owns that fold so evaluation and the editor cannot disagree.
+		ruleBreach := core.EvaluateConditions(breached, logic)
+
+		// Alarm Delay: this rule alarmed recently enough that a fresh one is
+		// held back entirely -- no event, no email. Checked before the insert
+		// rather than folded into it so the rule is one tested Go function
+		// (core.AlarmSuppressed) instead of a subtle interval predicate in SQL.
+		//
+		// `continue`, not a fall-through to the clear below: the rule IS
+		// breaching, so clearing whatever is open would be wrong.
+		if ruleBreach && core.AlarmSuppressed(r.lastBreachedAt.Time, observedAt, r.delaySeconds) {
+			continue
 		}
 
 		if ruleBreach {

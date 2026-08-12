@@ -21,11 +21,11 @@ set "CGO_ENABLED=0"
 set "GOOS="
 set "GOARCH="
 set "GOARM="
-set "VERSION=0.2.j"
+set "VERSION=0.2.k"
 set "KEYS_FILE=%CD%\license-keys.env"
 
 if exist "%KEYS_FILE%" (
-  echo Loading license keys: %KEYS_FILE%
+  echo Loading license keys: %KEYS_FILE%d
   for /f "usebackq eol=# tokens=1,* delims==" %%A in ("%KEYS_FILE%") do if not "%%A"=="" set "%%A=%%B"
 )
 if not defined CHPP_LICENSE_PUBLIC_KEY (

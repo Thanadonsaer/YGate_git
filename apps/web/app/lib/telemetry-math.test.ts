@@ -4,9 +4,11 @@ import {
   bucketEnergy,
   classifyUnit,
   downsample,
+  fillBuckets,
   nearestIndex,
   previousPeriod,
   seriesToCSV,
+  sumBuckets,
   timeTicks,
   toSeries,
   totalEnergyKWh,
@@ -91,6 +93,47 @@ test("downsample honours the budget and keeps the endpoints and the spike", () =
   assert.equal(downsample(short, 100), short, "under budget the array passes straight through");
 });
 
+test("fillBuckets makes the time axis continuous instead of closing the gaps", () => {
+  // A plant that only produced between 08:00 and 10:00 of a 24h window.
+  const sparse = bucketEnergy(
+    [{ t: at(8), v: 10 }, { t: at(9), v: 10 }, { t: at(10), v: 10 }],
+    "kW",
+    "hour",
+  );
+  assert.equal(sparse.length, 2, "bucketEnergy only emits hours that had samples");
+
+  const filled = fillBuckets(sparse, at(0), at(23), "hour");
+  assert.equal(filled.length, 24, "one bucket per hour of the range");
+  assert.ok(filled.every((bucket, index) => index === 0 || bucket.start > filled[index - 1].start));
+  for (const [index, bucket] of filled.entries()) {
+    assert.equal(new Date(bucket.start).getHours(), index, "bucket sits on the hour it is labelled with");
+  }
+  assert.equal(filled[0].kwh, 0, "an hour with no samples reads as zero, not as missing");
+  assert.ok(filled[8].kwh > 0, "the hours that did produce keep their energy");
+  assert.equal(
+    filled.reduce((total, bucket) => total + bucket.kwh, 0),
+    sparse.reduce((total, bucket) => total + bucket.kwh, 0),
+    "filling adds no energy",
+  );
+
+  const days = fillBuckets([], at(0), at(24 * 3), "day");
+  assert.equal(days.length, 4);
+  assert.ok(days.every((bucket) => new Date(bucket.start).getHours() === 0), "day buckets sit on local midnight");
+  assert.deepEqual(fillBuckets([], at(1), at(0), "hour"), [], "an inverted range has no buckets");
+});
+
+test("sumBuckets adds devices together by bucket, not by position", () => {
+  const first = [{ key: "a", start: at(0), kwh: 2 }, { key: "c", start: at(2), kwh: 4 }];
+  const second = [{ key: "b", start: at(1), kwh: 1 }, { key: "c", start: at(2), kwh: 6 }];
+  assert.deepEqual(sumBuckets([first, second]), [
+    { key: "a", start: at(0), kwh: 2 },
+    { key: "b", start: at(1), kwh: 1 },
+    { key: "c", start: at(2), kwh: 10 },
+  ]);
+  // Inputs must not be mutated -- they are memoized per device upstream.
+  assert.equal(first[1].kwh, 4);
+});
+
 test("timeTicks lands on round local times and coarsens as the span grows", () => {
   const hourly = timeTicks(at(0), at(6));
   assert.ok(hourly.length >= 2 && hourly.length <= 8);
@@ -103,6 +146,21 @@ test("timeTicks lands on round local times and coarsens as the span grows", () =
   assert.ok(monthly.length >= 2 && monthly.length <= 10, "a month does not produce hundreds of ticks");
   assert.ok(monthly[1] - monthly[0] > hourly[1] - hourly[0], "zooming out picks a coarser step");
   assert.deepEqual(timeTicks(at(1), at(0)), [], "an inverted range has no ticks");
+});
+
+test("timeTicks stays on round local times for steps that do not divide the zone offset", () => {
+  // A 7-day span picks the 1-day step: every tick must be local midnight, which
+  // is also what the chart keys its date labels off. A 36h span picks the 6h step.
+  for (const tick of timeTicks(at(0), at(24 * 7))) {
+    const date = new Date(tick);
+    assert.equal(date.getHours(), 0, "a day-scale tick sits on local midnight");
+    assert.equal(date.getMinutes(), 0);
+  }
+  for (const tick of timeTicks(at(0), at(36))) {
+    const date = new Date(tick);
+    assert.equal(date.getHours() % 6, 0, "a 6h-scale tick sits on a round 6-hour boundary");
+    assert.equal(date.getMinutes(), 0);
+  }
 });
 
 test("valueTicks produces evenly spaced round steps inside the data range", () => {

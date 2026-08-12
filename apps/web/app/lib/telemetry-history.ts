@@ -64,22 +64,80 @@ export type PointMeta = {
  * do I call this, what unit is it in, and which register is it".
  */
 export async function loadRegisterCatalog(plantId: string, device: Device, signal?: AbortSignal) {
+  return buildCatalog(plantId, device, signal, loadModelTags);
+}
+
+/**
+ * loadRegisterCatalog for every device at once, keyed by device id.
+ *
+ * Devices in a plant overwhelmingly share a handful of models, so the
+ * model-level lookup is fetched once per model rather than once per device --
+ * a 40-inverter plant is 41 requests instead of 80. A device whose own
+ * metadata fails is left out rather than failing the whole batch: the pickers
+ * that use this fall back to the raw address key, which is what they showed
+ * before this existed.
+ */
+export async function loadRegisterCatalogs(plantId: string, devices: Device[], signal?: AbortSignal) {
+  const modelCache = new Map<string, Promise<Map<string, string>>>();
+  const cachedModelTags = (deviceModelId: string) => {
+    let tags = modelCache.get(deviceModelId);
+    if (!tags) {
+      tags = loadModelTags(deviceModelId, signal);
+      modelCache.set(deviceModelId, tags);
+    }
+    return tags;
+  };
+  const entries = await Promise.all(devices.map(async (device) => {
+    const catalog = await buildCatalog(plantId, device, signal, cachedModelTags).catch(() => ({}));
+    return [device.id, catalog] as const;
+  }));
+  return Object.fromEntries(entries) as Record<string, Record<string, PointMeta>>;
+}
+
+/**
+ * One option per register for a point picker, labelled by display name and
+ * tagged with the Modbus address.
+ *
+ * Values are the bare address ("40072", not "reg40072"): alarm rules and SCADA
+ * bindings are both matched against telemetry's dataItemMap, which
+ * telemetry.mapped_data_items() emits keyed by the bare address. The catalog
+ * indexes both spellings onto the same object, so dedupe is by identity.
+ */
+export function pointOptions(catalog: Record<string, PointMeta>) {
+  const seen = new Set<PointMeta>();
+  const options: Array<{ label: string; value: string; unit: string; tag: string }> = [];
+  for (const meta of Object.values(catalog)) {
+    if (seen.has(meta) || !meta.isEnabled) continue;
+    seen.add(meta);
+    options.push({ label: meta.displayName, value: bareAddressKey(meta.key) || meta.key, unit: meta.unit, tag: meta.tag });
+  }
+  return options.sort((a, b) => a.label.localeCompare(b.label));
+}
+
+/** The address tag lives on the device *model*, shared across its devices. */
+async function loadModelTags(deviceModelId: string, signal?: AbortSignal): Promise<Map<string, string>> {
+  // The tag is decoration: if the model lookup fails the picker still shows
+  // names and units, so degrade instead of blanking the whole page.
+  const modelLevel = await fetchJSON<DeviceModelRegisterMetadata[]>(
+    `/api/v1/device-models/${encodeURIComponent(deviceModelId)}/register-metadata`,
+    signal,
+    "",
+  ).catch(() => [] as DeviceModelRegisterMetadata[]);
+  return new Map(modelLevel.map((entry) => [entry.addressKey, registerTag(entry)]));
+}
+
+async function buildCatalog(
+  plantId: string,
+  device: Device,
+  signal: AbortSignal | undefined,
+  modelTags: (deviceModelId: string, signal?: AbortSignal) => Promise<Map<string, string>>,
+) {
   const plantLevel = await fetchJSON<RegisterMetadata[]>(
     `/api/v1/plants/${encodeURIComponent(plantId)}/device-register-metadata/${encodeURIComponent(device.id)}`,
     signal,
     "ไม่สามารถโหลด Metadata ของ Parameter ได้",
   );
-  // The address tag is decoration: if the model lookup fails the picker still
-  // shows names and units, so degrade instead of blanking the whole page.
-  const modelLevel = device.deviceModelId
-    ? await fetchJSON<DeviceModelRegisterMetadata[]>(
-      `/api/v1/device-models/${encodeURIComponent(device.deviceModelId)}/register-metadata`,
-      signal,
-      "",
-    ).catch(() => [])
-    : [];
-
-  const tagByKey = new Map(modelLevel.map((entry) => [entry.addressKey, registerTag(entry)]));
+  const tagByKey = device.deviceModelId ? await modelTags(device.deviceModelId, signal) : new Map<string, string>();
   const catalog: Record<string, PointMeta> = {};
   for (const entry of plantLevel) {
     const meta: PointMeta = {

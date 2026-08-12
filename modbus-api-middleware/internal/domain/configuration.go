@@ -78,6 +78,9 @@ type ConfigSnapshot struct {
 	Plants              []Plant            `json:"plants"`
 	SendIntervalSeconds int                `json:"sendIntervalSeconds,omitempty"`
 	APIPollingEnabled   bool               `json:"apiPollingEnabled"`
+	// omitempty so a Platform that has not been upgraded yet simply leaves the
+	// gateway's current value alone instead of pushing a zero over it.
+	IdleHeartbeatSeconds int `json:"idleHeartbeatSeconds,omitempty"`
 }
 
 type ConnectionConfig struct {

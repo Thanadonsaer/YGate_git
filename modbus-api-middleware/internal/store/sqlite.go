@@ -26,8 +26,38 @@ CREATE TABLE IF NOT EXISTS outbox_events (
 );
 CREATE INDEX IF NOT EXISTS outbox_ready ON outbox_events(status,next_retry_at);`
 
+// Open connects to the SQLite file at path.
+//
+// The DSN pragmas and the single-connection pool are what stop the
+// intermittent "database is locked" (SQLITE_BUSY) errors in the delivery logs.
+// Three separate writers share this file -- the poll loop enqueueing readings,
+// the delivery loop marking them DELIVERED/RETRYING, and the local web UI
+// editing configuration -- while database/sql was free to open a connection
+// per concurrent caller. SQLite allows only one writer at a time, so any
+// overlap failed immediately instead of waiting:
+//
+//   - journal_mode=WAL lets readers run while a write is in progress, rather
+//     than taking the rollback journal's whole-file lock. Readers stop
+//     blocking writers entirely.
+//   - busy_timeout=5000 makes a blocked writer wait up to 5s for the write
+//     lock instead of returning SQLITE_BUSY on the spot. Without it WAL alone
+//     still surfaces every collision as an error.
+//   - _txlock=immediate takes the write lock when a transaction begins rather
+//     than when it first writes. Under WAL, a deferred transaction that reads
+//     and then upgrades to a write fails with SQLITE_BUSY_SNAPSHOT, and that
+//     one is NOT retried by busy_timeout -- it has to be retried by the
+//     application, which none of the s.DB.Begin() callers do.
+//
+// Deliberately NOT SetMaxOpenConns(1): several readers (Store.Brands,
+// Store.DeviceSets) issue a nested query while their outer rows are still
+// open, so a one-connection pool deadlocks the moment the inner query waits
+// for the connection the outer loop is holding.
+//
+// modernc.org/sqlite strips a `?...` query from a non-"file:" DSN and applies
+// these settings, so this stays correct for the plain Windows paths main.go
+// passes (a file: URI would mangle the backslashes).
 func Open(path string) (*Store, error) {
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite", path+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_txlock=immediate")
 	if err != nil {
 		return nil, err
 	}

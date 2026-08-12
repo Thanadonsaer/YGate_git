@@ -17,7 +17,8 @@ CREATE TABLE IF NOT EXISTS gateway_config (
  api_key TEXT NOT NULL DEFAULT '',
  api_polling_enabled INTEGER NOT NULL DEFAULT 0,
  send_interval_seconds INTEGER NOT NULL DEFAULT 5,
- send_timeout_seconds INTEGER NOT NULL DEFAULT 10
+ send_timeout_seconds INTEGER NOT NULL DEFAULT 10,
+ idle_heartbeat_seconds INTEGER NOT NULL DEFAULT 1800
 );`
 
 func (s *Store) ensureGatewayConfig() error {
@@ -30,7 +31,10 @@ func (s *Store) ensureGatewayConfig() error {
 	if err := s.ensureColumn("gateway_config", "api_polling_enabled", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return err
 	}
-	return s.ensureColumn("gateway_config", "send_timeout_seconds", "INTEGER NOT NULL DEFAULT 10")
+	if err := s.ensureColumn("gateway_config", "send_timeout_seconds", "INTEGER NOT NULL DEFAULT 10"); err != nil {
+		return err
+	}
+	return s.ensureColumn("gateway_config", "idle_heartbeat_seconds", "INTEGER NOT NULL DEFAULT 1800")
 }
 
 func (s *Store) hasColumn(table, column string) (bool, error) {
@@ -68,7 +72,7 @@ func (s *Store) GatewayConfig() (domain.GatewayConfig, error) {
 	if err := s.ensureGatewayConfig(); err != nil {
 		return v, err
 	}
-	err := s.DB.QueryRow("SELECT gateway_id,endpoint,api_key,api_polling_enabled,send_interval_seconds,send_timeout_seconds FROM gateway_config WHERE id=1").Scan(&v.GatewayID, &v.Endpoint, &v.APIKey, &apiPollingEnabled, &v.SendIntervalSeconds, &v.SendTimeoutSeconds)
+	err := s.DB.QueryRow("SELECT gateway_id,endpoint,api_key,api_polling_enabled,send_interval_seconds,send_timeout_seconds,idle_heartbeat_seconds FROM gateway_config WHERE id=1").Scan(&v.GatewayID, &v.Endpoint, &v.APIKey, &apiPollingEnabled, &v.SendIntervalSeconds, &v.SendTimeoutSeconds, &v.IdleHeartbeatSeconds)
 	v.APIPollingEnabled = apiPollingEnabled != 0
 	if err == sql.ErrNoRows {
 		return normalizeGatewayConfig(v), nil
@@ -91,8 +95,8 @@ func (s *Store) SaveGatewayConfig(v domain.GatewayConfig) (domain.GatewayConfig,
 	if v.APIPollingEnabled {
 		apiPollingEnabled = 1
 	}
-	_, err := s.DB.Exec(`INSERT INTO gateway_config(id,gateway_id,endpoint,api_key,api_polling_enabled,send_interval_seconds,send_timeout_seconds) VALUES(1,?,?,?,?,?,?)
-ON CONFLICT(id) DO UPDATE SET gateway_id=excluded.gateway_id, endpoint=excluded.endpoint, api_key=excluded.api_key, api_polling_enabled=excluded.api_polling_enabled, send_interval_seconds=excluded.send_interval_seconds, send_timeout_seconds=excluded.send_timeout_seconds`, v.GatewayID, v.Endpoint, v.APIKey, apiPollingEnabled, v.SendIntervalSeconds, v.SendTimeoutSeconds)
+	_, err := s.DB.Exec(`INSERT INTO gateway_config(id,gateway_id,endpoint,api_key,api_polling_enabled,send_interval_seconds,send_timeout_seconds,idle_heartbeat_seconds) VALUES(1,?,?,?,?,?,?,?)
+ON CONFLICT(id) DO UPDATE SET gateway_id=excluded.gateway_id, endpoint=excluded.endpoint, api_key=excluded.api_key, api_polling_enabled=excluded.api_polling_enabled, send_interval_seconds=excluded.send_interval_seconds, send_timeout_seconds=excluded.send_timeout_seconds, idle_heartbeat_seconds=excluded.idle_heartbeat_seconds`, v.GatewayID, v.Endpoint, v.APIKey, apiPollingEnabled, v.SendIntervalSeconds, v.SendTimeoutSeconds, v.IdleHeartbeatSeconds)
 	return v, err
 }
 
@@ -111,6 +115,15 @@ func normalizeGatewayConfig(v domain.GatewayConfig) domain.GatewayConfig {
 	}
 	if v.SendTimeoutSeconds > 300 {
 		v.SendTimeoutSeconds = 300
+	}
+	// Floor of a minute: anything shorter defeats the point of skipping
+	// unchanged readings at all. Ceiling of a day so a typo can never leave a
+	// dead device looking alive for a week.
+	if v.IdleHeartbeatSeconds < 60 {
+		v.IdleHeartbeatSeconds = 1800
+	}
+	if v.IdleHeartbeatSeconds > 86400 {
+		v.IdleHeartbeatSeconds = 86400
 	}
 	return v
 }

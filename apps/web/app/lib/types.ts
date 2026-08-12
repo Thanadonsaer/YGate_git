@@ -276,10 +276,18 @@ export type LatestTelemetry = {
   parameterCount: number;
 };
 
+export type ConditionLogic = "AND" | "OR";
+
 export type AlarmRuleCondition = {
   pointKey: string;
   minValue?: number | null;
   maxValue?: number | null;
+  /**
+   * Connector joining this condition to the one before it. Ignored on the
+   * first condition. AND binds tighter than OR, so [A, AND B, OR C] means
+   * "(A and B) or C".
+   */
+  logic: ConditionLogic;
 };
 
 export type AlarmRule = {
@@ -288,9 +296,14 @@ export type AlarmRule = {
   plantId: string;
   deviceId: string;
   label: string;
-  conditionLogic: "AND" | "OR";
   conditions: AlarmRuleCondition[];
   severity: "warning" | "major" | "critical";
+  /**
+   * Cooldown in seconds between consecutive alarms for this rule. While it has
+   * not elapsed since the last alarm, a fresh breach opens no event and sends
+   * no notification. 0 disables it.
+   */
+  alarmDelaySeconds: number;
   isActive: boolean;
   notifyRoleId?: string | null;
   createdAt: string;
@@ -305,6 +318,8 @@ export type AlarmEventCondition = {
   minValue?: number | null;
   maxValue?: number | null;
   breached: boolean;
+  /** Connector this condition carried when the rule was evaluated. */
+  logic?: ConditionLogic;
 };
 
 export type AlarmEvent = {
@@ -414,6 +429,13 @@ export type MiddlewareGateway = {
   configVersion: number;
   configAppliedVersion: number;
   pollIntervalSeconds: number;
+  /**
+   * Longest a device may go without a stored reading while its register values
+   * are not moving. The gateway drops readings that repeat the last stored
+   * values and sends one anyway at this interval, so an idle device stays
+   * distinguishable from a dead one.
+   */
+  idleHeartbeatSeconds: number;
   apiPollingEnabled: boolean;
   lastSeenAt?: string | null;
   createdAt: string;

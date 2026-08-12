@@ -201,6 +201,12 @@ func (c *Client) handleConfigSnapshot(ctx context.Context, conn *websocket.Conn,
 				gwCfg.APIPollingEnabled = snapshot.APIPollingEnabled
 				changed = true
 			}
+			// Zero means the Platform did not send one (older build), so the
+			// gateway keeps whatever it already has rather than being reset.
+			if snapshot.IdleHeartbeatSeconds > 0 && gwCfg.IdleHeartbeatSeconds != snapshot.IdleHeartbeatSeconds {
+				gwCfg.IdleHeartbeatSeconds = snapshot.IdleHeartbeatSeconds
+				changed = true
+			}
 			if changed {
 				if _, err := c.Store.SaveGatewayConfig(gwCfg); err != nil {
 					log.Printf("realtime client: save pushed settings from config v%d: %v", snapshot.Version, err)

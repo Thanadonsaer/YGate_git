@@ -326,8 +326,13 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .ts-truncated { margin: 0 0 12px; padding: 8px 12px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--warning) 12%, transparent); color: var(--warning); font-size: 12px; font-weight: 700; }
 
 /* Energy Analysis page layout. */
-.ea-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 14px; margin: 18px 0; }
+/* Two labelled rows -- scope, then time range -- instead of one flex line that
+   reflowed into a different shape at every viewport width. */
+.ea-filters { display: grid; gap: 12px; margin: 18px 0; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); }
+.ea-filter-row { display: flex; flex-wrap: wrap; align-items: end; gap: 14px; }
 .ea-field { display: grid; gap: 6px; flex: 1 1 170px; min-width: 150px; font-size: 12px; font-weight: 800; color: var(--ink); }
+.ea-field-wide { flex: 2 1 320px; }
+.ea-field > small { font-weight: 400; }
 .ea-input { height: 40px; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 0 10px; font-size: 14px; font-weight: 400; }
 .ea-presets { display: flex; gap: 6px; }
 .ea-preset { height: 40px; flex: 1; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); font-size: 12px; font-weight: 700; color: var(--ink); cursor: pointer; }
@@ -346,12 +351,20 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .ea-panel { margin-bottom: 18px; padding: 16px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); }
 .ea-panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
 .ea-panel-head h3 { margin: 0; font-size: 15px; }
-.ea-bars { display: flex; align-items: flex-end; gap: 2px; height: 200px; }
-.ea-bar-slot { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; justify-content: flex-end; height: 100%; }
-.ea-bar-stack { position: relative; flex: 1; display: flex; align-items: flex-end; justify-content: center; }
-.ea-bar { width: 68%; min-height: 1px; border-radius: 2px 2px 0 0; background: var(--action); }
+/* Axis and plot are both exactly 200px tall and share row 1, so a gridline at
+   40% sits at the same pixel as a bar drawn to 40%. The labels are their own
+   row rather than living inside each bar, which is what let the label strip
+   eat into the plot height and pull the two out of alignment. */
+.ea-bars-frame { display: grid; grid-template-columns: 52px minmax(0, 1fr); column-gap: 8px; }
+.ea-bars-axis { position: relative; height: 200px; }
+.ea-bars-axis span { position: absolute; right: 0; transform: translateY(50%); font-size: 10px; color: var(--muted); white-space: nowrap; }
+.ea-bars { position: relative; display: flex; align-items: flex-end; gap: 2px; height: 200px; border-bottom: 1px solid var(--line); }
+.ea-bars-grid { position: absolute; left: 0; right: 0; height: 0; border-top: 1px dashed color-mix(in srgb, var(--line) 80%, transparent); }
+.ea-bar-slot { position: relative; flex: 1 1 0; min-width: 0; height: 100%; display: flex; align-items: flex-end; justify-content: center; }
+.ea-bar { width: 68%; min-height: 0; border-radius: 2px 2px 0 0; background: var(--action); }
 .ea-bar-base { position: absolute; bottom: 0; width: 68%; background: color-mix(in srgb, var(--muted) 34%, transparent); }
-.ea-bar-slot small { padding-top: 4px; overflow: hidden; text-align: center; white-space: nowrap; font-size: 10px; color: var(--muted); }
+.ea-bars-labels { grid-column: 2; display: flex; gap: 2px; padding-top: 4px; }
+.ea-bars-labels small { flex: 1 1 0; min-width: 0; overflow: hidden; text-align: center; white-space: nowrap; font-size: 10px; color: var(--muted); }
 .xy-analysis-chart { display: block; width: 100%; min-height: 260px; color: var(--muted); }
 .xy-analysis-chart text { fill: currentColor; font-size: 10px; }
 @media (max-width: 700px) { .ea-filters > .ea-field { flex-basis: 100%; } }
@@ -433,8 +446,14 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .editor-actions { padding-top: 4px; display: flex; justify-content: flex-end; gap: 9px; }
 .alarm-conditions { display: grid; gap: 8px; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px; }
 .alarm-conditions-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 12px; font-weight: 700; color: var(--muted); }
-.alarm-condition-row { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr) 38px; gap: 8px; align-items: center; }
+/* First column is the AND/OR connector joining this row to the one above it. */
+.alarm-condition-row { display: grid; grid-template-columns: 116px minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr) 38px; gap: 8px; align-items: center; }
 .alarm-condition-row input { height: 38px; }
+.alarm-condition-logic { height: 38px; }
+.alarm-condition-logic-first { display: inline-flex; align-items: center; justify-content: flex-end; padding-right: 4px; color: var(--muted); font-size: 12px; font-weight: 700; }
+.alarm-conditions-preview { margin: 2px 0 0; color: var(--muted); font-size: 12px; }
+.alarm-conditions-preview strong { color: var(--ink); }
+@media (max-width: 640px) { .alarm-condition-row { grid-template-columns: 1fr 1fr 38px; } }
 .alarm-logbook-form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: end; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); }
 .alarm-logbook-form label { display: grid; gap: 6px; font-size: 12px; font-weight: 800; color: var(--ink); }
 .alarm-logbook-form .full-field { grid-column: 1 / -1; }
@@ -749,13 +768,13 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .site-map-popup-image, .site-map-popup-fallback { width: 100%; max-height: 140px; min-height: 80px; margin: 0 0 8px; border-radius: 6px; object-fit: cover; }
 .site-map-popup-fallback { display: grid; place-items: center; color: var(--muted); background: var(--canvas); font-size: 11px; }
 
-.report-layout { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(280px, .85fr); gap: 16px; }
-.report-form, .report-scope { display: grid; gap: 16px; align-content: start; }
-.report-form label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; }
+.report-layout { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(280px, .85fr); gap: 16px; align-items: start; }
+/* Both panels are grid items here, so .ea-panel's own bottom margin would show
+   up as an uneven gap under the shorter one. */
+.report-form, .report-scope { display: grid; gap: 16px; align-content: start; margin-bottom: 0; }
 .report-date-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .report-stat { display: grid; gap: 2px; padding: 18px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--canvas); }
 .report-stat strong { font-size: 34px; color: var(--ink); }
 .report-stat span { color: var(--muted); font-size: 12px; }
 .report-types { display: flex; gap: 8px; flex-wrap: wrap; }
-.spin { animation: live-pulse-scroll .9s linear infinite; }
 @media (max-width: 760px) { .report-layout, .report-date-grid { grid-template-columns: 1fr; } }

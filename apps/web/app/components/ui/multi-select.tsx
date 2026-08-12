@@ -3,6 +3,7 @@
 import * as React from "react";
 import { MultiSelect as PrimeMultiSelect } from "primereact/multiselect";
 import { ChevronDown, Search } from "lucide-react";
+import { checkboxPt } from "./form";
 import { cn } from "../../lib/cn";
 
 // `unit` and `tag` are what a telemetry point picker needs beyond a name: the
@@ -27,9 +28,13 @@ function MultiSelect({
   className?: string;
   ariaLabel?: string;
 }) {
-  // Only search the columns that exist, otherwise PrimeReact matches the
-  // literal string "undefined" on options that have no unit or tag.
-  const filterBy = options.some((option) => option.unit || option.tag) ? "label,unit,tag" : "label";
+  // Each column is checked on its own: PrimeReact stringifies a missing field,
+  // so naming "unit" while no option has one makes every option match a search
+  // for "und". Device pickers pass a tag with no unit, parameter pickers pass
+  // both, and a plain {label,value} caller searches label alone.
+  const filterBy = ["label", options.some((option) => option.unit) && "unit", options.some((option) => option.tag) && "tag"]
+    .filter(Boolean)
+    .join(",");
   return (
     <PrimeMultiSelect
       value={value}
@@ -44,12 +49,17 @@ function MultiSelect({
       filterBy={filterBy}
       filterPlaceholder="ค้นหา..."
       display="chip"
+      // The template's output lands inside a bare <span> PrimeReact renders
+      // with no passthrough hook of its own, so the flex row has to come from
+      // the template itself. Returning a fragment left label/unit/tag as inline
+      // children of that span: the label's flex-1/truncate did nothing and a
+      // long parameter name pushed the unit and address chips off the row.
       itemTemplate={(option: MultiSelectOption) => (
-        <>
+        <span className="flex min-w-0 flex-1 items-center gap-2">
           <span className="min-w-0 flex-1 truncate" title={option.label}>{option.label}</span>
           {option.unit && <span className="shrink-0 rounded bg-canvas px-1.5 py-0.5 text-[11px] font-bold text-ink-soft">{option.unit}</span>}
           {option.tag && <code className="shrink-0 text-[11px] text-ink-soft">{option.tag}</code>}
-        </>
+        </span>
       )}
       dropdownIcon={<ChevronDown size={16} />}
       filterIcon={<Search size={14} />}
@@ -78,12 +88,21 @@ function MultiSelect({
         item: (options: { context: { focused: boolean; selected: boolean; disabled: boolean } }) => ({
           className: cn(
             "flex w-full cursor-pointer select-none items-center gap-2 rounded-[var(--radius-sm)] py-2 px-2 text-sm text-ink outline-none",
+            // itemTemplate's output sits in a bare <span> that PrimeReact gives
+            // no passthrough hook, so it is reached from the row instead --
+            // without this it sizes to content and long labels overflow the panel.
+            "[&>span]:min-w-0 [&>span]:flex-1",
             options.context.focused && "bg-canvas",
             options.context.selected && "font-bold",
             options.context.disabled && "pointer-events-none opacity-48",
           ),
         }),
         checkboxContainer: { className: "flex-none" },
+        // The per-option checkbox is a nested PrimeReact <Checkbox> that gets
+        // whatever `pt.checkbox` holds. Unstyled, so with nothing here it drew
+        // an unpainted zero-size div next to every option; this is the same
+        // skin the standalone Checkbox uses.
+        checkbox: checkboxPt(),
       }}
     />
   );

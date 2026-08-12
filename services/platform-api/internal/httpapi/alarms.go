@@ -21,22 +21,27 @@ type alarmConditionRequest struct {
 	PointKey string   `json:"pointKey"`
 	MinValue *float64 `json:"minValue"`
 	MaxValue *float64 `json:"maxValue"`
+	// Connector joining this condition to the previous one, "AND" or "OR".
+	// Empty defaults to AND; ignored on the first condition.
+	Logic string `json:"logic"`
 }
 
 type saveAlarmRuleRequest struct {
-	DeviceID       string                  `json:"deviceId"`
-	Label          string                  `json:"label"`
-	ConditionLogic string                  `json:"conditionLogic"`
-	Conditions     []alarmConditionRequest `json:"conditions"`
-	Severity       string                  `json:"severity"`
-	IsActive       *bool                   `json:"isActive"`
-	NotifyRoleID   *string                 `json:"notifyRoleId"`
+	DeviceID     string                  `json:"deviceId"`
+	Label        string                  `json:"label"`
+	Conditions   []alarmConditionRequest `json:"conditions"`
+	Severity     string                  `json:"severity"`
+	IsActive     *bool                   `json:"isActive"`
+	NotifyRoleID *string                 `json:"notifyRoleId"`
+	// Seconds to wait after an alarm before this rule may alarm again.
+	// Omitted or 0 disables the delay.
+	AlarmDelaySeconds int32 `json:"alarmDelaySeconds"`
 }
 
 func (r saveAlarmRuleRequest) conditions() []core.ConditionInput {
 	conditions := make([]core.ConditionInput, len(r.Conditions))
 	for i, condition := range r.Conditions {
-		conditions[i] = core.ConditionInput{PointKey: condition.PointKey, MinValue: condition.MinValue, MaxValue: condition.MaxValue}
+		conditions[i] = core.ConditionInput{PointKey: condition.PointKey, MinValue: condition.MinValue, MaxValue: condition.MaxValue, Logic: condition.Logic}
 	}
 	return conditions
 }
@@ -73,8 +78,9 @@ func createAlarmRuleHandler(service *core.Service) func(http.ResponseWriter, *ht
 			return
 		}
 		rule, err := service.CreateAlarmRule(r.Context(), principal, r.PathValue("plantId"), core.CreateAlarmRuleInput{
-			DeviceID: request.DeviceID, Label: request.Label, ConditionLogic: request.ConditionLogic,
+			DeviceID: request.DeviceID, Label: request.Label,
 			Conditions: request.conditions(), Severity: request.Severity, NotifyRoleID: request.NotifyRoleID,
+			AlarmDelaySeconds: request.AlarmDelaySeconds,
 		}, remoteIP(r.RemoteAddr))
 		if writeAlarmError(w, err) {
 			return
@@ -94,8 +100,9 @@ func updateAlarmRuleHandler(service *core.Service) func(http.ResponseWriter, *ht
 			return
 		}
 		rule, err := service.UpdateAlarmRule(r.Context(), principal, r.PathValue("plantId"), r.PathValue("ruleId"), core.UpdateAlarmRuleInput{
-			Label: request.Label, ConditionLogic: request.ConditionLogic, Conditions: request.conditions(),
+			Label: request.Label, Conditions: request.conditions(),
 			Severity: request.Severity, IsActive: *request.IsActive, NotifyRoleID: request.NotifyRoleID,
+			AlarmDelaySeconds: request.AlarmDelaySeconds,
 		}, remoteIP(r.RemoteAddr))
 		if writeAlarmError(w, err) {
 			return

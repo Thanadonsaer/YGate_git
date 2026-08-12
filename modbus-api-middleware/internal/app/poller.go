@@ -32,7 +32,11 @@ func (s *Service) PollEnabledConnections(gatewayID string, logf func(string, ...
 	if strings.TrimSpace(cfg.GatewayID) != "" {
 		gw = strings.TrimSpace(cfg.GatewayID)
 	}
-	readOK, failed, queued := 0, 0, 0
+	// Picked up from the config already loaded above, so a heartbeat change
+	// pushed from the Platform takes effect on the next sweep without the
+	// per-device Enqueue path having to touch SQLite.
+	s.SetIdleHeartbeat(cfg.IdleHeartbeatSeconds)
+	readOK, failed, queued, idle := 0, 0, 0, 0
 	for _, c := range connections {
 		reading, measurements, err := s.PollConnection(fmt.Sprint(c.ConnectionID))
 		if err != nil {
@@ -51,16 +55,24 @@ func (s *Service) PollEnabledConnections(gatewayID string, logf func(string, ...
 			logf("enqueue %s: %v", c.ConnectionName, err)
 			continue
 		}
+		message := "poll queued"
 		if created {
 			queued++
+		} else {
+			// Not an error: the values have not moved since the last stored
+			// reading and no heartbeat is due yet (the gateway's
+			// IdleHeartbeatSeconds), so nothing was written. Said plainly here
+			// so an operator reading poll_logs can tell idle from broken.
+			idle++
+			message = "poll skipped (unchanged)"
 		}
 		// Success detail is deliberately empty: the reading itself is already
 		// in outbox_events.payload_json, and copying it into poll_logs too
 		// doubled the SQLite footprint of every poll for a row nobody reads
 		// unless something failed.
-		s.logPoll(c.ConnectionID, c.ConnectionName, "OK", "poll queued", "")
+		s.logPoll(c.ConnectionID, c.ConnectionName, "OK", message, "")
 	}
-	logf("poll sweep: %d connection(s), %d read OK, %d failed, %d queued", len(connections), readOK, failed, queued)
+	logf("poll sweep: %d connection(s), %d read OK, %d failed, %d queued, %d unchanged", len(connections), readOK, failed, queued, idle)
 	return nil
 }
 

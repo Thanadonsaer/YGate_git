@@ -87,6 +87,54 @@ export function bucketEnergy(points: Point[], unit: string, step: "hour" | "day"
   return [...totals.values()].sort((a, b) => a.start - b.start);
 }
 
+/** Guards against a silly range turning into thousands of DOM nodes. */
+const MAX_BUCKETS = 800;
+
+/**
+ * Every bucket in [from, to], zero-filled and in order.
+ *
+ * bucketEnergy only emits buckets that actually had samples. A plant that
+ * produces nothing overnight therefore returned ~10 daylight buckets for a
+ * 24-hour range, and the bar chart stretched those 10 bars across the full
+ * width: the empty hours silently closed up, so the bars no longer sat under
+ * the hours their labels claimed. Filling makes the time axis continuous, and
+ * makes two periods comparable bucket-for-bucket instead of by array index --
+ * which is what made the "compare to previous period" overlay line up against
+ * the wrong hour whenever the two periods had different gaps.
+ *
+ * Stepping with Date (not by adding fixed milliseconds) keeps day buckets on
+ * local midnight across a DST change, matching bucketKey/bucketStart.
+ */
+export function fillBuckets(buckets: Bucket[], from: number, to: number, step: "hour" | "day"): Bucket[] {
+  if (!(to >= from)) return [];
+  const byKey = new Map(buckets.map((bucket) => [bucket.key, bucket]));
+  const cursor = new Date(from);
+  cursor.setMinutes(0, 0, 0);
+  if (step === "day") cursor.setHours(0);
+  const filled: Bucket[] = [];
+  while (cursor.getTime() <= to && filled.length < MAX_BUCKETS) {
+    const start = cursor.getTime();
+    const key = bucketKey(start, step);
+    filled.push(byKey.get(key) ?? { key, start, kwh: 0 });
+    if (step === "day") cursor.setDate(cursor.getDate() + 1);
+    else cursor.setHours(cursor.getHours() + 1);
+  }
+  return filled;
+}
+
+/** Adds up per-device buckets that fall in the same hour/day. */
+export function sumBuckets(perDevice: Bucket[][]): Bucket[] {
+  const totals = new Map<string, Bucket>();
+  for (const buckets of perDevice) {
+    for (const bucket of buckets) {
+      const existing = totals.get(bucket.key);
+      if (existing) existing.kwh += bucket.kwh;
+      else totals.set(bucket.key, { ...bucket });
+    }
+  }
+  return [...totals.values()].sort((a, b) => a.start - b.start);
+}
+
 export function bucketKey(t: number, step: "hour" | "day") {
   const date = new Date(t);
   const pad = (value: number) => String(value).padStart(2, "0");
@@ -159,9 +207,15 @@ export function timeTicks(from: number, to: number, target = 6): number[] {
   if (!(to > from)) return [];
   const span = to - from;
   const step = TIME_STEPS.find((candidate) => span / candidate <= target) ?? TIME_STEPS[TIME_STEPS.length - 1];
+  // getTimezoneOffset() is (UTC - local) in minutes, so local wall-clock ms is
+  // `t - offset` and rounding must convert back with `+ offset`. With the two
+  // signs swapped, every step that does not divide the zone's own offset put
+  // the ticks off the round hour: at UTC+7 a 6h step labelled 02:00/08:00/14:00
+  // and a 1-day step labelled 14:00 -- which also meant `midnight` never
+  // matched in the chart, so a multi-day range never showed one date label.
   const offset = new Date(from).getTimezoneOffset() * 60_000;
   const ticks: number[] = [];
-  for (let tick = Math.ceil((from + offset) / step) * step - offset; tick <= to; tick += step) {
+  for (let tick = Math.ceil((from - offset) / step) * step + offset; tick <= to; tick += step) {
     ticks.push(tick);
     if (ticks.length >= 64) break;
   }

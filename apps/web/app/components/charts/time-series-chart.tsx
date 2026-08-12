@@ -281,23 +281,21 @@ function valueDomain(series: ChartSeries[]): [number, number] {
 }
 
 /**
- * Breaks the line where samples stop arriving instead of drawing a straight
- * segment across the gap -- an inverter that was offline all afternoon should
- * look offline, not look like it held a steady output.
+ * One continuous polyline through every sample, gaps included.
+ *
+ * This used to break the line wherever a gap ran past 4x the median sample
+ * interval, so an offline inverter would not look like it held a steady
+ * output. That reading of a gap no longer holds: the Middleware now skips
+ * enqueueing a reading whose register values have not moved (with a heartbeat
+ * every 30 minutes, see IdleHeartbeat in internal/app/service.go), so a missing
+ * sample means "unchanged" and joining across it is the accurate picture. A
+ * device that is genuinely gone stops sending heartbeats too, and surfaces as a
+ * stale observedAt on the plant/device status rather than as a hole here.
  */
 function buildPath(points: Point[], scaleX: (t: number) => number, scaleY: (v: number) => number) {
-  if (points.length === 0) return "";
-  const deltas: number[] = [];
-  for (let index = 1; index < points.length; index++) deltas.push(points[index].t - points[index - 1].t);
-  deltas.sort((a, b) => a - b);
-  const median = deltas.length > 0 ? deltas[deltas.length >> 1] : 0;
-  const breakAfter = median > 0 ? median * 4 : Number.POSITIVE_INFINITY;
-  let path = "";
-  for (let index = 0; index < points.length; index++) {
-    const jumped = index > 0 && points[index].t - points[index - 1].t > breakAfter;
-    path += `${index === 0 || jumped ? "M" : "L"}${scaleX(points[index].t).toFixed(1)},${scaleY(points[index].v).toFixed(1)}`;
-  }
-  return path;
+  return points
+    .map((point, index) => `${index === 0 ? "M" : "L"}${scaleX(point.t).toFixed(1)},${scaleY(point.v).toFixed(1)}`)
+    .join("");
 }
 
 function formatTick(value: number) {

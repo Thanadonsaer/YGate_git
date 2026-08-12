@@ -3786,7 +3786,7 @@ components:
     MiddlewareGateway:
       type: object
       additionalProperties: false
-      required: [id, organizationId, organizationName, name, siteName, keyPrefix, autoOnboard, isActive, isOnline, configVersion, configAppliedVersion, pollIntervalSeconds, apiPollingEnabled, createdAt, updatedAt]
+      required: [id, organizationId, organizationName, name, siteName, keyPrefix, autoOnboard, isActive, isOnline, configVersion, configAppliedVersion, pollIntervalSeconds, idleHeartbeatSeconds, apiPollingEnabled, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -3819,6 +3819,14 @@ components:
         pollIntervalSeconds:
           type: integer
           description: How often (seconds) this gateway should poll and send telemetry, pushed to it as part of every config push
+        idleHeartbeatSeconds:
+          type: integer
+          description: >-
+            Longest (seconds) a device may go without a stored reading while its
+            register values are not moving. The gateway drops readings that
+            repeat the last stored values and sends one anyway at this interval,
+            so an idle device stays distinguishable from a dead one. Pushed to
+            the gateway as part of every config push.
         apiPollingEnabled:
           type: boolean
           description: Whether the gateway should send telemetry over its REST ingest API on its own interval, pushed to it as part of every config push
@@ -3864,6 +3872,11 @@ components:
           minimum: 5
           maximum: 3600
           default: 60
+        idleHeartbeatSeconds:
+          type: integer
+          minimum: 60
+          maximum: 86400
+          default: 1800
         apiPollingEnabled:
           type: boolean
           default: false
@@ -3887,6 +3900,10 @@ components:
           type: integer
           minimum: 5
           maximum: 3600
+        idleHeartbeatSeconds:
+          type: integer
+          minimum: 60
+          maximum: 86400
         apiPollingEnabled:
           type: boolean
     MiddlewareAddress:
@@ -4595,10 +4612,18 @@ components:
           type: [number, "null"]
         maxValue:
           type: [number, "null"]
+        logic:
+          description: >-
+            Connector joining this condition to the previous one. Omitted or
+            empty means AND; ignored on the first condition. AND binds tighter
+            than OR, so [A, AND B, OR C] evaluates as "(A and B) or C".
+          type: string
+          enum: [AND, OR]
+          default: AND
     AlarmRule:
       type: object
       additionalProperties: false
-      required: [id, organizationId, plantId, deviceId, label, conditionLogic, conditions, severity, isActive, notifyRoleId, createdAt, updatedAt]
+      required: [id, organizationId, plantId, deviceId, label, conditions, severity, alarmDelaySeconds, isActive, notifyRoleId, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -4614,9 +4639,6 @@ components:
           format: uuid
         label:
           type: string
-        conditionLogic:
-          type: string
-          enum: [AND, OR]
         conditions:
           type: array
           items:
@@ -4624,6 +4646,15 @@ components:
         severity:
           type: string
           enum: [warning, major, critical]
+        alarmDelaySeconds:
+          description: >-
+            Cooldown between consecutive alarms for this rule. While it has not
+            elapsed since the last alarm's breachedAt, a fresh breach opens no
+            alarm event and sends no notification. 0 disables the delay.
+          type: integer
+          minimum: 0
+          maximum: 86400
+          default: 0
         isActive:
           type: boolean
         notifyRoleId:
@@ -4647,9 +4678,6 @@ components:
           type: string
           minLength: 1
           maxLength: 200
-        conditionLogic:
-          type: string
-          enum: [AND, OR]
         conditions:
           type: array
           minItems: 1
@@ -4658,6 +4686,15 @@ components:
         severity:
           type: string
           enum: [warning, major, critical]
+        alarmDelaySeconds:
+          description: >-
+            Cooldown between consecutive alarms for this rule. While it has not
+            elapsed since the last alarm's breachedAt, a fresh breach opens no
+            alarm event and sends no notification. 0 disables the delay.
+          type: integer
+          minimum: 0
+          maximum: 86400
+          default: 0
         notifyRoleId:
           type: [string, "null"]
           format: uuid
@@ -4670,9 +4707,6 @@ components:
           type: string
           minLength: 1
           maxLength: 200
-        conditionLogic:
-          type: string
-          enum: [AND, OR]
         conditions:
           type: array
           minItems: 1
@@ -4681,6 +4715,15 @@ components:
         severity:
           type: string
           enum: [warning, major, critical]
+        alarmDelaySeconds:
+          description: >-
+            Cooldown between consecutive alarms for this rule. While it has not
+            elapsed since the last alarm's breachedAt, a fresh breach opens no
+            alarm event and sends no notification. 0 disables the delay.
+          type: integer
+          minimum: 0
+          maximum: 86400
+          default: 0
         isActive:
           type: boolean
         notifyRoleId:
@@ -4711,6 +4754,10 @@ components:
           type: [number, "null"]
         breached:
           type: boolean
+        logic:
+          description: Connector this condition carried when the rule was evaluated.
+          type: string
+          enum: [AND, OR]
     AlarmEvent:
       type: object
       additionalProperties: false

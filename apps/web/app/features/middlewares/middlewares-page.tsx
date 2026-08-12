@@ -156,6 +156,7 @@ function MiddlewareEditor({ gateway, defaultOrganizationId, onClose, onSaved }: 
   const [siteName, setSiteName] = useState(gateway?.siteName ?? "");
   const [autoOnboard, setAutoOnboard] = useState(gateway?.autoOnboard ?? true);
   const [pollIntervalMinutes, setPollIntervalMinutes] = useState(gateway ? Math.max(1, Math.round(gateway.pollIntervalSeconds / 60)).toString() : "1");
+  const [idleHeartbeatMinutes, setIdleHeartbeatMinutes] = useState(gateway ? Math.max(1, Math.round(gateway.idleHeartbeatSeconds / 60)).toString() : "30");
   const [apiPollingEnabled, setApiPollingEnabled] = useState(gateway?.apiPollingEnabled ?? false);
   const [isActive, setIsActive] = useState(gateway?.isActive ?? true);
   const [pending, setPending] = useState(false);
@@ -167,13 +168,14 @@ function MiddlewareEditor({ gateway, defaultOrganizationId, onClose, onSaved }: 
     setError("");
     try {
       const pollIntervalSeconds = Number(pollIntervalMinutes) * 60;
+      const idleHeartbeatSeconds = Number(idleHeartbeatMinutes) * 60;
       const response = await api(gateway ? `/api/v1/admin/middlewares/${encodeURIComponent(gateway.id)}` : "/api/v1/admin/middlewares", {
         method: gateway ? "PUT" : "POST",
         headers: { "X-CSRF-Token": csrfToken() },
         body: JSON.stringify(
           gateway
-            ? { name, siteName, autoOnboard, isActive, pollIntervalSeconds, apiPollingEnabled }
-            : { organizationId, name, siteName, autoOnboard, pollIntervalSeconds, apiPollingEnabled },
+            ? { name, siteName, autoOnboard, isActive, pollIntervalSeconds, idleHeartbeatSeconds, apiPollingEnabled }
+            : { organizationId, name, siteName, autoOnboard, pollIntervalSeconds, idleHeartbeatSeconds, apiPollingEnabled },
         ),
       });
       if (!response.ok) throw new Error(response.status === 409 ? "ชื่อ Middleware นี้มีอยู่แล้ว" : response.status === 403 ? "บัญชีนี้ไม่มีสิทธิ์จัดการ Middleware" : "ไม่สามารถบันทึก Middleware ได้");
@@ -197,6 +199,10 @@ function MiddlewareEditor({ gateway, defaultOrganizationId, onClose, onSaved }: 
             <label className="full-field">ชื่อ Site<TextInput value={siteName} onChange={(event) => setSiteName(event.target.value)} maxLength={200} placeholder="เช่น VT1 - Vientiane Solar" /></label>
             {!gateway && <label className="full-field">Organization ID<TextInput value={organizationId} onChange={(event) => setOrganizationId(event.target.value)} required /></label>}
             <label>ส่งข้อมูลทุก (นาที)<TextInput type="number" min="1" max="60" value={pollIntervalMinutes} onChange={(event) => setPollIntervalMinutes(event.target.value)} /></label>
+            <label>บันทึกซ้ำเมื่อค่านิ่ง ทุก (นาที)
+              <TextInput type="number" min="1" max="1440" value={idleHeartbeatMinutes} onChange={(event) => setIdleHeartbeatMinutes(event.target.value)} />
+              <small className="muted-text">ถ้าค่า register ไม่เปลี่ยน Gateway จะหยุดบันทึก แล้วส่งซ้ำ 1 ครั้งทุกช่วงนี้ เพื่อให้ยังรู้ว่า Device ออนไลน์อยู่</small>
+            </label>
             <label className="toggle-field full-field"><Checkbox checked={apiPollingEnabled} onChange={setApiPollingEnabled} /> เปิดใช้งาน Telemetry Pull (platform ดึงข้อมูลผ่าน WebSocket)</label>
             <label className="toggle-field full-field"><Checkbox checked={autoOnboard} onChange={setAutoOnboard} /> Auto onboard Plant/Device</label>
             {gateway && <label className="toggle-field full-field"><Checkbox checked={isActive} onChange={setIsActive} /> เปิดใช้งาน Middleware</label>}

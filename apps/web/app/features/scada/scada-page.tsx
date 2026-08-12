@@ -86,6 +86,7 @@ import type {
   ScadaScreenSummary,
   ScadaScreenVersion,
 } from "../../lib/types";
+import { loadRegisterCatalogs, pointMeta, type PointMeta } from "../../lib/telemetry-history";
 
 type RuntimeScadaNodeData = ScadaNodeData & {
   latest?: LatestTelemetry;
@@ -136,6 +137,7 @@ export function ScadaPage() {
   const [versions, setVersions] = useState<ScadaScreenVersion[]>([]);
   const [devices, setDevices] = useState<Device[]>([]);
   const [latestByDevice, setLatestByDevice] = useState<Record<string, LatestTelemetry>>({});
+  const [catalogs, setCatalogs] = useState<Record<string, Record<string, PointMeta>>>({});
   const [published, setPublished] = useState<PublishedScadaScreen | null>(null);
   const [draftDesign, setDraftDesign] = useState<ScadaDesign | null>(null);
   const [draftName, setDraftName] = useState("");
@@ -187,7 +189,12 @@ export function ScadaPage() {
       setScreen(next);
       setDraftName(next.name);
       setDraftDesign(next.design);
-      setDevices(deviceResponse.ok ? (await deviceResponse.json()) as Device[] : []);
+      const screenDevices = deviceResponse.ok ? (await deviceResponse.json()) as Device[] : [];
+      setDevices(screenDevices);
+      // Register display names for the inspector's Parameter picker. Best
+      // effort and deliberately not awaited into the critical path: without it
+      // the picker falls back to raw address keys.
+      void loadRegisterCatalogs(next.plantId, screenDevices).then(setCatalogs).catch(() => setCatalogs({}));
       if (telemetryResponse.ok) {
         const readings = (await telemetryResponse.json()) as LatestTelemetry[];
         setLatestByDevice(Object.fromEntries(readings.map((reading) => [reading.deviceId, reading])));
@@ -379,7 +386,7 @@ export function ScadaPage() {
     </div>
     {error && <FormMessage>{error}</FormMessage>}
     {saveState === "conflict" && <div className="scada-conflict"><strong>Draft มีการแก้ไขจากที่อื่น</strong><span>โหลดเวอร์ชันล่าสุดก่อนแก้ต่อเพื่อป้องกันข้อมูลหาย</span><Button variant="secondary" compact onClick={() => void loadScreen(screen.id)}><RefreshCw size={16} /> โหลดใหม่</Button></div>}
-    {activeDesign ? <ScadaCanvas key={`${screen.id}-${canvasEpoch}-${mode}`} design={activeDesign} editable={editable} devices={devices} latestByDevice={latestByDevice} versions={versions} canPublish={screen.canPublish} onDesignChange={markDesign} onRollback={rollback} /> : <div className="table-state">ยังไม่มี Published version</div>}
+    {activeDesign ? <ScadaCanvas key={`${screen.id}-${canvasEpoch}-${mode}`} design={activeDesign} editable={editable} devices={devices} latestByDevice={latestByDevice} catalogs={catalogs} versions={versions} canPublish={screen.canPublish} onDesignChange={markDesign} onRollback={rollback} /> : <div className="table-state">ยังไม่มี Published version</div>}
   </div>;
 }
 
@@ -420,8 +427,8 @@ function ScadaLibrary({ plants, screens, loading, error, createOpen, createPlant
   </div>;
 }
 
-export function ScadaCanvas({ design, editable, devices, latestByDevice, versions, canPublish, onDesignChange, onRollback, hideInspector, showMinimap = true, locked = false }: {
-  design: ScadaDesign; editable: boolean; devices: Device[]; latestByDevice: Record<string, LatestTelemetry>; versions: ScadaScreenVersion[]; canPublish: boolean; onDesignChange: (design: ScadaDesign) => void; onRollback: (version: ScadaScreenVersion) => Promise<void>; hideInspector?: boolean; showMinimap?: boolean; locked?: boolean;
+export function ScadaCanvas({ design, editable, devices, latestByDevice, catalogs = {}, versions, canPublish, onDesignChange, onRollback, hideInspector, showMinimap = true, locked = false }: {
+  design: ScadaDesign; editable: boolean; devices: Device[]; latestByDevice: Record<string, LatestTelemetry>; catalogs?: Record<string, Record<string, PointMeta>>; versions: ScadaScreenVersion[]; canPublish: boolean; onDesignChange: (design: ScadaDesign) => void; onRollback: (version: ScadaScreenVersion) => Promise<void>; hideInspector?: boolean; showMinimap?: boolean; locked?: boolean;
 }) {
   const [nodes, setNodes] = useState<FlowNode[]>(() => design.nodes.map((node) => ({ ...node, zIndex: node.type === "section" ? -1 : 0, style: node.width && node.height ? { width: node.width, height: node.height } : undefined })));
   const [edges, setEdges] = useState<FlowEdge[]>(() => design.edges.map((edge) => ({ ...edge, animated: false })));
@@ -678,7 +685,7 @@ export function ScadaCanvas({ design, editable, devices, latestByDevice, version
         </ReactFlow>
       </div>
     </section>
-    {editable && <ScadaInspector selected={selected} devices={devices} latestByDevice={latestByDevice} versions={versions} canPublish={canPublish} onUpdate={updateSelected} onRemove={removeSelected} onRollback={onRollback} />}
+    {editable && <ScadaInspector selected={selected} devices={devices} latestByDevice={latestByDevice} catalogs={catalogs} versions={versions} canPublish={canPublish} onUpdate={updateSelected} onRemove={removeSelected} onRollback={onRollback} />}
     {!editable && !hideInspector && <aside className="scada-inspector viewer-info"><header><History size={17} /><div><strong>Published history</strong><small>เวอร์ชัน immutable</small></div></header><VersionHistory versions={versions} canPublish={canPublish} onRollback={onRollback} /></aside>}
   </div>;
 }
@@ -692,8 +699,8 @@ function SaveState({ state }: { state: "saved" | "dirty" | "saving" | "conflict"
   return <span className={`save-state ${state}`}>{state === "saving" ? <LoaderCircle className="spin" size={14} /> : state === "saved" ? <Save size={14} /> : <Activity size={14} />}{labels[state]}</span>;
 }
 
-function ScadaInspector({ selected, devices, latestByDevice, versions, canPublish, onUpdate, onRemove, onRollback }: {
-  selected?: FlowNode; devices: Device[]; latestByDevice: Record<string, LatestTelemetry>; versions: ScadaScreenVersion[]; canPublish: boolean;
+function ScadaInspector({ selected, devices, latestByDevice, catalogs, versions, canPublish, onUpdate, onRemove, onRollback }: {
+  selected?: FlowNode; devices: Device[]; latestByDevice: Record<string, LatestTelemetry>; catalogs: Record<string, Record<string, PointMeta>>; versions: ScadaScreenVersion[]; canPublish: boolean;
   onUpdate: (data: ScadaNodeData) => void; onRemove: () => void; onRollback: (version: ScadaScreenVersion) => Promise<void>;
 }) {
   if (!selected) return <aside className="scada-inspector"><header><History size={17} /><div><strong>Published history</strong><small>เลือก Node เพื่อแก้ไขคุณสมบัติ</small></div></header><VersionHistory versions={versions} canPublish={canPublish} onRollback={onRollback} /></aside>;
@@ -706,7 +713,7 @@ function ScadaInspector({ selected, devices, latestByDevice, versions, canPublis
     <header><Pencil size={17} /><div><strong>Node properties</strong><Tooltip><TooltipTrigger asChild><small className="cursor-help underline decoration-dotted">{selected.type} · {selected.id.slice(0, 12)}</small></TooltipTrigger><TooltipContent>Node type: {selected.type}<br />Full ID: {selected.id}</TooltipContent></Tooltip></div></header>
     <label>Label<TextInput value={data.label} maxLength={100} onChange={(event) => update({ label: event.target.value })} /></label>
     {selected.type === "equipment" && <label>Equipment type<Select value={data.equipmentKind || "inverter"} onValueChange={(value) => update({ equipmentKind: value as ScadaNodeData["equipmentKind"] })}><SelectTrigger aria-label="Equipment type"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="solar-panel">Solar panel</SelectItem><SelectItem value="inverter">Inverter</SelectItem><SelectItem value="meter">Meter</SelectItem><SelectItem value="grid">Grid</SelectItem></SelectContent></Select></label>}
-    {bound && <BindingEditor binding={data.binding} devices={devices} latestByDevice={latestByDevice} onChange={(binding) => update({ binding })} />}
+    {bound && <BindingEditor binding={data.binding} devices={devices} latestByDevice={latestByDevice} catalogs={catalogs} onChange={(binding) => update({ binding })} />}
     {deviceOnly && <label>Device<Select value={data.deviceId || ""} onValueChange={(value) => update({ deviceId: value })}><SelectTrigger aria-label="Device"><SelectValue /></SelectTrigger><SelectContent>{devices.map((device) => <SelectItem key={device.id} value={device.id}>{device.name}</SelectItem>)}</SelectContent></Select></label>}
     {selected.type === "metric" && <><label>Display<Select value={data.displayType || "text"} onValueChange={(value) => update({ displayType: value as ScadaNodeData["displayType"] })}><SelectTrigger aria-label="Display"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="text">Text</SelectItem><SelectItem value="gauge">Gauge</SelectItem><SelectItem value="progress">Progress</SelectItem><SelectItem value="tank">Tank</SelectItem></SelectContent></Select></label><div className="inspector-grid"><NumberField label="Minimum" value={data.minValue} onChange={(minValue) => update({ minValue })} /><NumberField label="Maximum" value={data.maxValue} onChange={(maxValue) => update({ maxValue })} /></div></>}
     {selected.type === "led" && <NumberField label="On when value equals" value={data.onValue} onChange={(onValue) => update({ onValue })} />}
@@ -714,7 +721,7 @@ function ScadaInspector({ selected, devices, latestByDevice, versions, canPublis
     {selected.type === "clock" && <label>Timezone<Select value={data.timezone || "Asia/Bangkok"} onValueChange={(value) => update({ timezone: value })}><SelectTrigger aria-label="Timezone"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Asia/Bangkok">Asia/Bangkok</SelectItem><SelectItem value="UTC">UTC</SelectItem><SelectItem value="Asia/Singapore">Asia/Singapore</SelectItem><SelectItem value="Asia/Tokyo">Asia/Tokyo</SelectItem></SelectContent></Select></label>}
     {selected.type === "image" && <label>Image URL<TextInput value={data.imageUrl || ""} maxLength={2048} placeholder="https://… or /images/…" onChange={(event) => update({ imageUrl: event.target.value })} /></label>}
     {selected.type === "ticker" && <label>Message<TextInput value={data.text || ""} maxLength={200} onChange={(event) => update({ text: event.target.value })} /></label>}
-    {listed && <DataItemsEditor items={data.items || []} devices={devices} latestByDevice={latestByDevice} alarms={selected.type === "alarms"} onChange={(items) => update({ items })} />}
+    {listed && <DataItemsEditor items={data.items || []} devices={devices} latestByDevice={latestByDevice} catalogs={catalogs} alarms={selected.type === "alarms"} onChange={(items) => update({ items })} />}
     <Button variant="secondary" danger onClick={onRemove}><Trash2 size={16} /> ลบ Node</Button>
   </aside>;
 }
@@ -723,30 +730,62 @@ function NumberField({ label, value, onChange }: { label: string; value?: number
   return <label>{label}<TextInput type="number" value={value == null ? "" : String(value)} onChange={(event) => onChange(event.target.value === "" ? undefined : Number(event.target.value))} /></label>;
 }
 
-function BindingEditor({ binding, devices, latestByDevice, onChange }: { binding?: ScadaNodeData["binding"]; devices: Device[]; latestByDevice: Record<string, LatestTelemetry>; onChange: (binding: NonNullable<ScadaNodeData["binding"]>) => void }) {
+function BindingEditor({ binding, devices, latestByDevice, catalogs, onChange }: { binding?: ScadaNodeData["binding"]; devices: Device[]; latestByDevice: Record<string, LatestTelemetry>; catalogs: Record<string, Record<string, PointMeta>>; onChange: (binding: NonNullable<ScadaNodeData["binding"]>) => void }) {
   const current = binding || { deviceId: devices[0]?.id || "", pointKey: "", unit: "kW", decimals: 1 };
-  const knownKeys = Object.keys(latestByDevice[current.deviceId]?.dataItemMap || {}).sort();
-  const pointOptions = current.pointKey && !knownKeys.includes(current.pointKey) ? [current.pointKey, ...knownKeys] : knownKeys;
+  const options = bindingPointOptions(current.deviceId, latestByDevice, catalogs, current.pointKey);
   function changeDevice(deviceId: string) {
-    const nextKeys = Object.keys(latestByDevice[deviceId]?.dataItemMap || {}).sort();
-    onChange({ ...current, deviceId, pointKey: nextKeys[0] || "" });
+    onChange({ ...current, deviceId, pointKey: bindingPointOptions(deviceId, latestByDevice, catalogs)[0]?.value || "" });
+  }
+  // Picking a parameter carries its engineering unit across, so the Unit field
+  // stops being something to remember and retype for every node.
+  function changePoint(pointKey: string) {
+    const unit = options.find((option) => option.value === pointKey)?.unit;
+    onChange({ ...current, pointKey, unit: unit || current.unit });
   }
   return <div className="binding-editor">
     <label>Device<Select value={current.deviceId} onValueChange={changeDevice}><SelectTrigger aria-label="Device"><SelectValue /></SelectTrigger><SelectContent>{devices.map((device) => <SelectItem key={device.id} value={device.id}>{device.name}</SelectItem>)}</SelectContent></Select></label>
-    <label>Parameter<Select value={current.pointKey} onValueChange={(value) => onChange({ ...current, pointKey: value })}>
-      <SelectTrigger aria-label="Parameter"><SelectValue placeholder={pointOptions.length === 0 ? "ยังไม่มีข้อมูล" : "-- เลือก parameter --"} /></SelectTrigger>
-      <SelectContent>{pointOptions.map((key) => <SelectItem key={key} value={key}>{key}</SelectItem>)}</SelectContent>
+    <label>Parameter<Select value={current.pointKey} onValueChange={changePoint}>
+      <SelectTrigger aria-label="Parameter"><SelectValue placeholder={options.length === 0 ? "ยังไม่มีข้อมูล" : "-- เลือก parameter --"} /></SelectTrigger>
+      <SelectContent>{options.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}{option.tag ? ` · ${option.tag}` : ""}</SelectItem>)}</SelectContent>
     </Select></label>
     <div className="inspector-grid"><label>Unit<TextInput value={current.unit} maxLength={20} onChange={(event) => onChange({ ...current, unit: event.target.value })} /></label><label>Decimals<TextInput type="number" min={0} max={6} value={String(current.decimals)} onChange={(event) => onChange({ ...current, decimals: Number(event.target.value) })} /></label></div>
   </div>;
 }
 
-function DataItemsEditor({ items, devices, latestByDevice, alarms, onChange }: { items: ScadaDataItem[]; devices: Device[]; latestByDevice: Record<string, LatestTelemetry>; alarms: boolean; onChange: (items: ScadaDataItem[]) => void }) {
+/**
+ * Parameter choices for one device: register display name as the label, Modbus
+ * address as the tag, and the telemetry key as the stored value.
+ *
+ * Driven by the keys the device is actually reporting (dataItemMap), not by the
+ * whole catalog -- binding a node to a register the gateway never sends would
+ * only ever render "No data". A key with no metadata row keeps showing its raw
+ * address rather than disappearing, and `selected` keeps an already-saved
+ * binding in the list even if the device has stopped reporting it, so opening
+ * the inspector cannot silently rewrite a published screen.
+ */
+function bindingPointOptions(
+  deviceId: string,
+  latestByDevice: Record<string, LatestTelemetry>,
+  catalogs: Record<string, Record<string, PointMeta>>,
+  selected?: string,
+) {
+  const catalog = catalogs[deviceId] ?? {};
+  const keys = Object.keys(latestByDevice[deviceId]?.dataItemMap || {});
+  if (selected && !keys.includes(selected)) keys.unshift(selected);
+  return keys
+    .map((key) => {
+      const meta = pointMeta(catalog, key);
+      return { value: key, label: meta.displayName, tag: meta.tag === key ? "" : meta.tag, unit: meta.unit };
+    })
+    .sort((a, b) => a.label.localeCompare(b.label));
+}
+
+function DataItemsEditor({ items, devices, latestByDevice, catalogs, alarms, onChange }: { items: ScadaDataItem[]; devices: Device[]; latestByDevice: Record<string, LatestTelemetry>; catalogs: Record<string, Record<string, PointMeta>>; alarms: boolean; onChange: (items: ScadaDataItem[]) => void }) {
   const fallbackDeviceId = devices[0]?.id || "";
   const fallbackPointKey = Object.keys(latestByDevice[fallbackDeviceId]?.dataItemMap || {}).sort()[0] || "";
   const fallback = { deviceId: fallbackDeviceId, pointKey: fallbackPointKey, unit: "kW", decimals: 1 };
   const patch = (index: number, next: Partial<ScadaDataItem>) => onChange(items.map((item, itemIndex) => itemIndex === index ? { ...item, ...next } : item));
-  return <section className="scada-item-editor"><div className="item-editor-heading"><strong>{alarms ? "Alarm points" : "Table rows"}</strong><Button type="button" variant="icon" disabled={items.length >= 20 || devices.length === 0} onClick={() => onChange([...items, { label: `Point ${items.length + 1}`, binding: fallback }])} title="เพิ่ม point" aria-label="เพิ่ม point">+</Button></div>{items.map((item, index) => <div className="scada-item-row" key={`${index}-${item.binding.deviceId}`}><label>Label<TextInput value={item.label} maxLength={100} onChange={(event) => patch(index, { label: event.target.value })} /></label><BindingEditor binding={item.binding} devices={devices} latestByDevice={latestByDevice} onChange={(binding) => patch(index, { binding })} />{alarms && <div className="inspector-grid"><NumberField label="Low alarm" value={item.minAlarm} onChange={(minAlarm) => patch(index, { minAlarm })} /><NumberField label="High alarm" value={item.maxAlarm} onChange={(maxAlarm) => patch(index, { maxAlarm })} /></div>}<Button type="button" variant="text" danger disabled={items.length <= 1} onClick={() => onChange(items.filter((_, itemIndex) => itemIndex !== index))}>ลบแถว</Button></div>)}</section>;
+  return <section className="scada-item-editor"><div className="item-editor-heading"><strong>{alarms ? "Alarm points" : "Table rows"}</strong><Button type="button" variant="icon" disabled={items.length >= 20 || devices.length === 0} onClick={() => onChange([...items, { label: `Point ${items.length + 1}`, binding: fallback }])} title="เพิ่ม point" aria-label="เพิ่ม point">+</Button></div>{items.map((item, index) => <div className="scada-item-row" key={`${index}-${item.binding.deviceId}`}><label>Label<TextInput value={item.label} maxLength={100} onChange={(event) => patch(index, { label: event.target.value })} /></label><BindingEditor binding={item.binding} devices={devices} latestByDevice={latestByDevice} catalogs={catalogs} onChange={(binding) => patch(index, { binding })} />{alarms && <div className="inspector-grid"><NumberField label="Low alarm" value={item.minAlarm} onChange={(minAlarm) => patch(index, { minAlarm })} /><NumberField label="High alarm" value={item.maxAlarm} onChange={(maxAlarm) => patch(index, { maxAlarm })} /></div>}<Button type="button" variant="text" danger disabled={items.length <= 1} onClick={() => onChange(items.filter((_, itemIndex) => itemIndex !== index))}>ลบแถว</Button></div>)}</section>;
 }
 
 // "group" lets NodeHandles reveal its dots on hover via Tailwind group-hover, without any

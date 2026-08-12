@@ -45,6 +45,7 @@ type MiddlewareGateway struct {
 	ConfigVersion        int64      `json:"configVersion"`
 	ConfigAppliedVersion int64      `json:"configAppliedVersion"`
 	PollIntervalSeconds  int32      `json:"pollIntervalSeconds"`
+	IdleHeartbeatSeconds int32      `json:"idleHeartbeatSeconds"`
 	APIPollingEnabled    bool       `json:"apiPollingEnabled"`
 	LastSeenAt           *time.Time `json:"lastSeenAt"`
 	CreatedAt            time.Time  `json:"createdAt"`
@@ -57,21 +58,23 @@ type CreatedMiddlewareGateway struct {
 }
 
 type CreateMiddlewareInput struct {
-	OrganizationID      string
-	Name                string
-	SiteName            string
-	AutoOnboard         bool
-	PollIntervalSeconds int32
-	APIPollingEnabled   bool
+	OrganizationID       string
+	Name                 string
+	SiteName             string
+	AutoOnboard          bool
+	PollIntervalSeconds  int32
+	IdleHeartbeatSeconds int32
+	APIPollingEnabled    bool
 }
 
 type UpdateMiddlewareInput struct {
-	Name                string
-	SiteName            string
-	IsActive            bool
-	AutoOnboard         bool
-	PollIntervalSeconds int32
-	APIPollingEnabled   bool
+	Name                 string
+	SiteName             string
+	IsActive             bool
+	AutoOnboard          bool
+	PollIntervalSeconds  int32
+	IdleHeartbeatSeconds int32
+	APIPollingEnabled    bool
 }
 
 // The config snapshot shape is intentionally identical, field for field, to
@@ -146,6 +149,9 @@ type MiddlewareConfigSnapshot struct {
 	Plants              []MiddlewarePlant      `json:"plants"`
 	SendIntervalSeconds int32                  `json:"sendIntervalSeconds,omitempty"`
 	APIPollingEnabled   bool                   `json:"apiPollingEnabled"`
+	// omitempty so a gateway running an older build, which does not know the
+	// field, is simply left on its own default instead of being sent a zero.
+	IdleHeartbeatSeconds int32 `json:"idleHeartbeatSeconds,omitempty"`
 }
 
 type ImportMiddlewareConfigResult struct {
@@ -431,7 +437,7 @@ func (s *Service) Middlewares(ctx context.Context, principal auth.Principal) ([]
 	}
 	rows, err := s.pool.Query(ctx, `
 SELECT mc.id, mc.organization_id, o.name, mc.name, mc.site_name, mc.key_prefix, mc.software_version,
-       mc.auto_onboard, mc.is_active, mc.config_version, mc.config_applied_version, mc.poll_interval_seconds, mc.api_polling_enabled, mc.last_seen_at, mc.created_at, mc.updated_at
+       mc.auto_onboard, mc.is_active, mc.config_version, mc.config_applied_version, mc.poll_interval_seconds, mc.idle_heartbeat_seconds, mc.api_polling_enabled, mc.last_seen_at, mc.created_at, mc.updated_at
 FROM auth.middleware_client mc
 JOIN organization o ON o.id = mc.organization_id
 WHERE EXISTS (
@@ -478,8 +484,12 @@ func (s *Service) CreateMiddleware(ctx context.Context, principal auth.Principal
 	if input.PollIntervalSeconds == 0 {
 		input.PollIntervalSeconds = 60
 	}
+	if input.IdleHeartbeatSeconds == 0 {
+		input.IdleHeartbeatSeconds = 1800
+	}
 	if input.Name == "" || len(input.Name) > 200 || len(input.SiteName) > 200 || !organizationID.Valid ||
-		input.PollIntervalSeconds < 5 || input.PollIntervalSeconds > 3600 {
+		input.PollIntervalSeconds < 5 || input.PollIntervalSeconds > 3600 ||
+		input.IdleHeartbeatSeconds < 60 || input.IdleHeartbeatSeconds > 86400 {
 		return CreatedMiddlewareGateway{}, ErrMiddlewareInvalid
 	}
 	secret := make([]byte, 32)
@@ -505,8 +515,8 @@ func (s *Service) CreateMiddleware(ctx context.Context, principal auth.Principal
 	if err = s.requireOrganizationPermission(ctx, q, principal, "create", "middleware_client", organizationID); err != nil {
 		return CreatedMiddlewareGateway{}, err
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO auth.middleware_client(id, organization_id, name, site_name, key_prefix, key_hash, auto_onboard, poll_interval_seconds, api_polling_enabled) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-		id, organizationID, input.Name, input.SiteName, apiKey[:12], keyHash[:], input.AutoOnboard, input.PollIntervalSeconds, input.APIPollingEnabled); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO auth.middleware_client(id, organization_id, name, site_name, key_prefix, key_hash, auto_onboard, poll_interval_seconds, api_polling_enabled, idle_heartbeat_seconds) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+		id, organizationID, input.Name, input.SiteName, apiKey[:12], keyHash[:], input.AutoOnboard, input.PollIntervalSeconds, input.APIPollingEnabled, input.IdleHeartbeatSeconds); err != nil {
 		return CreatedMiddlewareGateway{}, mapMiddlewareWriteError(err)
 	}
 	gateway, err := s.getMiddlewareInTx(ctx, tx, id)
@@ -536,8 +546,12 @@ func (s *Service) UpdateMiddleware(ctx context.Context, principal auth.Principal
 	if input.PollIntervalSeconds == 0 {
 		input.PollIntervalSeconds = 60
 	}
+	if input.IdleHeartbeatSeconds == 0 {
+		input.IdleHeartbeatSeconds = 1800
+	}
 	if input.Name == "" || len(input.Name) > 200 || len(input.SiteName) > 200 ||
-		input.PollIntervalSeconds < 5 || input.PollIntervalSeconds > 3600 {
+		input.PollIntervalSeconds < 5 || input.PollIntervalSeconds > 3600 ||
+		input.IdleHeartbeatSeconds < 60 || input.IdleHeartbeatSeconds > 86400 {
 		return MiddlewareGateway{}, ErrMiddlewareInvalid
 	}
 	tx, err := s.pool.Begin(ctx)
@@ -560,8 +574,8 @@ func (s *Service) UpdateMiddleware(ctx context.Context, principal auth.Principal
 	if err = s.requireOrganizationPermission(ctx, q, principal, "update", "middleware_client", organizationID); err != nil {
 		return MiddlewareGateway{}, err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE auth.middleware_client SET name=$2, site_name=$3, is_active=$4, auto_onboard=$5, poll_interval_seconds=$6, api_polling_enabled=$7, updated_at=now() WHERE id=$1`,
-		id, input.Name, input.SiteName, input.IsActive, input.AutoOnboard, input.PollIntervalSeconds, input.APIPollingEnabled); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE auth.middleware_client SET name=$2, site_name=$3, is_active=$4, auto_onboard=$5, poll_interval_seconds=$6, api_polling_enabled=$7, idle_heartbeat_seconds=$8, updated_at=now() WHERE id=$1`,
+		id, input.Name, input.SiteName, input.IsActive, input.AutoOnboard, input.PollIntervalSeconds, input.APIPollingEnabled, input.IdleHeartbeatSeconds); err != nil {
 		return MiddlewareGateway{}, mapMiddlewareWriteError(err)
 	}
 	after, err := s.getMiddlewareInTx(ctx, tx, id)
@@ -727,8 +741,8 @@ func (s *Service) ImportMiddlewareConfig(ctx context.Context, principal auth.Pri
 func buildConfigSnapshot(ctx context.Context, tx pgx.Tx, middlewareID pgtype.UUID) (MiddlewareConfigSnapshot, error) {
 	snapshot := MiddlewareConfigSnapshot{Brands: []MiddlewareBrand{}, DeviceSets: []MiddlewareDeviceSet{}, Connections: []MiddlewareConnection{}, Plants: []MiddlewarePlant{}}
 
-	if err := tx.QueryRow(ctx, `SELECT poll_interval_seconds, api_polling_enabled FROM auth.middleware_client WHERE id=$1`, middlewareID).
-		Scan(&snapshot.SendIntervalSeconds, &snapshot.APIPollingEnabled); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT poll_interval_seconds, api_polling_enabled, idle_heartbeat_seconds FROM auth.middleware_client WHERE id=$1`, middlewareID).
+		Scan(&snapshot.SendIntervalSeconds, &snapshot.APIPollingEnabled, &snapshot.IdleHeartbeatSeconds); err != nil {
 		return snapshot, fmt.Errorf("load middleware poll interval: %w", err)
 	}
 
@@ -1060,7 +1074,7 @@ func pushEnvelope(msgType string, snapshot MiddlewareConfigSnapshot) []byte {
 func (s *Service) getMiddlewareInTx(ctx context.Context, tx pgx.Tx, id pgtype.UUID) (MiddlewareGateway, error) {
 	row := tx.QueryRow(ctx, `
 SELECT mc.id, mc.organization_id, o.name, mc.name, mc.site_name, mc.key_prefix, mc.software_version,
-       mc.auto_onboard, mc.is_active, mc.config_version, mc.config_applied_version, mc.poll_interval_seconds, mc.api_polling_enabled, mc.last_seen_at, mc.created_at, mc.updated_at
+       mc.auto_onboard, mc.is_active, mc.config_version, mc.config_applied_version, mc.poll_interval_seconds, mc.idle_heartbeat_seconds, mc.api_polling_enabled, mc.last_seen_at, mc.created_at, mc.updated_at
 FROM auth.middleware_client mc
 JOIN organization o ON o.id = mc.organization_id
 WHERE mc.id=$1
@@ -1081,7 +1095,7 @@ func scanMiddlewareGateway(row middlewareScanner) (MiddlewareGateway, error) {
 	var softwareVersion pgtype.Text
 	var lastSeenAt, createdAt, updatedAt pgtype.Timestamptz
 	if err := row.Scan(&id, &organizationID, &gateway.OrganizationName, &gateway.Name, &gateway.SiteName, &gateway.KeyPrefix, &softwareVersion,
-		&gateway.AutoOnboard, &gateway.IsActive, &gateway.ConfigVersion, &gateway.ConfigAppliedVersion, &gateway.PollIntervalSeconds, &gateway.APIPollingEnabled, &lastSeenAt, &createdAt, &updatedAt); err != nil {
+		&gateway.AutoOnboard, &gateway.IsActive, &gateway.ConfigVersion, &gateway.ConfigAppliedVersion, &gateway.PollIntervalSeconds, &gateway.IdleHeartbeatSeconds, &gateway.APIPollingEnabled, &lastSeenAt, &createdAt, &updatedAt); err != nil {
 		return MiddlewareGateway{}, fmt.Errorf("scan middleware gateway: %w", err)
 	}
 	gateway.ID = uuidString(id)

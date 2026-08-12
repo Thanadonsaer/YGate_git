@@ -10,6 +10,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"chpp/modbus-api-middleware/internal/configcache"
@@ -24,6 +25,63 @@ type Service struct {
 	Store  *store.Store
 	Client *modbus.Client
 	Cache  *configcache.Cache
+
+	// Guards lastEnqueued and idleHeartbeat. Enqueue is driven by the poll
+	// sweep, but the realtime command channel can trigger an out-of-band poll
+	// on the same Service, so the two can overlap.
+	idleMu        sync.Mutex
+	lastEnqueued  map[string]enqueuedReading
+	idleHeartbeat time.Duration
+}
+
+type enqueuedReading struct {
+	values string
+	at     time.Time
+}
+
+// DefaultIdleHeartbeat is the longest a device may go without a stored reading
+// while its register values are not moving, when the gateway has no configured
+// value of its own. Operators set the real one per gateway on the Middleware
+// Gateways page; it arrives as GatewayConfig.IdleHeartbeatSeconds and is
+// applied by SetIdleHeartbeat at the start of each poll sweep.
+//
+// A reading whose registers read exactly the same as the last one stored for
+// that device is dropped instead of enqueued, which is most of what a solar
+// site produces: every inverter sits at a frozen zero all night, and at a 5
+// minute poll that is ~150 identical rows per device per night carried all the
+// way into Postgres. Dropping them outright would make a healthy-but-idle
+// device indistinguishable from a dead one, though -- the dashboard and SCADA
+// status both key off "when did this device last report" -- so one reading
+// still goes through this often no matter what, as a heartbeat.
+//
+// The trend charts join across the resulting gaps (see buildPath in
+// apps/web/app/components/charts/time-series-chart.tsx): an absent sample means
+// "unchanged", so a straight line between heartbeats is the accurate picture.
+//
+// Whatever it is set to, it needs to sit comfortably under whatever staleness
+// window the platform treats as offline.
+const DefaultIdleHeartbeat = 30 * time.Minute
+
+// SetIdleHeartbeat applies the gateway's configured heartbeat. Called once per
+// poll sweep from the config the poller already loads, so the per-device
+// Enqueue path stays off the database. Zero or out-of-range falls back to
+// DefaultIdleHeartbeat.
+func (s *Service) SetIdleHeartbeat(seconds int) {
+	s.idleMu.Lock()
+	defer s.idleMu.Unlock()
+	if seconds < 60 || seconds > 86400 {
+		s.idleHeartbeat = 0
+		return
+	}
+	s.idleHeartbeat = time.Duration(seconds) * time.Second
+}
+
+// heartbeat must be called with idleMu held.
+func (s *Service) heartbeat() time.Duration {
+	if s.idleHeartbeat <= 0 {
+		return DefaultIdleHeartbeat
+	}
+	return s.idleHeartbeat
 }
 
 func (s *Service) PollConnection(value string) (domain.Reading, []domain.Measurement, error) {
@@ -234,12 +292,74 @@ func (s *Service) ProbeConnection(connectionID int64) (modbus.ProbeInfo, time.Du
 	return info, latency, connection, err
 }
 
+// Enqueue stores a reading in the outbox for delivery, unless it repeats the
+// values already stored for that device and no heartbeat is due (see
+// the gateway's IdleHeartbeatSeconds). Returns whether a row was created.
 func (s *Service) Enqueue(r domain.Reading, gatewayID string) (bool, error) {
 	r, key, err := PrepareReadingForAPI(r, gatewayID)
 	if err != nil {
 		return false, err
 	}
+	if s.skipUnchanged(r) {
+		return false, nil
+	}
 	b, _ := json.Marshal(r)
 	sum := sha256.Sum256(b)
-	return s.Store.Enqueue(key, hex.EncodeToString(sum[:]), r)
+	created, err := s.Store.Enqueue(key, hex.EncodeToString(sum[:]), r)
+	if err != nil || !created {
+		// The row was rejected or already present, so nothing new is stored --
+		// forget the reading again so the next poll is compared against what
+		// is genuinely in the outbox, not against a row that never landed.
+		s.forgetEnqueued(r)
+	}
+	return created, err
+}
+
+// deviceKey identifies the device a reading belongs to, without its timestamp.
+func deviceKey(r domain.Reading) string {
+	return fmt.Sprintf("%s|%s|%d|%s", r.GatewayID, r.PlantCode, r.DevTypeID, r.DevDn)
+}
+
+// valuesHash fingerprints just the register values. encoding/json sorts map
+// keys, so the same readings always produce the same hash.
+func valuesHash(r domain.Reading) string {
+	b, _ := json.Marshal(r.RegisterAddressMap)
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
+}
+
+// skipUnchanged reports whether this reading repeats the last one enqueued for
+// its device and is not yet due a heartbeat. When it returns false it records
+// the reading as the new baseline, so the heartbeat clock only advances on
+// readings that are actually stored -- resetting it on every skipped poll would
+// mean the heartbeat never fires at all.
+//
+// ponytail: the baseline is in memory, so the first poll after a restart always
+// stores. That is the safe direction (one extra row, never a missed change) and
+// it keeps the poll path off the database. Persist it in gateway_config if
+// restarts ever get frequent enough to matter.
+func (s *Service) skipUnchanged(r domain.Reading) bool {
+	observed := time.UnixMilli(r.CollectTime)
+	values := valuesHash(r)
+	device := deviceKey(r)
+
+	s.idleMu.Lock()
+	defer s.idleMu.Unlock()
+	// A reading older than the baseline is out of order, so its elapsed time is
+	// meaningless; store it and let the platform's idempotency key sort it out.
+	if last, seen := s.lastEnqueued[device]; seen && last.values == values &&
+		!observed.Before(last.at) && observed.Sub(last.at) < s.heartbeat() {
+		return true
+	}
+	if s.lastEnqueued == nil {
+		s.lastEnqueued = map[string]enqueuedReading{}
+	}
+	s.lastEnqueued[device] = enqueuedReading{values: values, at: observed}
+	return false
+}
+
+func (s *Service) forgetEnqueued(r domain.Reading) {
+	s.idleMu.Lock()
+	defer s.idleMu.Unlock()
+	delete(s.lastEnqueued, deviceKey(r))
 }

@@ -50,6 +50,31 @@ export function PasswordInput({
   );
 }
 
+/**
+ * The checkbox skin, as a PrimeReact passthrough object.
+ *
+ * Exported because PrimeReact nests a real `<Checkbox>` inside other unstyled
+ * components (MultiSelect renders one per option and forwards `pt.checkbox`
+ * straight into it). Unstyled means the nested one inherits nothing, so without
+ * handing it this same object its box renders as a zero-size unpainted div --
+ * which is what made the Analysis parameter dropdown look broken. One skin,
+ * both places, so they cannot drift apart.
+ */
+export function checkboxPt(className?: string) {
+  return {
+    root: { className: cn("relative inline-flex h-[18px] w-[18px] shrink-0 align-middle", className) },
+    input: { className: "absolute inset-0 z-10 m-0 h-full w-full cursor-pointer opacity-0" },
+    box: (options: { context: { checked: boolean; disabled: boolean } }) => ({
+      className: cn(
+        "grid h-[18px] w-[18px] place-items-center rounded-[4px] border transition",
+        options.context.checked ? "border-brand bg-brand text-white" : "border-line bg-surface",
+        options.context.disabled && "opacity-48",
+      ),
+    }),
+    icon: { className: "h-3 w-3" },
+  };
+}
+
 /** `<input type="checkbox">` with a real box element so it can be styled. */
 export function Checkbox({
   checked,
@@ -69,18 +94,7 @@ export function Checkbox({
       checked={checked}
       disabled={disabled}
       onChange={(event) => onChange(Boolean(event.checked))}
-      pt={{
-        root: { className: cn("relative inline-flex h-[18px] w-[18px] shrink-0 align-middle", className) },
-        input: { className: "absolute inset-0 z-10 m-0 h-full w-full cursor-pointer opacity-0" },
-        box: (options: { context: { checked: boolean; disabled: boolean } }) => ({
-          className: cn(
-            "grid h-[18px] w-[18px] place-items-center rounded-[4px] border transition",
-            options.context.checked ? "border-brand bg-brand text-white" : "border-line bg-surface",
-            options.context.disabled && "opacity-48",
-          ),
-        }),
-        icon: { className: "h-3 w-3" },
-      }}
+      pt={checkboxPt(className)}
       {...rest}
     />
   );

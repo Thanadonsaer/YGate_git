@@ -26,13 +26,15 @@ var (
 	alarmSeverities       = map[string]bool{"warning": true, "major": true, "critical": true}
 )
 
-// AlarmRuleCondition is one point/threshold check within a rule. A rule
-// fires when its conditions combine (AND/OR, see AlarmRule.ConditionLogic)
-// to true.
+// AlarmRuleCondition is one point/threshold check within a rule. Logic is the
+// connector joining this condition to the one before it ("AND" or "OR"); it is
+// ignored on the first condition, which has nothing to join to. AND binds
+// tighter than OR, so [A, AND B, OR C] means "(A and B) or C".
 type AlarmRuleCondition struct {
 	PointKey string   `json:"pointKey"`
 	MinValue *float64 `json:"minValue"`
 	MaxValue *float64 `json:"maxValue"`
+	Logic    string   `json:"logic"`
 }
 
 type AlarmRule struct {
@@ -41,13 +43,16 @@ type AlarmRule struct {
 	PlantID        string               `json:"plantId"`
 	DeviceID       string               `json:"deviceId"`
 	Label          string               `json:"label"`
-	ConditionLogic string               `json:"conditionLogic"`
 	Conditions     []AlarmRuleCondition `json:"conditions"`
 	Severity       string               `json:"severity"`
-	IsActive       bool                 `json:"isActive"`
-	NotifyRoleID   *string              `json:"notifyRoleId"`
-	CreatedAt      time.Time            `json:"createdAt"`
-	UpdatedAt      time.Time            `json:"updatedAt"`
+	// Cooldown between consecutive alarms for this rule, in seconds. While it
+	// has not elapsed since the last alarm, a fresh breach opens no event and
+	// notifies nobody. 0 disables it.
+	AlarmDelaySeconds int32     `json:"alarmDelaySeconds"`
+	IsActive          bool      `json:"isActive"`
+	NotifyRoleID      *string   `json:"notifyRoleId"`
+	CreatedAt         time.Time `json:"createdAt"`
+	UpdatedAt         time.Time `json:"updatedAt"`
 }
 
 // NotifyRoleOption is a role a caller can pick as an alarm rule's notify
@@ -88,24 +93,25 @@ type ConditionInput struct {
 	PointKey string
 	MinValue *float64
 	MaxValue *float64
+	Logic    string
 }
 
 type CreateAlarmRuleInput struct {
-	DeviceID       string
-	Label          string
-	ConditionLogic string
-	Conditions     []ConditionInput
-	Severity       string
-	NotifyRoleID   *string
+	DeviceID          string
+	Label             string
+	Conditions        []ConditionInput
+	Severity          string
+	AlarmDelaySeconds int32
+	NotifyRoleID      *string
 }
 
 type UpdateAlarmRuleInput struct {
-	Label          string
-	ConditionLogic string
-	Conditions     []ConditionInput
-	Severity       string
-	IsActive       bool
-	NotifyRoleID   *string
+	Label             string
+	Conditions        []ConditionInput
+	Severity          string
+	IsActive          bool
+	AlarmDelaySeconds int32
+	NotifyRoleID      *string
 }
 
 func (s *Service) ListAlarmRules(ctx context.Context, principal auth.Principal, plantID string) ([]AlarmRule, error) {
@@ -114,7 +120,7 @@ func (s *Service) ListAlarmRules(ctx context.Context, principal auth.Principal, 
 		return nil, err
 	}
 	rows, err := s.pool.Query(ctx, `
-SELECT id, organization_id, plant_id, device_id, label, condition_logic, severity, is_active, notify_role_id, created_at, updated_at
+SELECT id, organization_id, plant_id, device_id, label, severity, alarm_delay_seconds, is_active, notify_role_id, created_at, updated_at
 FROM alarm.alarm_rule
 WHERE organization_id=$1 AND plant_id=$2
 ORDER BY label, id`, plant.OrganizationID, plant.ID)
@@ -150,7 +156,7 @@ func (s *Service) CreateAlarmRule(ctx context.Context, principal auth.Principal,
 	if err != nil {
 		return AlarmRule{}, ErrAlarmRuleInvalid
 	}
-	label, severity, conditionLogic, conditions, err := validateAlarmRule(input.Label, input.Severity, input.ConditionLogic, input.Conditions)
+	label, severity, delaySeconds, conditions, err := validateAlarmRule(input.Label, input.Severity, input.AlarmDelaySeconds, input.Conditions)
 	if err != nil {
 		return AlarmRule{}, err
 	}
@@ -181,11 +187,14 @@ func (s *Service) CreateAlarmRule(ctx context.Context, principal auth.Principal,
 	if err != nil {
 		return AlarmRule{}, err
 	}
+	// condition_logic is left to its column default: AND/OR now lives on each
+	// condition row, and the column only stays for rolling-deploy safety
+	// (see migration 000044).
 	row := tx.QueryRow(ctx, `
-INSERT INTO alarm.alarm_rule (id, organization_id, plant_id, device_id, label, condition_logic, severity, notify_role_id)
+INSERT INTO alarm.alarm_rule (id, organization_id, plant_id, device_id, label, severity, alarm_delay_seconds, notify_role_id)
 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-RETURNING id, organization_id, plant_id, device_id, label, condition_logic, severity, is_active, notify_role_id, created_at, updated_at`,
-		id, plant.OrganizationID, plant.ID, deviceID, label, conditionLogic, severity, notifyRoleID)
+RETURNING id, organization_id, plant_id, device_id, label, severity, alarm_delay_seconds, is_active, notify_role_id, created_at, updated_at`,
+		id, plant.OrganizationID, plant.ID, deviceID, label, severity, delaySeconds, notifyRoleID)
 	rule, err := scanAlarmRule(row)
 	if err != nil {
 		return AlarmRule{}, mapAlarmWriteError(err)
@@ -215,7 +224,7 @@ func (s *Service) UpdateAlarmRule(ctx context.Context, principal auth.Principal,
 	if err != nil {
 		return AlarmRule{}, ErrAlarmRuleNotFound
 	}
-	label, severity, conditionLogic, conditions, err := validateAlarmRule(input.Label, input.Severity, input.ConditionLogic, input.Conditions)
+	label, severity, delaySeconds, conditions, err := validateAlarmRule(input.Label, input.Severity, input.AlarmDelaySeconds, input.Conditions)
 	if err != nil {
 		return AlarmRule{}, err
 	}
@@ -241,10 +250,10 @@ func (s *Service) UpdateAlarmRule(ctx context.Context, principal auth.Principal,
 		return AlarmRule{}, err
 	}
 	row := tx.QueryRow(ctx, `
-UPDATE alarm.alarm_rule SET label=$2, condition_logic=$3, severity=$4, is_active=$5, notify_role_id=$6, updated_at=now()
+UPDATE alarm.alarm_rule SET label=$2, severity=$3, is_active=$4, notify_role_id=$5, alarm_delay_seconds=$6, updated_at=now()
 WHERE id=$1
-RETURNING id, organization_id, plant_id, device_id, label, condition_logic, severity, is_active, notify_role_id, created_at, updated_at`,
-		id, label, conditionLogic, severity, input.IsActive, notifyRoleID)
+RETURNING id, organization_id, plant_id, device_id, label, severity, alarm_delay_seconds, is_active, notify_role_id, created_at, updated_at`,
+		id, label, severity, input.IsActive, notifyRoleID, delaySeconds)
 	rule, err := scanAlarmRule(row)
 	if err != nil {
 		return AlarmRule{}, mapAlarmWriteError(err)
@@ -533,42 +542,110 @@ func lockAlarmRule(ctx context.Context, tx pgx.Tx, plantID, id pgtype.UUID) (sto
 	return storedAlarmRule{organizationID: organizationID}, nil
 }
 
+// MaxAlarmDelaySeconds mirrors the alarm_rule_alarm_delay_range CHECK; past a
+// day it is a mistake, not a policy anyone wants.
+const MaxAlarmDelaySeconds = 86400
+
 // validateAlarmRule validates the fields shared by create and update: label,
-// severity, AND/OR condition logic, and every condition's point key and
-// min/max threshold pair.
-func validateAlarmRule(label, severity, conditionLogic string, conditions []ConditionInput) (string, string, string, []ConditionInput, error) {
+// severity, alarm delay, and every condition's point key, min/max threshold
+// pair, and AND/OR connector.
+func validateAlarmRule(label, severity string, delaySeconds int32, conditions []ConditionInput) (string, string, int32, []ConditionInput, error) {
 	label = strings.TrimSpace(label)
 	severity = strings.ToLower(strings.TrimSpace(severity))
-	conditionLogic = strings.ToUpper(strings.TrimSpace(conditionLogic))
-	if conditionLogic == "" {
-		conditionLogic = "AND"
+	if len(label) == 0 || len(label) > 200 || !alarmSeverities[severity] {
+		return label, severity, delaySeconds, conditions, ErrAlarmRuleInvalid
 	}
-	if len(label) == 0 || len(label) > 200 || !alarmSeverities[severity] || (conditionLogic != "AND" && conditionLogic != "OR") {
-		return label, severity, conditionLogic, conditions, ErrAlarmRuleInvalid
+	if delaySeconds < 0 || delaySeconds > MaxAlarmDelaySeconds {
+		return label, severity, delaySeconds, conditions, ErrAlarmRuleInvalid
 	}
 	if len(conditions) == 0 || len(conditions) > 20 {
-		return label, severity, conditionLogic, conditions, ErrAlarmRuleInvalid
+		return label, severity, delaySeconds, conditions, ErrAlarmRuleInvalid
 	}
 	normalized := make([]ConditionInput, len(conditions))
 	for i, condition := range conditions {
 		pointKey := strings.TrimSpace(condition.PointKey)
 		if len(pointKey) == 0 || len(pointKey) > 200 {
-			return label, severity, conditionLogic, conditions, ErrAlarmRuleInvalid
+			return label, severity, delaySeconds, conditions, ErrAlarmRuleInvalid
 		}
 		if condition.MinValue == nil && condition.MaxValue == nil {
-			return label, severity, conditionLogic, conditions, ErrAlarmRuleInvalid
+			return label, severity, delaySeconds, conditions, ErrAlarmRuleInvalid
 		}
 		for _, value := range []*float64{condition.MinValue, condition.MaxValue} {
 			if value != nil && (math.IsNaN(*value) || math.IsInf(*value, 0)) {
-				return label, severity, conditionLogic, conditions, ErrAlarmRuleInvalid
+				return label, severity, delaySeconds, conditions, ErrAlarmRuleInvalid
 			}
 		}
 		if condition.MinValue != nil && condition.MaxValue != nil && *condition.MinValue >= *condition.MaxValue {
-			return label, severity, conditionLogic, conditions, ErrAlarmRuleInvalid
+			return label, severity, delaySeconds, conditions, ErrAlarmRuleInvalid
 		}
-		normalized[i] = ConditionInput{PointKey: pointKey, MinValue: condition.MinValue, MaxValue: condition.MaxValue}
+		// The first condition has nothing to join to, so its connector is
+		// normalized to AND rather than rejected -- an editor that always
+		// submits a logic per row should not have to special-case row 0.
+		logic := strings.ToUpper(strings.TrimSpace(condition.Logic))
+		if logic == "" || i == 0 {
+			logic = "AND"
+		}
+		if logic != "AND" && logic != "OR" {
+			return label, severity, delaySeconds, conditions, ErrAlarmRuleInvalid
+		}
+		normalized[i] = ConditionInput{PointKey: pointKey, MinValue: condition.MinValue, MaxValue: condition.MaxValue, Logic: logic}
 	}
-	return label, severity, conditionLogic, normalized, nil
+	return label, severity, delaySeconds, normalized, nil
+}
+
+/*
+AlarmSuppressed reports whether a rule's Alarm Delay is still running -- that
+is, whether a breach observed at observedAt lands too soon after the rule's
+previous alarm to raise another one. A suppressed breach opens no alarm_event
+and notifies nobody.
+
+The window is measured from the previous alarm's breached_at, not from when it
+cleared: "หลังจากเกิด Alarm ล่าสุด ถ้าเกิดขึ้นอีกภายในช่วงเวลา Delay ที่ตั้งไว้
+จะยังไม่เตือนซ้ำจนกว่าจะเลยเวลา delay".
+
+The boundary is exclusive, so a delay of exactly N seconds can alarm again at
+lastBreachedAt+N instead of slipping to the reading after it. Zero disables the
+feature, and a rule that has never alarmed is never suppressed.
+
+This cannot hide a *sustained* fault: while an event is still open the partial
+unique index already stops a second one from opening, so the only breaches that
+reach here are ones that follow a clear -- something the operator has already
+been told about at least once.
+*/
+func AlarmSuppressed(lastBreachedAt, observedAt time.Time, delaySeconds int32) bool {
+	if delaySeconds <= 0 || lastBreachedAt.IsZero() {
+		return false
+	}
+	return observedAt.Before(lastBreachedAt.Add(time.Duration(delaySeconds) * time.Second))
+}
+
+/*
+EvaluateConditions folds per-condition results into the rule's verdict with
+AND binding tighter than OR: the list is a sum of products, so it is walked
+once, ANDing into the current product term and ORing that term into the
+running total whenever an OR connector starts a new one.
+
+	[A, AND B, OR C]  ->  (A and B) or C
+
+logic[i] is the connector joining results[i] to what came before; logic[0] is
+ignored. Lives here, next to the validation that writes those connectors, and
+is called from ingestion's alarm evaluation so the meaning of a saved rule has
+exactly one definition.
+*/
+func EvaluateConditions(results []bool, logic []string) bool {
+	if len(results) == 0 {
+		return false
+	}
+	total, term := false, results[0]
+	for i := 1; i < len(results); i++ {
+		if logic[i] == "OR" {
+			total = total || term
+			term = results[i]
+			continue
+		}
+		term = term && results[i]
+	}
+	return total || term
 }
 
 // pgxQuerier is satisfied by both *pgxpool.Pool and pgx.Tx, so
@@ -579,7 +656,7 @@ type pgxQuerier interface {
 }
 
 func (s *Service) loadAlarmRuleConditions(ctx context.Context, q pgxQuerier, ruleID pgtype.UUID) ([]AlarmRuleCondition, error) {
-	rows, err := q.Query(ctx, `SELECT point_key, min_value, max_value FROM alarm.alarm_rule_condition WHERE alarm_rule_id=$1 ORDER BY position`, ruleID)
+	rows, err := q.Query(ctx, `SELECT point_key, min_value, max_value, logic FROM alarm.alarm_rule_condition WHERE alarm_rule_id=$1 ORDER BY position`, ruleID)
 	if err != nil {
 		return nil, fmt.Errorf("load alarm rule conditions: %w", err)
 	}
@@ -588,7 +665,7 @@ func (s *Service) loadAlarmRuleConditions(ctx context.Context, q pgxQuerier, rul
 	for rows.Next() {
 		var condition AlarmRuleCondition
 		var minValue, maxValue pgtype.Float8
-		if err = rows.Scan(&condition.PointKey, &minValue, &maxValue); err != nil {
+		if err = rows.Scan(&condition.PointKey, &minValue, &maxValue, &condition.Logic); err != nil {
 			return nil, fmt.Errorf("scan alarm rule condition: %w", err)
 		}
 		condition.MinValue = floatPointer(minValue)
@@ -612,12 +689,12 @@ func (s *Service) replaceAlarmRuleConditions(ctx context.Context, tx pgx.Tx, rul
 			return nil, err
 		}
 		if _, err = tx.Exec(ctx, `
-INSERT INTO alarm.alarm_rule_condition (id, alarm_rule_id, point_key, min_value, max_value, position)
-VALUES ($1,$2,$3,$4,$5,$6)`,
-			conditionID, ruleID, condition.PointKey, nullableFloat(condition.MinValue), nullableFloat(condition.MaxValue), position); err != nil {
+INSERT INTO alarm.alarm_rule_condition (id, alarm_rule_id, point_key, min_value, max_value, position, logic)
+VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+			conditionID, ruleID, condition.PointKey, nullableFloat(condition.MinValue), nullableFloat(condition.MaxValue), position, condition.Logic); err != nil {
 			return nil, mapAlarmWriteError(err)
 		}
-		result = append(result, AlarmRuleCondition{PointKey: condition.PointKey, MinValue: condition.MinValue, MaxValue: condition.MaxValue})
+		result = append(result, AlarmRuleCondition{PointKey: condition.PointKey, MinValue: condition.MinValue, MaxValue: condition.MaxValue, Logic: condition.Logic})
 	}
 	return result, nil
 }
@@ -626,7 +703,7 @@ func scanAlarmRule(row auditScanner) (AlarmRule, error) {
 	var rule AlarmRule
 	var id, organizationID, plantID, deviceID, notifyRoleID pgtype.UUID
 	var createdAt, updatedAt pgtype.Timestamptz
-	if err := row.Scan(&id, &organizationID, &plantID, &deviceID, &rule.Label, &rule.ConditionLogic, &rule.Severity, &rule.IsActive, &notifyRoleID, &createdAt, &updatedAt); err != nil {
+	if err := row.Scan(&id, &organizationID, &plantID, &deviceID, &rule.Label, &rule.Severity, &rule.AlarmDelaySeconds, &rule.IsActive, &notifyRoleID, &createdAt, &updatedAt); err != nil {
 		return AlarmRule{}, fmt.Errorf("scan alarm rule: %w", err)
 	}
 	rule.ID = uuidString(id)
