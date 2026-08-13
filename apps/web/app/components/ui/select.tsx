@@ -116,10 +116,8 @@ function Select({
         },
         filterContainer: { className: "relative flex-1" },
         filterInput: {
-          root: {
-            className:
-              "h-9 w-full rounded-[var(--radius-sm)] border border-line bg-canvas !pl-9 pr-2 text-sm outline-none focus:border-focus",
-          },
+          className:
+            "h-9 w-full rounded-[var(--radius-sm)] border border-line bg-canvas pl-8 pr-2 text-sm outline-none focus:border-focus",
         },
         filterIcon: {
           className:

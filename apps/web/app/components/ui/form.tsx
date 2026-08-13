@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { Checkbox as PrimeCheckbox } from "primereact/checkbox";
+import "primeicons/primeicons.css";
 import { InputText } from "primereact/inputtext";
 import { InputTextarea } from "primereact/inputtextarea";
 import { Message } from "primereact/message";
