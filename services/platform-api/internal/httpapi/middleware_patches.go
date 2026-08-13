@@ -15,6 +15,12 @@ type stageMiddlewareUpdateRequest struct {
 	PatchID string `json:"patchId"`
 }
 
+type middlewareUpdateBatchRequest struct {
+	Action        string   `json:"action"`
+	PatchID       string   `json:"patchId,omitempty"`
+	MiddlewareIDs []string `json:"middlewareIds"`
+}
+
 func listMiddlewarePatchesHandler(service *core.Service) func(http.ResponseWriter, *http.Request, auth.Principal) {
 	return func(w http.ResponseWriter, r *http.Request, principal auth.Principal) {
 		patches, err := service.ListMiddlewarePatches(r.Context(), principal)
@@ -111,6 +117,30 @@ func applyMiddlewareUpdateHandler(service *core.Service) func(http.ResponseWrite
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func createMiddlewareUpdateBatchHandler(service *core.Service) func(http.ResponseWriter, *http.Request, auth.Principal) {
+	return func(w http.ResponseWriter, r *http.Request, principal auth.Principal) {
+		var request middlewareUpdateBatchRequest
+		if !decodeJSON(w, r, &request, 64<<10) {
+			return
+		}
+		job, err := service.CreateMiddlewareUpdateBatch(r.Context(), principal, request.Action, request.PatchID, request.MiddlewareIDs, remoteIP(r.RemoteAddr))
+		if writeMiddlewareError(w, err) {
+			return
+		}
+		writeJSON(w, http.StatusAccepted, job)
+	}
+}
+
+func getMiddlewareUpdateBatchHandler(service *core.Service) func(http.ResponseWriter, *http.Request, auth.Principal) {
+	return func(w http.ResponseWriter, r *http.Request, principal auth.Principal) {
+		job, err := service.MiddlewareUpdateBatch(r.Context(), principal, r.PathValue("jobId"))
+		if writeMiddlewareError(w, err) {
+			return
+		}
+		writeJSON(w, http.StatusOK, job)
 	}
 }
 

@@ -1238,6 +1238,60 @@ paths:
           description: Missing middleware config update permission
         "404":
           description: Middleware gateway is missing or outside scope
+  /api/v1/admin/middleware-update-jobs:
+    post:
+      operationId: createAdminMiddlewareUpdateBatch
+      summary: Start Stage or Apply for multiple middleware gateways asynchronously. Results and elapsed time are available per gateway from the job endpoint.
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [action, middlewareIds]
+              properties:
+                action: { type: string, enum: [stage, apply] }
+                patchId: { type: string, format: uuid }
+                middlewareIds:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items: { type: string, format: uuid }
+      responses:
+        "202":
+          description: Batch job accepted and running in the background
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MiddlewareUpdateJob" }
+        "400": { description: Invalid action, patch, or gateway list }
+        "401": { description: Authentication required }
+        "403": { description: Missing middleware_patch update permission }
+
+  /api/v1/admin/middleware-update-jobs/{jobId}:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      operationId: getAdminMiddlewareUpdateBatch
+      summary: Get asynchronous middleware update batch status and per-gateway elapsed time.
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Current batch status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MiddlewareUpdateJob" }
+        "401": { description: Authentication required }
+        "403": { description: Missing middleware_patch read permission }
+        "404": { description: Update job not found }
+
   /api/v1/admin/middlewares/{middlewareId}/update/stage:
     parameters:
       - name: middlewareId
@@ -4090,8 +4144,36 @@ components:
         binaryFilename: { type: string }
         sha256: { type: string }
         fileSizeBytes: { type: integer, format: int64 }
-        uploadedBy: { type: string, nullable: true }
+         uploadedBy: { type: string, nullable: true }
+         createdAt: { type: string, format: date-time }
+    MiddlewareUpdateJob:
+      type: object
+      additionalProperties: false
+      required: [id, action, status, createdAt, items]
+      properties:
+        id: { type: string, format: uuid }
+        action: { type: string, enum: [stage, apply] }
+        patchId: { type: string, format: uuid }
+        status: { type: string, enum: [running, succeeded, failed] }
         createdAt: { type: string, format: date-time }
+        startedAt: { type: string, format: date-time }
+        finishedAt: { type: string, format: date-time }
+        durationMs: { type: integer, format: int64 }
+        items:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/MiddlewareUpdateJobItem"
+    MiddlewareUpdateJobItem:
+      type: object
+      additionalProperties: false
+      required: [middlewareId, status]
+      properties:
+        middlewareId: { type: string, format: uuid }
+        status: { type: string, enum: [pending, running, succeeded, failed] }
+        error: { type: string }
+        startedAt: { type: string, format: date-time }
+        finishedAt: { type: string, format: date-time }
+        durationMs: { type: integer, format: int64 }
     AuditEvent:
       type: object
       additionalProperties: false

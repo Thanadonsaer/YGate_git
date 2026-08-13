@@ -279,18 +279,17 @@ func (s *Service) runMiddlewareLifecycleCommand(ctx context.Context, principal a
 		body[k] = v
 	}
 	payload, _ := json.Marshal(body)
-	// update.stage makes the middleware synchronously download the patch zip
-	// (modbus-api-middleware's stageUpdate uses a 60s HTTP client timeout)
-	// before it can ACK -- a plain command like restart/apply/rollback/
-	// config-export needs no such allowance. Give it a longer budget than the
-	// rest so a large patch over a slow site link has room to finish instead
-	// of reporting a false timeout while the download is still in flight.
+	// update.stage can take an unbounded amount of time because the gateway
+	// downloads the patch over the site's link. The batch endpoint runs this
+	// operation outside the browser request, so do not impose a server-side
+	// deadline that turns a slow but healthy Plant into a false failure.
 	timeout := 15 * time.Second
-	if kind == "update.stage" {
-		timeout = 90 * time.Second
+	runCtx := ctx
+	var cancel context.CancelFunc
+	if kind != "update.stage" {
+		runCtx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
 	}
-	runCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
 	raw, err := s.hub.RunCommand(runCtx, uuidString(mwUUID), uuidString(commandID), payload)
 	if errors.Is(err, context.DeadlineExceeded) {
 		return fmt.Errorf("middleware command timed out: %w", ErrMiddlewareCommandNAK)

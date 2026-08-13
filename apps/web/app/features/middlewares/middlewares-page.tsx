@@ -23,6 +23,20 @@ function ProgressBar({ label }: { label: string }) {
   );
 }
 
+function formatElapsed(milliseconds: number): string {
+  const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return hours > 0 ? `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}` : `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+type MiddlewareUpdateJob = {
+  id: string; action: "stage" | "apply"; status: "running" | "succeeded" | "failed";
+  createdAt: string; startedAt?: string; finishedAt?: string; durationMs?: number;
+  items: Record<string, { middlewareId: string; status: string; error?: string; startedAt?: string; finishedAt?: string; durationMs?: number }>;
+};
+
 export function MiddlewaresPage({ defaultOrganizationId }: { defaultOrganizationId?: string }) {
   const [gateways, setGateways] = useState<MiddlewareGateway[]>([]);
   const [loading, setLoading] = useState(true);
@@ -31,6 +45,12 @@ export function MiddlewaresPage({ defaultOrganizationId }: { defaultOrganization
   const [createdKey, setCreatedKey] = useState<CreatedMiddlewareGateway | null>(null);
   const [selected, setSelected] = useState<MiddlewareGateway | null>(null);
   const [search, setSearch] = useState("");
+  const [batchPatches, setBatchPatches] = useState<MiddlewarePatch[]>([]);
+  const [batchPatchId, setBatchPatchId] = useState("");
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [batchJob, setBatchJob] = useState<MiddlewareUpdateJob | null>(null);
+  const [batchStartedAt, setBatchStartedAt] = useState<number | null>(null);
+
 
   const loadGateways = useCallback(async () => {
     setLoading(true);
@@ -40,6 +60,8 @@ export function MiddlewaresPage({ defaultOrganizationId }: { defaultOrganization
       if (response.status === 403) throw new Error("บัญชีนี้ไม่มีสิทธิ์จัดการ Middleware");
       if (!response.ok) throw new Error("ไม่สามารถโหลดรายการ Middleware ได้");
       setGateways((await response.json()) as MiddlewareGateway[]);
+      const patchesResponse = await api("/api/v1/admin/middleware-patches");
+      if (patchesResponse.ok) setBatchPatches((await patchesResponse.json()) as MiddlewarePatch[]);
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -48,6 +70,15 @@ export function MiddlewaresPage({ defaultOrganizationId }: { defaultOrganization
   }, []);
 
   useEffect(() => { void loadGateways(); }, [loadGateways]);
+
+  useEffect(() => {
+    if (!batchJob || batchJob.status !== "running") return;
+    const timer = window.setInterval(async () => {
+      const response = await api(`/api/v1/admin/middleware-update-jobs/${encodeURIComponent(batchJob.id)}`);
+      if (response.ok) setBatchJob((await response.json()) as MiddlewareUpdateJob);
+    }, 1500);
+    return () => window.clearInterval(timer);
+  }, [batchJob]);
 
   const filteredGateways = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -69,6 +100,24 @@ export function MiddlewaresPage({ defaultOrganizationId }: { defaultOrganization
     });
     if (response.ok) { toast.success(isActive ? `เปิดใช้งาน "${gateway.name}" แล้ว` : `ปิดใช้งาน "${gateway.name}" แล้ว`); await loadGateways(); }
     else setError(response.status === 403 ? "บัญชีนี้ไม่มีสิทธิ์เปลี่ยนสถานะ Middleware" : "ไม่สามารถเปลี่ยนสถานะ Middleware ได้");
+  }
+
+  function toggleSelected(id: string) {
+    setSelectedIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+  }
+
+  async function startBatch(action: "stage" | "apply") {
+    if (selectedIds.length === 0) return;
+    if (action === "stage" && !batchPatchId) return;
+    if (action === "apply" && !window.confirm(`Apply patch ให้ Middleware ${selectedIds.length} เครื่อง? ทุกเครื่องจะ restart service`)) return;
+    setError("");
+    const response = await api("/api/v1/admin/middleware-update-jobs", {
+      method: "POST", headers: { "X-CSRF-Token": csrfToken() },
+      body: JSON.stringify({ action, patchId: action === "stage" ? batchPatchId : undefined, middlewareIds: selectedIds }),
+    });
+    if (!response.ok) { setError(await middlewareLifecycleError(response, "เริ่มงาน Update ไม่สำเร็จ")); return; }
+    setBatchJob((await response.json()) as MiddlewareUpdateJob);
+    setBatchStartedAt(Date.now());
   }
 
   async function hardDeleteGateway(gateway: MiddlewareGateway) {
@@ -120,7 +169,22 @@ export function MiddlewaresPage({ defaultOrganizationId }: { defaultOrganization
             <span className="sr-only">ค้นหา Middleware</span>
             <TextInput className={`${inputClass} pl-9`} type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="ค้นหา Middleware ด้วยชื่อ, Site หรือ Organization" />
           </label>
+          <section className="mb-3 flex flex-wrap items-center gap-2 rounded-[var(--radius-md)] border border-line bg-surface p-3">
+            <strong className="text-sm">Update หลาย Middleware</strong>
+            <Select value={batchPatchId} onValueChange={setBatchPatchId} disabled={batchPatches.length === 0 || Boolean(batchJob?.status === "running")}>
+              <SelectTrigger className="w-56"><SelectValue placeholder="เลือก Patch..." /></SelectTrigger>
+              <SelectContent>{batchPatches.map((p) => <SelectItem key={p.id} value={p.id}>{p.version} ({p.os}/{p.arch})</SelectItem>)}</SelectContent>
+            </Select>
+            <Button variant="secondary" compact disabled={!batchPatchId || selectedIds.length === 0 || batchJob?.status === "running"} onClick={() => void startBatch("stage")}>Stage ที่เลือก ({selectedIds.length})</Button>
+            <Button compact disabled={selectedIds.length === 0 || batchJob?.status === "running"} onClick={() => void startBatch("apply")}>Apply ที่เลือก ({selectedIds.length})</Button>
+            {batchStartedAt && batchJob?.status === "running" && <span className="text-xs text-ink-soft">ใช้เวลาแล้ว {formatElapsed(Date.now() - batchStartedAt)}</span>}
+          </section>
+          {batchJob && <section className="mb-3 rounded-[var(--radius-md)] border border-line bg-surface p-3 text-xs">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2"><strong>Batch {batchJob.action === "stage" ? "Stage" : "Apply"}: {batchJob.status === "running" ? "กำลังทำงาน" : batchJob.status === "succeeded" ? "สำเร็จ" : "เสร็จแล้ว — มีบางเครื่องไม่สำเร็จ"}</strong><span>รวม {batchJob.durationMs ? formatElapsed(batchJob.durationMs) : batchStartedAt ? formatElapsed(Date.now() - batchStartedAt) : "-"}</span></div>
+            <div className="grid gap-1 sm:grid-cols-2 lg:grid-cols-3">{Object.values(batchJob.items).map((item) => <div key={item.middlewareId} className="flex items-center justify-between gap-2 rounded border border-line px-2 py-1"><span className="truncate">{gateways.find((g) => g.id === item.middlewareId)?.name || item.middlewareId}</span><span className={item.status === "failed" ? "text-red-600" : "text-ink-soft"}>{item.status === "running" ? "กำลังทำงาน" : item.status === "succeeded" ? `สำเร็จ (${formatElapsed(item.durationMs || 0)})` : item.status === "failed" ? item.error || "ล้มเหลว" : "รอคิว"}</span></div>)}</div>
+          </section>}
           <DataTable value={filteredGateways} dataKey="id" aria-label="Middleware Gateways" emptyMessage={<div className="table-state">{gateways.length === 0 ? "ยังไม่มี Middleware Gateway" : "ไม่พบ Middleware ที่ค้นหา"}</div>}>
+            <TableColumn header={<Checkbox checked={filteredGateways.length > 0 && filteredGateways.every((g) => selectedIds.includes(g.id))} onChange={(checked) => setSelectedIds(checked ? filteredGateways.map((g) => g.id) : [])} />} body={(row: MiddlewareGateway) => <Checkbox checked={selectedIds.includes(row.id)} onChange={() => toggleSelected(row.id)} />} />
             <TableColumn field="name" header="Gateway" sortable body={(row: MiddlewareGateway) => (
               <div className="grid min-w-0 gap-1"><strong className="truncate text-ink">{row.name}</strong><small className="truncate text-[11px] text-ink-soft">{row.id}</small></div>
             )} />

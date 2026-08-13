@@ -78,6 +78,8 @@ func New(version string, ready func(context.Context) error, pool *pgxpool.Pool, 
 		mux.HandleFunc("DELETE /api/v1/admin/middlewares/{middlewareId}/plants/{plantId}", authenticated(pool, sessionIdleTimeout, true, unassignMiddlewarePlantHandler(registryService)))
 		mux.HandleFunc("POST /api/v1/admin/middlewares/{middlewareId}/update/stage", authenticated(pool, sessionIdleTimeout, true, stageMiddlewareUpdateHandler(registryService)))
 		mux.HandleFunc("POST /api/v1/admin/middlewares/{middlewareId}/update/apply", authenticated(pool, sessionIdleTimeout, true, applyMiddlewareUpdateHandler(registryService)))
+		mux.HandleFunc("POST /api/v1/admin/middleware-update-jobs", authenticated(pool, sessionIdleTimeout, true, createMiddlewareUpdateBatchHandler(registryService)))
+		mux.HandleFunc("GET /api/v1/admin/middleware-update-jobs/{jobId}", authenticated(pool, sessionIdleTimeout, false, getMiddlewareUpdateBatchHandler(registryService)))
 		mux.HandleFunc("POST /api/v1/admin/middlewares/{middlewareId}/update/rollback", authenticated(pool, sessionIdleTimeout, true, rollbackMiddlewareUpdateHandler(registryService)))
 		mux.HandleFunc("POST /api/v1/admin/middlewares/{middlewareId}/restart", authenticated(pool, sessionIdleTimeout, true, restartMiddlewareHandler(registryService)))
 		mux.HandleFunc("GET /api/v1/admin/middleware-patches", authenticated(pool, sessionIdleTimeout, false, listMiddlewarePatchesHandler(registryService)))

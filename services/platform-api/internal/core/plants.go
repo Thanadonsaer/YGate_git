@@ -38,10 +38,11 @@ type Service struct {
 	logoDir       string
 	plantImageDir string
 	publicBaseURL string
+	updateJobs    *middlewareUpdateJobStore
 }
 
 func New(pool *pgxpool.Pool, hub *gatewayhub.Hub) *Service {
-	return &Service{pool: pool, queries: dbgen.New(pool), hub: hub, patchDir: "./data/middleware-patches", logoDir: "./data/site-logos", plantImageDir: "./data/plant-images"}
+	return &Service{pool: pool, queries: dbgen.New(pool), hub: hub, updateJobs: newMiddlewareUpdateJobStore(), patchDir: "./data/middleware-patches", logoDir: "./data/site-logos", plantImageDir: "./data/plant-images"}
 }
 
 // WithMiddlewarePatchDir overrides the directory uploaded middleware patch
@@ -85,7 +86,7 @@ type Plant struct {
 	Longitude        *float64  `json:"longitude"`
 	InstalledDcKW    *float64  `json:"installedDcKw"`
 	InstalledAcKW    *float64  `json:"installedAcKw"`
-	LifecycleStatus   string    `json:"lifecycleStatus"`
+	LifecycleStatus  string    `json:"lifecycleStatus"`
 	ImageURL         *string   `json:"imageUrl,omitempty"`
 	IsActive         bool      `json:"isActive"`
 	CreatedAt        time.Time `json:"createdAt"`
@@ -93,29 +94,29 @@ type Plant struct {
 }
 
 type CreatePlantInput struct {
-	OrganizationID string
-	Code           string
-	Name           string
-	Timezone       string
-	Latitude       *float64
-	Longitude      *float64
-	InstalledDcKW  *float64
-	InstalledAcKW  *float64
+	OrganizationID  string
+	Code            string
+	Name            string
+	Timezone        string
+	Latitude        *float64
+	Longitude       *float64
+	InstalledDcKW   *float64
+	InstalledAcKW   *float64
 	LifecycleStatus string
-	ImageURL       *string `json:"imageUrl,omitempty"`
+	ImageURL        *string `json:"imageUrl,omitempty"`
 }
 
 type UpdatePlantInput struct {
-	Code          string
-	Name          string
-	Timezone      string
-	Latitude      *float64
-	Longitude     *float64
-	InstalledDcKW *float64
-	InstalledAcKW *float64
+	Code            string
+	Name            string
+	Timezone        string
+	Latitude        *float64
+	Longitude       *float64
+	InstalledDcKW   *float64
+	InstalledAcKW   *float64
 	LifecycleStatus string
-	ImageURL      *string `json:"imageUrl,omitempty"`
-	IsActive      bool
+	ImageURL        *string `json:"imageUrl,omitempty"`
+	IsActive        bool
 }
 
 const (

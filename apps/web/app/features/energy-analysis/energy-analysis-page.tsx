@@ -429,7 +429,7 @@ export function EnergyAnalysisPage() {
             <MultiSelect
               value={deviceIds}
               onValueChange={(values) =>
-                setDeviceIds(values.slice(0, deviceIds.length))
+                setDeviceIds(values.slice(0, devices.length))
               }
               options={devices.map((entry) => ({
                 label: entry.name,

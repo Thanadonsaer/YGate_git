@@ -344,7 +344,10 @@ func (c *Client) stageUpdate(ctx context.Context, msg envelope) error {
 		return err
 	}
 	req.Header.Set("X-Api-Key", strings.TrimSpace(cfg.APIKey))
-	httpClient := &http.Client{Timeout: 60 * time.Second}
+	// The platform batch update job owns the lifecycle and must remain open for
+	// slow Plant links. The request context is still cancelled if the realtime
+	// connection itself is closed.
+	httpClient := &http.Client{}
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("download patch: %w", err)
