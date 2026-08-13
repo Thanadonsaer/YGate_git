@@ -31,18 +31,23 @@ var (
 )
 
 type Service struct {
-	pool          *pgxpool.Pool
-	queries       *dbgen.Queries
-	hub           *gatewayhub.Hub
-	patchDir      string
-	logoDir       string
-	plantImageDir string
-	publicBaseURL string
-	updateJobs    *middlewareUpdateJobStore
+	pool             *pgxpool.Pool
+	queries          *dbgen.Queries
+	hub              *gatewayhub.Hub
+	patchDir         string
+	logoDir          string
+	plantImageDir    string
+	publicBaseURL    string
+	updateJobs       *middlewareUpdateJobStore
+	patchDownloadKey [32]byte
 }
 
 func New(pool *pgxpool.Pool, hub *gatewayhub.Hub) *Service {
-	return &Service{pool: pool, queries: dbgen.New(pool), hub: hub, updateJobs: newMiddlewareUpdateJobStore(), patchDir: "./data/middleware-patches", logoDir: "./data/site-logos", plantImageDir: "./data/plant-images"}
+	s := &Service{pool: pool, queries: dbgen.New(pool), hub: hub, updateJobs: newMiddlewareUpdateJobStore(), patchDir: "./data/middleware-patches", logoDir: "./data/site-logos", plantImageDir: "./data/plant-images"}
+	if _, err := rand.Read(s.patchDownloadKey[:]); err != nil {
+		panic(fmt.Sprintf("generate patch download key: %v", err))
+	}
+	return s
 }
 
 // WithMiddlewarePatchDir overrides the directory uploaded middleware patch

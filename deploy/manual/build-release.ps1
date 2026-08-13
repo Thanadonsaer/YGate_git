@@ -152,6 +152,7 @@ module.exports = {
 # Edit before first start. Do not commit this file.
 PLATFORM_DATABASE_URL=postgresql://<user>:<password>@127.0.0.1:5432/<database>
 PLATFORM_HTTP_ADDR=127.0.0.1:44441
+PLATFORM_PUBLIC_BASE_URL=https://ygate-api.yokogawasolution.com
 PLATFORM_COOKIE_SECURE=true
 PLATFORM_WEBSOCKET_ORIGINS=ygate.yokogawasolution.com
 AUTH_DATABASE_URL=postgresql://<user>:<password>@127.0.0.1:5432/<database>

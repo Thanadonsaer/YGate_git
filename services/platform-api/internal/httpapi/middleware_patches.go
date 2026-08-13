@@ -67,14 +67,18 @@ func deleteMiddlewarePatchHandler(service *core.Service) func(http.ResponseWrite
 	}
 }
 
-// downloadMiddlewarePatchHandler is called by a Middleware (not a browser),
-// authenticated the same X-Api-Key way the WS handshake and ingestion
-// endpoints already are -- not cookie/CSRF, see gatewayRealtimeHandler.
+// downloadMiddlewarePatchHandler is called by a Middleware (not a browser).
+// The original route uses X-Api-Key; the cacheable .zip route uses a short-
+// lived patch-scoped token generated for one stage operation.
 func downloadMiddlewarePatchHandler(ingestionService *ingestion.Service, service *core.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if _, err := ingestionService.Authenticate(r.Context(), r.Header.Get("X-Api-Key")); err != nil {
-			http.Error(w, "authentication required", http.StatusUnauthorized)
-			return
+		token := r.PathValue("token")
+		tokenAuthorized := token != "" && service.AuthorizeMiddlewarePatchDownload(r.PathValue("patchId"), token, time.Now())
+		if !tokenAuthorized {
+			if _, err := ingestionService.Authenticate(r.Context(), r.Header.Get("X-Api-Key")); err != nil {
+				http.Error(w, "authentication required", http.StatusUnauthorized)
+				return
+			}
 		}
 		path, filename, err := service.MiddlewarePatchFilePath(r.Context(), r.PathValue("patchId"))
 		if err != nil {
@@ -91,7 +95,11 @@ func downloadMiddlewarePatchHandler(ingestionService *ingestion.Service, service
 		if info, err := file.Stat(); err == nil {
 			modTime = info.ModTime()
 		}
+		w.Header().Set("Content-Type", "application/zip")
 		w.Header().Set("Content-Disposition", "attachment; filename=\""+filename+".zip\"")
+		if tokenAuthorized {
+			w.Header().Set("Cache-Control", "public, max-age=300, immutable")
+		}
 		http.ServeContent(w, r, filename+".zip", modTime, file)
 	}
 }

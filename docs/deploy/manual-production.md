@@ -83,7 +83,10 @@ pm2 logs
 
 ```dotenv
 PLATFORM_DATABASE_URL=postgresql://ygate_app:<URL-encoded-password>@127.0.0.1:5432/ygate_db
+PLATFORM_PUBLIC_BASE_URL=https://ygate-api.yokogawasolution.com
 ```
+
+ใช้ API hostname โดยตรงสำหรับ `PLATFORM_PUBLIC_BASE_URL` เพื่อให้ Middleware ดาวน์โหลด patch โดยไม่ผ่าน Web service.
 
 หลัง services พร้อม ให้สร้างผู้ดูแลระบบคนแรกหนึ่งครั้ง:
 

@@ -21,7 +21,8 @@ set "CGO_ENABLED=0"
 set "GOOS="
 set "GOARCH="
 set "GOARM="
-set "VERSION=0.2.k"
+set "VERSION=0.2.l"
+set "BOOTSTRAP_VERSION=%VERSION%-bootstrap"
 set "KEYS_FILE=%CD%\license-keys.env"
 
 if exist "%KEYS_FILE%" (
@@ -38,6 +39,7 @@ if not defined CHPP_LICENSE_PUBLIC_KEY (
   goto error
 )
 set "LDFLAGS=-s -w -X main.version=%VERSION% -X main.licensePublicKey=%CHPP_LICENSE_PUBLIC_KEY%"
+set "BOOTSTRAP_LDFLAGS=-s -w -X main.version=%BOOTSTRAP_VERSION% -X main.licensePublicKey=%CHPP_LICENSE_PUBLIC_KEY%"
 
 echo Version: %VERSION%
 if defined CHPP_LICENSE_KEY_NAME echo License key: %CHPP_LICENSE_KEY_NAME%
@@ -54,6 +56,9 @@ set "GOARCH=amd64"
 set "GOARM="
 go build -trimpath -ldflags "%LDFLAGS%" -o "build\middleware-v%VERSION%-windows-amd64.exe" .\cmd\middleware || goto error
 powershell -NoProfile -ExecutionPolicy Bypass -File "deploy\make-update-zip.ps1" -Version "%VERSION%" -TargetOS "windows" -TargetArch "amd64" -Binary "build\middleware-v%VERSION%-windows-amd64.exe" -Out "build\patches\chpp-middleware-v%VERSION%-windows-amd64-update.zip" || goto error
+rem Feature-only bridge for legacy clients whose downloader has a hard 60-second timeout.
+go build -trimpath -gcflags "all=-l" -ldflags "%BOOTSTRAP_LDFLAGS%" -o "build\middleware-v%BOOTSTRAP_VERSION%-windows-amd64.exe" .\cmd\update-bridge || goto error
+powershell -NoProfile -ExecutionPolicy Bypass -File "deploy\make-update-zip.ps1" -Version "%BOOTSTRAP_VERSION%" -TargetOS "windows" -TargetArch "amd64" -Binary "build\middleware-v%BOOTSTRAP_VERSION%-windows-amd64.exe" -Out "build\patches\chpp-middleware-v%BOOTSTRAP_VERSION%-windows-amd64-update.zip" || goto error
 
 echo [4/4] Build Linux Debian amd64 package
 set "GOOS=linux"
@@ -61,6 +66,8 @@ set "GOARCH=amd64"
 set "GOARM="
 go build -trimpath -ldflags "%LDFLAGS%" -o "build\linux\build\middleware-linux-amd64" .\cmd\middleware || goto error
 powershell -NoProfile -ExecutionPolicy Bypass -File "deploy\make-update-zip.ps1" -Version "%VERSION%" -TargetOS "linux" -TargetArch "amd64" -Binary "build\linux\build\middleware-linux-amd64" -Out "build\patches\chpp-middleware-v%VERSION%-linux-amd64-update.zip" || goto error
+go build -trimpath -gcflags "all=-l" -ldflags "%BOOTSTRAP_LDFLAGS%" -o "build\linux\build\middleware-v%BOOTSTRAP_VERSION%-linux-amd64" .\cmd\update-bridge || goto error
+powershell -NoProfile -ExecutionPolicy Bypass -File "deploy\make-update-zip.ps1" -Version "%BOOTSTRAP_VERSION%" -TargetOS "linux" -TargetArch "amd64" -Binary "build\linux\build\middleware-v%BOOTSTRAP_VERSION%-linux-amd64" -Out "build\patches\chpp-middleware-v%BOOTSTRAP_VERSION%-linux-amd64-update.zip" || goto error
 copy /Y "deploy\chpp-middleware.service" "build\linux\deploy\chpp-middleware.service" >nul
 copy /Y "deploy\install-systemd.sh" "build\linux\deploy\install-systemd.sh" >nul
 copy /Y "deploy\manage-service.sh" "build\linux\deploy\manage-service.sh" >nul

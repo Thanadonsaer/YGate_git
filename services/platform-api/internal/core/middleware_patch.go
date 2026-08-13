@@ -4,15 +4,21 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log"
+	"net/http"
 	"net/netip"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -28,6 +34,7 @@ import (
 // middleware are separate Go modules (no shared package), so this manifest
 // shape is duplicated by necessity, not by choice (see design spec).
 const middlewarePatchAppName = "chpp-middleware"
+const patchDownloadTokenTTL = 5 * time.Minute
 
 var ErrMiddlewarePatchNotFound = errors.New("middleware patch not found")
 
@@ -250,6 +257,72 @@ func (s *Service) MiddlewarePatchFilePath(ctx context.Context, patchID string) (
 	return path, filename, nil
 }
 
+func (s *Service) newPatchDownloadToken(patchID string, now time.Time) string {
+	expires := strconv.FormatInt(now.Add(patchDownloadTokenTTL).Unix(), 10)
+	mac := hmac.New(sha256.New, s.patchDownloadKey[:])
+	_, _ = io.WriteString(mac, patchID+"\n"+expires)
+	return expires + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+}
+
+func (s *Service) validPatchDownloadToken(patchID, token string, now time.Time) bool {
+	expires, signature, ok := strings.Cut(token, ".")
+	if !ok {
+		return false
+	}
+	expiresUnix, err := strconv.ParseInt(expires, 10, 64)
+	if err != nil || now.Unix() > expiresUnix {
+		return false
+	}
+	provided, err := base64.RawURLEncoding.DecodeString(signature)
+	if err != nil {
+		return false
+	}
+	mac := hmac.New(sha256.New, s.patchDownloadKey[:])
+	_, _ = io.WriteString(mac, patchID+"\n"+expires)
+	return hmac.Equal(provided, mac.Sum(nil))
+}
+
+func (s *Service) AuthorizeMiddlewarePatchDownload(patchID, token string, now time.Time) bool {
+	return s.validPatchDownloadToken(patchID, token, now)
+}
+
+func (s *Service) patchDownloadURL(patchID, token string) string {
+	return fmt.Sprintf("%s/api/v1/admin/middleware-patches/%s/download/%s/patch.zip", s.publicBaseURL, url.PathEscape(patchID), url.PathEscape(token))
+}
+
+func prewarmPatchDownload(ctx context.Context, downloadURL string) error {
+	warmCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(warmCtx, http.MethodGet, downloadURL, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("HTTP %s", resp.Status)
+	}
+	_, err = io.Copy(io.Discard, resp.Body)
+	return err
+}
+
+func retryLegacyStageTimeout(prewarmErr error, run func() error) error {
+	err := run()
+	if err != nil && strings.Contains(err.Error(), "download patch") && strings.Contains(err.Error(), "context deadline exceeded") {
+		if retryErr := run(); retryErr != nil {
+			if prewarmErr != nil {
+				return fmt.Errorf("edge prewarm failed: %v; legacy middleware download exceeded its 60-second limit twice: %w", prewarmErr, retryErr)
+			}
+			return fmt.Errorf("legacy middleware download exceeded its 60-second limit twice after edge prewarm: %w", retryErr)
+		}
+		return nil
+	}
+	return err
+}
+
 // runMiddlewareLifecycleCommand sends kind (update.stage/update.apply/
 // update.rollback/service.restart) over the same command.request/result WS
 // channel ImportMiddlewareConfig uses, after checking the global
@@ -340,15 +413,23 @@ func (s *Service) stageMiddlewareUpdate(ctx context.Context, principal auth.Prin
 	if err != nil {
 		return fmt.Errorf("lookup middleware patch: %w", err)
 	}
-	downloadURL := fmt.Sprintf("%s/api/v1/admin/middleware-patches/%s/download", s.publicBaseURL, patchID)
-	return s.runMiddlewareLifecycleCommand(ctx, principal, middlewareID, "update.stage", map[string]any{
-		// "patchVersion" not "version" -- the command.request envelope on the
-		// middleware side embeds domain.ConfigSnapshot, whose own "version"
-		// key is an int64 config version; colliding names would break JSON
-		// decoding of this message entirely.
-		"downloadUrl": downloadURL, "sha256": patch.SHA256, "patchVersion": patch.Version,
-		"os": patch.OS, "arch": patch.Arch, "binary": patch.BinaryFilename,
-	}, "middleware_client.update_staged", sourceIP, progress)
+	token := s.newPatchDownloadToken(patchID, time.Now())
+	downloadURL := s.patchDownloadURL(patchID, token)
+	prewarmErr := prewarmPatchDownload(ctx, downloadURL)
+	if prewarmErr != nil {
+		log.Printf("prewarm middleware patch %s: %v", patchID, prewarmErr)
+	}
+	run := func() error {
+		return s.runMiddlewareLifecycleCommand(ctx, principal, middlewareID, "update.stage", map[string]any{
+			// "patchVersion" not "version" -- the command.request envelope on the
+			// middleware side embeds domain.ConfigSnapshot, whose own "version"
+			// key is an int64 config version; colliding names would break JSON
+			// decoding of this message entirely.
+			"downloadUrl": downloadURL, "sha256": patch.SHA256, "patchVersion": patch.Version,
+			"os": patch.OS, "arch": patch.Arch, "binary": patch.BinaryFilename,
+		}, "middleware_client.update_staged", sourceIP, progress)
+	}
+	return retryLegacyStageTimeout(prewarmErr, run)
 }
 
 func (s *Service) ApplyMiddlewareUpdate(ctx context.Context, principal auth.Principal, middlewareID string, sourceIP *netip.Addr) error {

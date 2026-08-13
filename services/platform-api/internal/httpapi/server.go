@@ -148,6 +148,7 @@ func New(version string, ready func(context.Context) error, pool *pgxpool.Pool, 
 		if registryService != nil {
 			mux.HandleFunc("GET /api/v1/gateway/realtime", gatewayRealtimeHandler(ingestionService, registryService, hub))
 			mux.HandleFunc("GET /api/v1/admin/middleware-patches/{patchId}/download", downloadMiddlewarePatchHandler(ingestionService, registryService))
+			mux.HandleFunc("GET /api/v1/admin/middleware-patches/{patchId}/download/{token}/patch.zip", downloadMiddlewarePatchHandler(ingestionService, registryService))
 		}
 	}
 	return mux

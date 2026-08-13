@@ -1496,6 +1496,36 @@ paths:
           description: Authentication required
         "404":
           description: Patch not found
+  /api/v1/admin/middleware-patches/{patchId}/download/{token}/patch.zip:
+    parameters:
+      - name: patchId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: token
+        in: path
+        required: true
+        description: Short-lived HMAC download capability generated for one stage operation.
+        schema: { type: string }
+    get:
+      operationId: downloadCachedMiddlewarePatch
+      summary: Download a patch through an edge-cacheable temporary URL for legacy Middleware gateways.
+      security: []
+      responses:
+        "200":
+          description: Patch zip bytes cached for at most five minutes
+          headers:
+            Cache-Control:
+              schema: { type: string }
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        "401":
+          description: Download token is missing, invalid, or expired
+        "404":
+          description: Patch not found
   /api/v1/admin/middlewares/{middlewareId}/plants:
     parameters:
       - name: middlewareId
