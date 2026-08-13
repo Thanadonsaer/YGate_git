@@ -10,8 +10,11 @@ import { toast } from "../../components/ui/sonner";
 import { iconButtonClass, inputClass, labelClass, primaryButtonClass, secondaryButtonClass } from "../../components/ui";
 import { api, errorMessage, csrfToken, downloadBlob } from "../../lib/api";
 import { MIDDLEWARE_DATA_TYPES, type DeviceModelOption, type DeviceModelRegisterMetadata } from "../../lib/types";
+import { usePlatformSession } from "../../components/platform-shell";
+import { can } from "../../lib/permissions";
 
 export function RegisterMetadataPage() {
+  const { user } = usePlatformSession();
   const [models, setModels] = useState<DeviceModelOption[]>([]);
   const [selectedModelId, setSelectedModelId] = useState("");
   const [items, setItems] = useState<DeviceModelRegisterMetadata[]>([]);
@@ -196,9 +199,9 @@ export function RegisterMetadataPage() {
               event.target.value = "";
             }}
           />
-          <Button variant="bare" className={primaryButtonClass} type="button" onClick={() => selectedModel ? setAddressDialog("create") : setModelDialog("create")}>
+          {can(user, "device_model", "create") && <Button variant="bare" className={primaryButtonClass} type="button" onClick={() => selectedModel ? setAddressDialog("create") : setModelDialog("create")}>
             <Plus size={17} /> {selectedModel ? "เพิ่ม Address" : "เพิ่ม Model"}
-          </Button>
+          </Button>}
         </div>
       </div>
 
@@ -210,8 +213,8 @@ export function RegisterMetadataPage() {
             <span>Source Type <strong className="text-ink">{selectedModel.sourceTypeId ?? "-"}</strong></span>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button variant="bare" className={secondaryButtonClass} type="button" onClick={() => setModelDialog(selectedModel)}><Pencil size={16} /> แก้ไข Model</Button>
-            <Button variant="bare" className={`${secondaryButtonClass} text-danger`} type="button" onClick={() => void hardDeleteModel(selectedModel)}><Trash2 size={16} /> ลบถาวร</Button>
+            {can(user, "device_model", "update") && <Button variant="bare" className={secondaryButtonClass} type="button" onClick={() => setModelDialog(selectedModel)}><Pencil size={16} /> แก้ไข Model</Button>}
+            {can(user, "device_model", "hard_delete") && <Button variant="bare" className={`${secondaryButtonClass} text-danger`} type="button" onClick={() => void hardDeleteModel(selectedModel)}><Trash2 size={16} /> ลบถาวร</Button>}
           </div>
         </div>
       )}
@@ -233,8 +236,8 @@ export function RegisterMetadataPage() {
                 <span className="hidden truncate text-ink lg:block">x{item.scale} + {item.offset}, {item.decimals} dp</span>
                 <span className={`hidden w-fit rounded-full px-2.5 py-1 text-xs font-extrabold lg:block ${item.isEnabled ? "bg-success/10 text-success" : "bg-danger/10 text-danger"}`}>{item.isEnabled ? "เปิด" : "ปิด"}</span>
                 <div className="row-start-1 flex justify-end gap-1 lg:row-auto">
-                  <Button variant="bare" className={iconButtonClass} type="button" onClick={() => setAddressDialog(item)} title="แก้ไข Address" aria-label={`แก้ไข ${item.addressKey}`}><Pencil size={16} /></Button>
-                  <Button variant="bare" className={`${iconButtonClass} text-danger hover:border-danger/30 hover:bg-danger/10`} type="button" onClick={() => void removeAddress(item)} title="ลบ Address" aria-label={`ลบ ${item.addressKey}`}><Trash2 size={16} /></Button>
+                  {can(user, "device_model", "update") && <Button variant="bare" className={iconButtonClass} type="button" onClick={() => setAddressDialog(item)} title="แก้ไข Address" aria-label={`แก้ไข ${item.addressKey}`}><Pencil size={16} /></Button>}
+                  {can(user, "device_model", "update") && <Button variant="bare" className={`${iconButtonClass} text-danger hover:border-danger/30 hover:bg-danger/10`} type="button" onClick={() => void removeAddress(item)} title="ลบ Address" aria-label={`ลบ ${item.addressKey}`}><Trash2 size={16} /></Button>}
                 </div>
               </div>
             ))}
@@ -258,8 +261,8 @@ export function RegisterMetadataPage() {
                 <span className="hidden truncate text-ink md:block">{model.sourceTypeId ?? "-"}</span>
                 <span className={`hidden w-fit rounded-full px-2.5 py-1 text-xs font-extrabold md:block ${model.isActive ? "bg-success/10 text-success" : "bg-danger/10 text-danger"}`}>{model.isActive ? "เปิด" : "ปิด"}</span>
                 <div className="flex justify-end gap-1">
-                  <Button variant="bare" className={iconButtonClass} type="button" onClick={(event) => { event.stopPropagation(); setModelDialog(model); }} title="แก้ไข Model" aria-label={`แก้ไข ${model.model}`}><Pencil size={16} /></Button>
-                  <Button variant="bare" className={`${iconButtonClass} text-danger`} type="button" onClick={(event) => { event.stopPropagation(); void hardDeleteModel(model); }} title="ลบ Model ถาวร" aria-label={`ลบ ${model.model} ถาวร`}><Trash2 size={16} /></Button>
+                  {can(user, "device_model", "update") && <Button variant="bare" className={iconButtonClass} type="button" onClick={(event) => { event.stopPropagation(); setModelDialog(model); }} title="แก้ไข Model" aria-label={`แก้ไข ${model.model}`}><Pencil size={16} /></Button>}
+                  {can(user, "device_model", "hard_delete") && <Button variant="bare" className={`${iconButtonClass} text-danger`} type="button" onClick={(event) => { event.stopPropagation(); void hardDeleteModel(model); }} title="ลบ Model ถาวร" aria-label={`ลบ ${model.model} ถาวร`}><Trash2 size={16} /></Button>}
                 </div>
               </div>
             ))}

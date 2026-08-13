@@ -9,9 +9,11 @@ import { ACCENT_PRESETS } from "../../lib/theme";
 import type { AccentColor, SiteSettings } from "../../lib/types";
 import { toast } from "../../components/ui/sonner";
 import { Button } from "../../components/ui/button";
+import { can } from "../../lib/permissions";
 
 export function SiteSettingsPage() {
-  const { siteSettings, updateSiteSettings } = usePlatformSession();
+  const { siteSettings, updateSiteSettings, user } = usePlatformSession();
+  const canUpdateSettings = can(user, "site_setting", "update");
   const [siteName, setSiteName] = useState(siteSettings.siteName);
   const [accentColor, setAccentColor] = useState<AccentColor>(siteSettings.accentColor);
   const [pending, setPending] = useState(false);
@@ -87,22 +89,22 @@ export function SiteSettingsPage() {
       <div className="settings-form-body">
         <div className="logo-preview">
           <span className="brand-mark">{siteSettings.logoUrl ? <img src={assetURL(siteSettings.logoUrl)} alt="" /> : <ImageIcon size={18} />}</span>
-          <div className="logo-preview-actions">
+          {canUpdateSettings && <div className="logo-preview-actions">
             <label className="secondary-button compact" style={{ cursor: "pointer" }} aria-label="อัปโหลด logo">
               {logoPending ? "กำลังอัปโหลด..." : <><Upload size={15} /> อัปโหลด logo</>}
               <input type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp,image/gif" disabled={logoPending} style={{ display: "none" }} onChange={(event) => void uploadLogo(event)} />
             </label>
             {siteSettings.logoUrl && <Button type="button" variant="text" danger compact disabled={logoPending} onClick={() => void removeLogo()}><Trash2 size={15} /> ลบ logo</Button>}
             <small>PNG/JPEG/SVG/WEBP/GIF ไม่เกิน 2 MB</small>
-          </div>
+          </div>}
         </div>
         <form className="plant-editor-form settings-form" onSubmit={submit}>
-          <label className="full-field">ชื่อเว็บไซต์<TextInput value={siteName} onChange={(event) => setSiteName(event.target.value)} maxLength={100} required /></label>
+          <label className="full-field">ชื่อเว็บไซต์<TextInput value={siteName} onChange={(event) => setSiteName(event.target.value)} maxLength={100} required disabled={!canUpdateSettings} /></label>
           <div className="full-field">
             <p className="field-label">สีหลักของเว็บ</p>
             <div className="accent-swatches">
               {(Object.keys(ACCENT_PRESETS) as AccentColor[]).map((key) => (
-                <Button variant="bare" type="button" key={key} className={accentColor === key ? "accent-swatch active" : "accent-swatch"} onClick={() => setAccentColor(key)}>
+                <Button variant="bare" type="button" key={key} className={accentColor === key ? "accent-swatch active" : "accent-swatch"} onClick={() => setAccentColor(key)} disabled={!canUpdateSettings}>
                   <span className="accent-dot" style={{ background: ACCENT_PRESETS[key].action }} />
                   <span>{ACCENT_PRESETS[key].label}</span>
                   {accentColor === key && <CheckCircle2 size={14} />}
@@ -111,7 +113,7 @@ export function SiteSettingsPage() {
             </div>
           </div>
           {error && <FormMessage className="full-field">{error}</FormMessage>}
-          <div className="editor-actions full-field"><Button disabled={pending}><Save size={17} /> {pending ? "กำลังบันทึก" : "บันทึก"}</Button></div>
+          {canUpdateSettings && <div className="editor-actions full-field"><Button disabled={pending}><Save size={17} /> {pending ? "กำลังบันทึก" : "บันทึก"}</Button></div>}
         </form>
       </div>
     </section>

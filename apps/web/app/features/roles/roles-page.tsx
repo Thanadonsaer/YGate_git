@@ -8,15 +8,23 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { toast } from "../../components/ui/sonner";
 import { Button } from "../../components/ui/button";
 import { DataTable, TableColumn } from "../../components/ui/data-table";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { pagePermissionGroups, type PagePermissionGroup } from "../../lib/navigation";
 import type { Permission, Role, RoleDetail } from "../../lib/types";
+import type { Organization } from "../../lib/types";
+import { usePlatformSession } from "../../components/platform-shell";
+import { can, isSystemAdmin } from "../../lib/permissions";
 
 export function RolesPage({ defaultOrganizationId }: { defaultOrganizationId?: string }) {
+  const { user } = usePlatformSession();
   const [roles, setRoles] = useState<Role[]>([]);
   const [permissions, setPermissions] = useState<Permission[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [editor, setEditor] = useState<Role | "create" | null>(null);
+  const [organizations, setOrganizations] = useState<Organization[]>([]);
+  const [organizationId, setOrganizationId] = useState(defaultOrganizationId ?? "");
+  const systemAdmin = isSystemAdmin(user);
 
   const loadRoles = useCallback(async () => {
     setLoading(true);
@@ -27,12 +35,14 @@ export function RolesPage({ defaultOrganizationId }: { defaultOrganizationId?: s
       if (!roleResponse.ok || !permissionResponse.ok) throw new Error("ไม่สามารถโหลดข้อมูล Role ได้");
       setRoles((await roleResponse.json()) as Role[]);
       setPermissions((await permissionResponse.json()) as Permission[]);
+      const response = await api("/api/v1/admin/organizations");
+      if (response.ok) setOrganizations((await response.json()) as Organization[]);
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [systemAdmin]);
 
   useEffect(() => { void loadRoles(); }, [loadRoles]);
 
@@ -48,20 +58,28 @@ export function RolesPage({ defaultOrganizationId }: { defaultOrganizationId?: s
     else setError("ไม่สามารถลบ Role ได้");
   }
 
+  const scopedRoles = roles.filter((role) => role.isSystem || role.organizationId === organizationId);
+
   return (
     <div className="content plants-content">
       <div className="section-heading">
         <div><p>Access management</p><h2>Role และสิทธิ์การใช้งาน</h2></div>
         <div className="heading-actions">
           <Button variant="icon" onClick={() => void loadRoles()} title="รีเฟรช" aria-label="รีเฟรชรายการ Role"><RefreshCw size={18} /></Button>
-          <Button compact onClick={() => setEditor("create")}><Plus size={18} /> เพิ่ม Role</Button>
+          {can(user, "role", "create") && <Button compact onClick={() => setEditor("create")}><Plus size={18} /> เพิ่ม Role</Button>}
         </div>
       </div>
       {error && <FormMessage>{error}</FormMessage>}
+      <label className="mb-3 block max-w-sm text-sm font-bold text-ink">Organization
+        <Select value={organizationId} onValueChange={setOrganizationId} disabled={!systemAdmin}>
+          <SelectTrigger className="mt-1"><SelectValue placeholder="Organization ของคุณ" /></SelectTrigger>
+          <SelectContent>{(systemAdmin ? organizations : organizations.filter((organization) => organization.id === defaultOrganizationId)).map((organization) => <SelectItem key={organization.id} value={organization.id}>{organization.name}</SelectItem>)}</SelectContent>
+        </Select>
+      </label>
       {loading ? (
         <div className="table-state">กำลังโหลดข้อมูล</div>
       ) : (
-        <DataTable value={roles} dataKey="id" aria-label="Role" emptyMessage={<div className="table-state">{error ? "" : "ยังไม่มี Role ในขอบเขตที่คุณเข้าถึงได้"}</div>}>
+        <DataTable value={scopedRoles} dataKey="id" aria-label="Role" emptyMessage={<div className="table-state">{error ? "" : "ยังไม่มี Role ในขอบเขตที่คุณเข้าถึงได้"}</div>}>
           <TableColumn field="name" header="Role" sortable body={(role: Role) => (
             <div className="grid gap-1"><strong>{role.name}</strong><small className="block text-[11px] text-ink-soft">{role.description || "ไม่มีคำอธิบาย"}</small></div>
           )} />
@@ -71,8 +89,8 @@ export function RolesPage({ defaultOrganizationId }: { defaultOrganizationId?: s
           )} />
           <TableColumn header="" body={(role: Role) => (
             <div className="row-actions">
-              <Button variant="icon" onClick={() => setEditor(role)} disabled={role.isSystem} title={role.isSystem ? "System role แก้ไขไม่ได้" : "แก้ไข Role"} aria-label={`แก้ไข ${role.name}`}><Pencil size={17} /></Button>
-              <Button variant="icon" danger onClick={() => void deleteRole(role)} disabled={role.isSystem} title={role.isSystem ? "System role ลบไม่ได้" : "ลบ Role"} aria-label={`ลบ ${role.name}`}><Trash2 size={17} /></Button>
+              {can(user, "role", "update") && !role.isSystem && <Button variant="icon" onClick={() => setEditor(role)} title="แก้ไข Role" aria-label={`แก้ไข ${role.name}`}><Pencil size={17} /></Button>}
+              {can(user, "role", "delete") && !role.isSystem && <Button variant="icon" danger onClick={() => void deleteRole(role)} title="ลบ Role" aria-label={`ลบ ${role.name}`}><Trash2 size={17} /></Button>}
             </div>
           )} />
         </DataTable>
@@ -81,7 +99,7 @@ export function RolesPage({ defaultOrganizationId }: { defaultOrganizationId?: s
         <RoleEditor
           role={editor === "create" ? undefined : editor}
           permissions={permissions}
-          defaultOrganizationId={defaultOrganizationId}
+          defaultOrganizationId={organizationId || defaultOrganizationId}
           onClose={() => setEditor(null)}
           onSaved={() => { setEditor(null); void loadRoles(); }}
         />
@@ -100,7 +118,6 @@ function permissionsForGroup(group: PagePermissionGroup, permissions: Permission
 
 function RoleEditor({ role, permissions, defaultOrganizationId, onClose, onSaved }: { role?: Role; permissions: Permission[]; defaultOrganizationId?: string; onClose: () => void; onSaved: () => void }) {
   const [loadingDetail, setLoadingDetail] = useState(Boolean(role));
-  const [global, setGlobal] = useState(false);
   const [name, setName] = useState(role?.name ?? "");
   const [description, setDescription] = useState(role?.description ?? "");
   const [permissionIds, setPermissionIds] = useState<string[]>([]);
@@ -117,7 +134,6 @@ function RoleEditor({ role, permissions, defaultOrganizationId, onClose, onSaved
         setName(loaded.name);
         setDescription(loaded.description);
         setPermissionIds(loaded.permissionIds);
-        setGlobal(loaded.organizationId === null);
         setExpandedPages(new Set(
           pagePermissionGroups
             .filter((group) => permissionsForGroup(group, permissions).some((permission) => loaded.permissionIds.includes(permission.id)))
@@ -158,7 +174,7 @@ function RoleEditor({ role, permissions, defaultOrganizationId, onClose, onSaved
     try {
       const body = role
         ? { name, description, permissionIds }
-        : { global, organizationId: defaultOrganizationId ?? "", name, description, permissionIds };
+        : { global: false, organizationId: defaultOrganizationId ?? "", name, description, permissionIds };
       const response = await api(role ? `/api/v1/admin/roles/${encodeURIComponent(role.id)}` : "/api/v1/admin/roles", {
         method: role ? "PUT" : "POST",
         headers: { "X-CSRF-Token": csrfToken() },
@@ -189,12 +205,6 @@ function RoleEditor({ role, permissions, defaultOrganizationId, onClose, onSaved
             <form className="plant-editor-form" onSubmit={submit}>
               <label className="full-field">ชื่อ Role<TextInput autoFocus value={name} onChange={(event) => setName(event.target.value)} maxLength={100} required /></label>
               <label className="full-field">คำอธิบาย<TextInput value={description} onChange={(event) => setDescription(event.target.value)} maxLength={500} /></label>
-              {!role && (
-                <label className="toggle-field full-field">
-                  <Checkbox checked={global} onChange={setGlobal} />
-                  <span>Role ทั้งระบบ (ทุกองค์กรใช้ได้ ต้องมีสิทธิ์ระดับ Platform)</span>
-                </label>
-              )}
               <fieldset className="full-field permission-picker">
                 <legend>สิทธิ์การใช้งาน</legend>
                 <p className="permission-picker-hint">1) ติ๊กเมนูที่ role นี้เข้าถึงได้ 2) ในแต่ละเมนูที่ติ๊ก เลือกว่าทำ action อะไรได้บ้าง</p>

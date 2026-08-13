@@ -481,6 +481,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .permission-subgroup { display: grid; gap: 4px; }
 .permission-subgroup small { text-transform: uppercase; color: var(--muted); font-size: 10px; font-weight: 800; }
 .profile-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; align-items: start; }
+.analytics-loading { position: fixed; z-index: 60; inset: 0; display: grid; place-content: center; gap: 10px; background: rgb(255 255 255 / .74); color: var(--ink); font-weight: 700; backdrop-filter: blur(1px); }
 .profile-card { min-width: 0; border: 1px solid var(--line); background: white; border-radius: var(--radius-md); box-shadow: var(--shadow-sm); overflow: hidden; }
 .profile-card > header { min-height: 78px; padding: 17px 18px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 12px; }
 .profile-card > header > div { min-width: 0; }

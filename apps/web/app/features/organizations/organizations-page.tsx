@@ -8,9 +8,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { toast } from "../../components/ui/sonner";
 import { Button } from "../../components/ui/button";
 import { DataTable, TableColumn } from "../../components/ui/data-table";
+import { usePlatformSession } from "../../components/platform-shell";
+import { can } from "../../lib/permissions";
 import type { Organization } from "../../lib/types";
 
 export function OrganizationsPage() {
+  const { user } = usePlatformSession();
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -39,7 +42,7 @@ export function OrganizationsPage() {
         <div><p>Tenant management</p><h2>Organization ทั้งหมด</h2></div>
         <div className="heading-actions">
           <Button variant="icon" onClick={() => void loadOrganizations()} title="รีเฟรช" aria-label="รีเฟรชรายการ Organization"><RefreshCw size={18} /></Button>
-          <Button compact onClick={() => setEditor("create")}><Plus size={18} /> เพิ่ม Organization</Button>
+          {can(user, "organization", "create") && <Button compact onClick={() => setEditor("create")}><Plus size={18} /> เพิ่ม Organization</Button>}
         </div>
       </div>
       {error && <FormMessage>{error}</FormMessage>}
@@ -57,7 +60,7 @@ export function OrganizationsPage() {
           <TableColumn field="updatedAt" header="อัปเดตล่าสุด" sortable body={(organization: Organization) => <span>{formatDate(organization.updatedAt)}</span>} />
           <TableColumn header="" body={(organization: Organization) => (
             <div className="row-actions">
-              <Button variant="icon" onClick={() => setEditor(organization)} title="แก้ไข Organization" aria-label={`แก้ไข ${organization.name}`}><Pencil size={17} /></Button>
+              {can(user, "organization", "update") && <Button variant="icon" onClick={() => setEditor(organization)} title="แก้ไข Organization" aria-label={`แก้ไข ${organization.name}`}><Pencil size={17} /></Button>}
             </div>
           )} />
         </DataTable>

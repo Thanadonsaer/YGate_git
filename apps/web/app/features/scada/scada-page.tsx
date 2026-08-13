@@ -87,6 +87,8 @@ import type {
   ScadaScreenVersion,
 } from "../../lib/types";
 import { loadRegisterCatalogs, pointMeta, type PointMeta } from "../../lib/telemetry-history";
+import { usePlatformSession } from "../../components/platform-shell";
+import { can } from "../../lib/permissions";
 
 type RuntimeScadaNodeData = ScadaNodeData & {
   latest?: LatestTelemetry;
@@ -131,6 +133,8 @@ const paletteEntries: Array<{ type: ScadaNodeType; title: string; description: s
 ];
 
 export function ScadaPage() {
+  const { user } = usePlatformSession();
+  const canCreateScreen = can(user, "scada_screen", "edit");
   const [plants, setPlants] = useState<Plant[]>([]);
   const [screens, setScreens] = useState<ScadaScreenSummary[]>([]);
   const [screen, setScreen] = useState<ScadaScreen | null>(null);
@@ -360,7 +364,7 @@ export function ScadaPage() {
   }
 
   if (!screen || !draftDesign) {
-    return <ScadaLibrary plants={plants} screens={screens} loading={loading} error={error} createOpen={createOpen} createPlantID={createPlantID} createName={createName} onRefresh={loadLibrary} onOpen={loadScreen} onCreateOpen={setCreateOpen} onCreatePlantID={setCreatePlantID} onCreateName={setCreateName} onCreate={createScreen} />;
+    return <ScadaLibrary plants={plants} screens={screens} loading={loading} error={error} createOpen={createOpen} createPlantID={createPlantID} createName={createName} onRefresh={loadLibrary} onOpen={loadScreen} onCreateOpen={setCreateOpen} onCreatePlantID={setCreatePlantID} onCreateName={setCreateName} onCreate={createScreen} canCreate={canCreateScreen} />;
   }
 
   const activeDesign = mode === "published" ? published?.design : draftDesign;
@@ -390,12 +394,12 @@ export function ScadaPage() {
   </div>;
 }
 
-function ScadaLibrary({ plants, screens, loading, error, createOpen, createPlantID, createName, onRefresh, onOpen, onCreateOpen, onCreatePlantID, onCreateName, onCreate }: {
+function ScadaLibrary({ plants, screens, loading, error, createOpen, createPlantID, createName, onRefresh, onOpen, onCreateOpen, onCreatePlantID, onCreateName, onCreate, canCreate }: {
   plants: Plant[]; screens: ScadaScreenSummary[]; loading: boolean; error: string; createOpen: boolean; createPlantID: string; createName: string;
-  onRefresh: () => Promise<void>; onOpen: (id: string) => Promise<void>; onCreateOpen: (open: boolean) => void; onCreatePlantID: (value: string) => void; onCreateName: (value: string) => void; onCreate: (event: FormEvent) => Promise<void>;
+  onRefresh: () => Promise<void>; onOpen: (id: string) => Promise<void>; onCreateOpen: (open: boolean) => void; onCreatePlantID: (value: string) => void; onCreateName: (value: string) => void; onCreate: (event: FormEvent) => Promise<void>; canCreate: boolean;
 }) {
   return <div className="content scada-content">
-    <div className="section-heading"><div><p>Fixed-canvas operational screens</p><h2>SCADA Screens</h2></div><div className="heading-actions"><Button variant="icon" onClick={() => void onRefresh()} title="รีเฟรช" aria-label="รีเฟรช SCADA Screens"><RefreshCw size={18} /></Button><Button compact onClick={() => onCreateOpen(true)}><FilePlus2 size={17} /> สร้าง Screen</Button></div></div>
+    <div className="section-heading"><div><p>Fixed-canvas operational screens</p><h2>SCADA Screens</h2></div><div className="heading-actions"><Button variant="icon" onClick={() => void onRefresh()} title="รีเฟรช" aria-label="รีเฟรช SCADA Screens"><RefreshCw size={18} /></Button>{canCreate && <Button compact onClick={() => onCreateOpen(true)}><FilePlus2 size={17} /> สร้าง Screen</Button>}</div></div>
     {error && <FormMessage>{error}</FormMessage>}
     <section className="scada-library" aria-label="SCADA Screens">
       <div className="scada-library-head"><span>Screen</span><span>Plant</span><span>Draft</span><span>Published</span><span>Updated</span><span aria-label="คำสั่ง" /></div>

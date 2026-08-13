@@ -42,6 +42,7 @@ export function ProfilePage() {
             <div><span>ชื่อที่แสดง</span><strong>{profile.displayName}</strong></div>
             <div><span>อีเมล</span><strong>{profile.email}</strong></div>
             <div><span>Username</span><strong>{profile.username || "-"}</strong></div>
+            <div><span>Role</span><strong>{profile.roles.join(", ") || "-"}</strong></div>
           </>}
         </div>
       </section>

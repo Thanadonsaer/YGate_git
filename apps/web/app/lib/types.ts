@@ -8,6 +8,7 @@ export type User = {
 
 export type SelfProfile = User & {
   username: string;
+  roles: string[];
   updatedAt: string;
 };
 
@@ -30,6 +31,7 @@ export type ManagedUser = {
   status: string;
   isActive: boolean;
   failedLoginCount: number;
+  emailVerifiedAt?: string | null;
   lockedUntil?: string | null;
   roles: string[];
   createdAt: string;

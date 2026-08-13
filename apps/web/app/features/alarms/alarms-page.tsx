@@ -13,6 +13,8 @@ import { Tabs, TabsList, TabsTrigger } from "../../components/ui/tabs";
 import { toast } from "../../components/ui/sonner";
 import { Button } from "../../components/ui/button";
 import { DataTable, TableColumn } from "../../components/ui/data-table";
+import { usePlatformSession } from "../../components/platform-shell";
+import { can } from "../../lib/permissions";
 
 const severityTone: Record<AlarmRule["severity"], string> = {
   warning: "no_devices",
@@ -21,6 +23,7 @@ const severityTone: Record<AlarmRule["severity"], string> = {
 };
 
 export function AlarmsPage() {
+  const { user } = usePlatformSession();
   const [plants, setPlants] = useState<Plant[]>([]);
   const [plantId, setPlantId] = useState("");
   const [tab, setTab] = useState<"log" | "logbook" | "rules">("log");
@@ -165,7 +168,7 @@ export function AlarmsPage() {
             </TabsList>
           </Tabs>
           <Button variant="icon" onClick={() => void loadAlarms()} title="รีเฟรช" aria-label="รีเฟรช Alarm"><RefreshCw size={18} /></Button>
-          {tab === "rules" && <Button compact onClick={() => setEditor("create")}><Plus size={18} /> เพิ่มกฎ</Button>}
+          {tab === "rules" && can(user, "alarm", "create") && <Button compact onClick={() => setEditor("create")}><Plus size={18} /> เพิ่มกฎ</Button>}
         </div>
       </div>
       {error && <FormMessage>{error}</FormMessage>}
@@ -191,15 +194,15 @@ export function AlarmsPage() {
             <TableColumn header="สถานะ" body={(event: AlarmEvent) => (
               event.acknowledgedBy ? (
                 <StatusTag tone="active">Acked {event.acknowledgedAt ? formatDate(event.acknowledgedAt) : ""}</StatusTag>
-              ) : (
+              ) : can(user, "alarm", "update") ? (
                 <Button variant="icon" onClick={() => void acknowledge(event)} title="Acknowledge" aria-label={`Acknowledge alarm ${event.id}`}><Check size={17} /></Button>
-              )
+              ) : null
             )} />
           </DataTable>
         )
       ) : tab === "logbook" ? (
         <div className="grid gap-4">
-          <form className="alarm-logbook-form" onSubmit={(event) => void createLogbookEntry(event)}>
+          {can(user, "alarm", "create") && <form className="alarm-logbook-form" onSubmit={(event) => void createLogbookEntry(event)}>
             <label>ประเภท
               <select className="ea-input" name="eventType" defaultValue="NOTE"><option value="FAULT">Fault</option><option value="MAINTENANCE">Maintenance</option><option value="CURTAILMENT">Curtailment</option><option value="NOTE">Note</option></select>
             </label>
@@ -211,7 +214,7 @@ export function AlarmsPage() {
             <label>หมวดหมู่<TextInput name="category" maxLength={100} placeholder="เช่น Preventive Maintenance" /></label>
             <label className="full-field">รายละเอียด<TextInput name="note" maxLength={4000} placeholder="บันทึกรายละเอียดเหตุการณ์" /></label>
             <Button type="submit" compact><Plus size={17} /> เพิ่ม Event</Button>
-          </form>
+          </form>}
           <DataTable value={logbook} dataKey="id" aria-label="Event Logbook" emptyMessage={<div className="table-state">ยังไม่มี Event Logbook</div>}>
             <TableColumn field="startsAt" header="เวลา" sortable body={(entry: EventLogbookEntry) => <div className="grid gap-1"><strong>{formatDate(entry.startsAt)}</strong>{entry.endsAt && <small>ถึง {formatDate(entry.endsAt)}</small>}</div>} />
             <TableColumn field="eventType" header="ประเภท" sortable body={(entry: EventLogbookEntry) => <StatusTag tone={entry.eventType === "FAULT" ? "offline" : entry.eventType === "MAINTENANCE" ? "degraded" : "active"}>{entry.eventType}</StatusTag>} />
@@ -238,8 +241,8 @@ export function AlarmsPage() {
             )} />
             <TableColumn header="" body={(rule: AlarmRule) => (
               <div className="row-actions">
-                <Button variant="icon" onClick={() => setEditor(rule)} title="แก้ไขกฎ" aria-label={`แก้ไข ${rule.label}`}><Pencil size={17} /></Button>
-                <Button variant="icon" danger onClick={() => void deleteRule(rule)} title="ลบกฎ" aria-label={`ลบ ${rule.label}`}><Trash2 size={17} /></Button>
+                {can(user, "alarm", "update") && <Button variant="icon" onClick={() => setEditor(rule)} title="แก้ไขกฎ" aria-label={`แก้ไข ${rule.label}`}><Pencil size={17} /></Button>}
+                {can(user, "alarm", "delete") && <Button variant="icon" danger onClick={() => void deleteRule(rule)} title="ลบกฎ" aria-label={`ลบ ${rule.label}`}><Trash2 size={17} /></Button>}
               </div>
             )} />
           </DataTable>

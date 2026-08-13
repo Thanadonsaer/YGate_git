@@ -13,6 +13,8 @@ import { DataTable, TableColumn } from "../../components/ui/data-table";
 import { toast } from "../../components/ui/sonner";
 import { Button } from "../../components/ui/button";
 import { estimateRemainingMs, middlewareProgressLabel } from "../../lib/middleware-progress";
+import { usePlatformSession } from "../../components/platform-shell";
+import { can } from "../../lib/permissions";
 
 function ProgressBar({ label }: { label: string }) {
   return (
@@ -38,6 +40,11 @@ type MiddlewareUpdateJob = {
 };
 
 export function MiddlewaresPage({ defaultOrganizationId }: { defaultOrganizationId?: string }) {
+  const { user } = usePlatformSession();
+  const canCreateGateway = can(user, "middleware_client", "create");
+  const canUpdateGateway = can(user, "middleware_client", "update");
+  const canHardDeleteGateway = can(user, "middleware_client", "hard_delete");
+  const canUpdatePatch = can(user, "middleware_patch", "update");
   const [gateways, setGateways] = useState<MiddlewareGateway[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -140,7 +147,7 @@ export function MiddlewaresPage({ defaultOrganizationId }: { defaultOrganization
   }
 
   if (selected) {
-    return <MiddlewareConfigEditor gateway={selected} onBack={() => setSelected(null)} />;
+    return <MiddlewareConfigEditor gateway={selected} onBack={() => setSelected(null)} canManageGateway={canUpdateGateway} canManagePlants={can(user, "middleware_plant", "update")} canCreatePatch={can(user, "middleware_patch", "create")} canUpdatePatch={canUpdatePatch} canDeletePatch={can(user, "middleware_patch", "delete")} />;
   }
 
   return (
@@ -149,7 +156,7 @@ export function MiddlewaresPage({ defaultOrganizationId }: { defaultOrganization
         <div><p>Site gateways</p><h2>Middleware Gateways</h2></div>
         <div className="heading-actions">
           <Button variant="icon" onClick={() => void loadGateways()} title="รีเฟรช" aria-label="รีเฟรช Middleware"><RefreshCw size={18} /></Button>
-          <Button compact onClick={() => setEditor("create")}><Plus size={18} /> เพิ่ม Middleware</Button>
+          {canCreateGateway && <Button compact onClick={() => setEditor("create")}><Plus size={18} /> เพิ่ม Middleware</Button>}
         </div>
       </div>
       {createdKey && (
@@ -174,7 +181,7 @@ export function MiddlewaresPage({ defaultOrganizationId }: { defaultOrganization
             <span className="sr-only">ค้นหา Middleware</span>
             <TextInput className={`${inputClass} pl-9`} type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="ค้นหา Middleware ด้วยชื่อ, Site หรือ Organization" />
           </label>
-          {!selectionMode && <Button variant="secondary" compact onClick={() => setSelectionMode(true)}>เลือก Middleware สำหรับ Update</Button>}
+          {canUpdatePatch && !selectionMode && <Button variant="secondary" compact onClick={() => setSelectionMode(true)}>เลือก Middleware สำหรับ Update</Button>}
           {selectionMode && <section className="mb-3 flex flex-wrap items-center gap-2 rounded-[var(--radius-md)] border border-line bg-surface p-3">
             <strong className="text-sm">Update หลาย Middleware</strong>
             <Select value={batchPatchId} onValueChange={setBatchPatchId} disabled={batchPatches.length === 0 || Boolean(batchJob?.status === "running")}>
@@ -209,11 +216,11 @@ export function MiddlewaresPage({ defaultOrganizationId }: { defaultOrganization
             <TableColumn header="คำสั่ง" body={(row: MiddlewareGateway) => (
               <div className="row-actions">
                 <Button variant="icon" onClick={() => setSelected(row)} title="ตั้งค่า Config" aria-label={`ตั้งค่า Config ของ ${row.name}`}><Settings2 size={17} /></Button>
-                <Button variant="icon" onClick={() => setEditor(row)} title="แก้ไข" aria-label={`แก้ไข ${row.name}`}><Pencil size={17} /></Button>
-                <Button variant="icon" onClick={() => void setGatewayActive(row, !row.isActive)} title={row.isActive ? "ปิดใช้งาน" : "เปิดใช้งาน"} aria-label={row.isActive ? `ปิดใช้งาน ${row.name}` : `เปิดใช้งาน ${row.name}`}>
+                {canUpdateGateway && <Button variant="icon" onClick={() => setEditor(row)} title="แก้ไข" aria-label={`แก้ไข ${row.name}`}><Pencil size={17} /></Button>}
+                {canUpdateGateway && <Button variant="icon" onClick={() => void setGatewayActive(row, !row.isActive)} title={row.isActive ? "ปิดใช้งาน" : "เปิดใช้งาน"} aria-label={row.isActive ? `ปิดใช้งาน ${row.name}` : `เปิดใช้งาน ${row.name}`}>
                   {row.isActive ? <ArchiveX size={17} /> : <CheckCircle2 size={17} />}
-                </Button>
-                <Button variant="icon" danger onClick={() => void hardDeleteGateway(row)} title="ลบถาวร (System Admin)" aria-label={`ลบ ${row.name} ถาวร`}><Trash2 size={17} /></Button>
+                </Button>}
+                {canHardDeleteGateway && <Button variant="icon" danger onClick={() => void hardDeleteGateway(row)} title="ลบถาวร (System Admin)" aria-label={`ลบ ${row.name} ถาวร`}><Trash2 size={17} /></Button>}
               </div>
             )} />
           </DataTable>
@@ -321,7 +328,7 @@ function Card({ title, subtitle, className, children }: { title: string; subtitl
   );
 }
 
-function PlantsCard({ assignedPlants, unassignedPlants, addPlantId, setAddPlantId, pending, loading, onAssign, onUnassign }: {
+function PlantsCard({ assignedPlants, unassignedPlants, addPlantId, setAddPlantId, pending, loading, onAssign, onUnassign, canManage }: {
   assignedPlants: Plant[];
   unassignedPlants: Plant[];
   addPlantId: string;
@@ -330,6 +337,7 @@ function PlantsCard({ assignedPlants, unassignedPlants, addPlantId, setAddPlantI
   loading: boolean;
   onAssign: () => void;
   onUnassign: (plant: Plant) => void;
+  canManage: boolean;
 }) {
   return (
     <Card
@@ -340,26 +348,26 @@ function PlantsCard({ assignedPlants, unassignedPlants, addPlantId, setAddPlantI
         {assignedPlants.map((plant) => (
           <li key={plant.id} className="flex items-center justify-between gap-2 rounded-[var(--radius-sm)] border border-line bg-canvas/40 px-3 py-2 text-sm">
             <div className="min-w-0"><strong className="block truncate text-ink">{plant.name}</strong><small className="block truncate text-[11px] text-ink-soft">{plant.code} · {plant.timezone}</small></div>
-            <Button variant="icon" danger disabled={pending} onClick={() => onUnassign(plant)} title="เอาออก" aria-label={`เอา ${plant.name} ออก`}><Trash2 size={16} /></Button>
+            {canManage && <Button variant="icon" danger disabled={pending} onClick={() => onUnassign(plant)} title="เอาออก" aria-label={`เอา ${plant.name} ออก`}><Trash2 size={16} /></Button>}
           </li>
         ))}
         {!loading && assignedPlants.length === 0 && <li className="table-state">ยังไม่ได้มอบหมาย Plant ให้ Middleware นี้</li>}
       </ul>
-      <div className="row-actions" style={{ justifyContent: "flex-start" }}>
+      {canManage && <div className="row-actions" style={{ justifyContent: "flex-start" }}>
         <Select value={addPlantId} onValueChange={setAddPlantId} disabled={unassignedPlants.length === 0}>
           <SelectTrigger className="w-56"><SelectValue placeholder="เลือก Plant ที่จะมอบหมาย..." /></SelectTrigger>
           <SelectContent>{unassignedPlants.map((p) => <SelectItem key={p.id} value={p.id}>{p.code} - {p.name}</SelectItem>)}</SelectContent>
         </Select>
         <Button compact disabled={!addPlantId || pending} onClick={onAssign}><Plus size={16} /> เพิ่ม Plant</Button>
-      </div>
+      </div>}
     </Card>
   );
 }
 
-function ConfigCard({ isOnline, pushing, importing, onPush, onImport }: { isOnline: boolean; pushing: boolean; importing: boolean; onPush: () => void; onImport: () => void }) {
+function ConfigCard({ isOnline, pushing, importing, onPush, onImport, canManage }: { isOnline: boolean; pushing: boolean; importing: boolean; onPush: () => void; onImport: () => void; canManage: boolean }) {
   return (
     <Card title="Push / Pull Config" subtitle={'"ส่ง Config" เขียนทับค่าบน Middleware ด้วยค่าจาก ygate — "ดึง Config" อ่านค่าเดิมจาก Middleware เข้ามาไว้ใน ygate (ใช้ตอน onboard Middleware เก่า) — ไม่ส่งอัตโนมัติ ต้องกดเอง'}>
-      <div className="flex flex-col gap-2">
+      {canManage ? <div className="flex flex-col gap-2">
         <Button variant="secondary" className="items-center justify-start text-left" disabled={pushing || importing} onClick={onPush}>
           {pushing ? <Loader2 size={17} className="animate-spin shrink-0" /> : <ArrowUpToLine size={17} className="shrink-0" />}
           <span className="flex flex-col items-start">
@@ -374,12 +382,12 @@ function ConfigCard({ isOnline, pushing, importing, onPush, onImport }: { isOnli
             <span className="text-[11px] font-normal text-ink-soft">{!isOnline ? "Middleware ต้อง Online ก่อนจึงจะดึงได้" : importing ? "กำลังดึง Config..." : "อ่านค่าเดิมจาก Middleware เข้ามาไว้ใน ygate"}</span>
           </span>
         </Button>
-      </div>
+      </div> : <p className="text-sm text-ink-soft">คุณมีสิทธิ์ดู Config อย่างเดียว</p>}
     </Card>
   );
 }
 
-function SoftwareCard({ softwareVersion, patches, selectedPatchId, setSelectedPatchId, lifecycleBusy, uploading, staging, applying, rollingBack, restarting, onUpload, onStage, onApply, onRollback, onDeletePatch, onRestart }: {
+function SoftwareCard({ softwareVersion, patches, selectedPatchId, setSelectedPatchId, lifecycleBusy, uploading, staging, applying, rollingBack, restarting, onUpload, onStage, onApply, onRollback, onDeletePatch, onRestart, canCreatePatch, canUpdatePatch, canDeletePatch }: {
   softwareVersion?: string | null;
   patches: MiddlewarePatch[];
   selectedPatchId: string;
@@ -396,6 +404,9 @@ function SoftwareCard({ softwareVersion, patches, selectedPatchId, setSelectedPa
   onRollback: () => void;
   onDeletePatch: () => void;
   onRestart: () => void;
+  canCreatePatch: boolean;
+  canUpdatePatch: boolean;
+  canDeletePatch: boolean;
 }) {
   const progressLabel = middlewareProgressLabel({ uploading, staging, applying, rollingBack, restarting });
   return (
@@ -407,7 +418,7 @@ function SoftwareCard({ softwareVersion, patches, selectedPatchId, setSelectedPa
             <SelectTrigger className="w-56"><SelectValue placeholder="เลือก Patch..." /></SelectTrigger>
             <SelectContent>{patches.map((p) => <SelectItem key={p.id} value={p.id}>{p.version} ({p.os}/{p.arch})</SelectItem>)}</SelectContent>
           </Select>
-          <label
+          {canCreatePatch && <label
             className={cn(
               "inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-[var(--radius-md)] border border-line bg-surface px-2.5 py-1.5 text-xs font-bold text-ink transition hover:bg-canvas focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus",
               lifecycleBusy && "pointer-events-none opacity-48",
@@ -426,25 +437,25 @@ function SoftwareCard({ softwareVersion, patches, selectedPatchId, setSelectedPa
                 if (file) onUpload(file);
               }}
             />
-          </label>
-          <Button variant="text" compact danger disabled={!selectedPatchId || lifecycleBusy} onClick={onDeletePatch}>ลบ Patch</Button>
+          </label>}
+          {canDeletePatch && <Button variant="text" compact danger disabled={!selectedPatchId || lifecycleBusy} onClick={onDeletePatch}>ลบ Patch</Button>}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 rounded-[var(--radius-sm)] border border-dashed border-line bg-canvas/40 p-2.5">
+        {canUpdatePatch && <div className="flex flex-wrap items-center gap-2 rounded-[var(--radius-sm)] border border-dashed border-line bg-canvas/40 p-2.5">
           <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-ink-soft text-[10px] font-bold text-white">1</span>
           <Button variant="secondary" compact disabled={!selectedPatchId || lifecycleBusy} onClick={onStage}>{staging ? "กำลังส่งไปยัง Middleware..." : "Send to middleware"}</Button>
           <ArrowRight size={14} className="shrink-0 text-ink-soft" />
           <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-ink-soft text-[10px] font-bold text-white">2</span>
           <Button compact disabled={lifecycleBusy} onClick={onApply}>{applying ? "กำลัง Apply..." : "Apply"}</Button>
           <span className="text-[11px] text-ink-soft">ต้องส่ง patch ไปยัง Middleware ก่อน — Apply จะ restart service</span>
-        </div>
+        </div>}
 
-        <div className="row-actions" style={{ justifyContent: "flex-start" }}>
+        {canUpdatePatch && <div className="row-actions" style={{ justifyContent: "flex-start" }}>
           <Button variant="text" compact disabled={lifecycleBusy} onClick={onRollback}>{rollingBack ? "กำลัง Rollback..." : "Rollback ไป version ก่อนหน้า"}</Button>
           <Button variant="text" compact disabled={lifecycleBusy} onClick={onRestart}>
             {restarting ? <Loader2 size={15} className="animate-spin" /> : <RotateCcw size={15} />} {restarting ? "กำลัง Restart..." : "Restart Service"}
           </Button>
-        </div>
+        </div>}
       </div>
     </Card>
   );
@@ -477,7 +488,7 @@ function ConnectionsCard({ snapshot }: { snapshot: MiddlewareConfigSnapshot | nu
   );
 }
 
-function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGateway; onBack: () => void }) {
+function MiddlewareConfigEditor({ gateway, onBack, canManageGateway, canManagePlants, canCreatePatch, canUpdatePatch, canDeletePatch }: { gateway: MiddlewareGateway; onBack: () => void; canManageGateway: boolean; canManagePlants: boolean; canCreatePatch: boolean; canUpdatePatch: boolean; canDeletePatch: boolean }) {
   const [snapshot, setSnapshot] = useState<MiddlewareConfigSnapshot | null>(null);
   const [assignedPlants, setAssignedPlants] = useState<Plant[]>([]);
   const [allPlants, setAllPlants] = useState<Plant[]>([]);
@@ -796,6 +807,7 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
           loading={loading}
           onAssign={() => void assignPlant()}
           onUnassign={(plant) => void unassignPlant(plant)}
+          canManage={canManagePlants}
         />
         <ConfigCard
           isOnline={liveGateway.isOnline}
@@ -803,6 +815,7 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
           importing={importing}
           onPush={() => void pushConfig()}
           onImport={() => void importConfig()}
+          canManage={canManageGateway}
         />
         <SoftwareCard
           softwareVersion={liveGateway.softwareVersion}
@@ -821,6 +834,9 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
           onRollback={() => void rollbackUpdate()}
           onDeletePatch={() => void deletePatch()}
           onRestart={() => void restartMiddlewareService()}
+          canCreatePatch={canCreatePatch}
+          canUpdatePatch={canUpdatePatch}
+          canDeletePatch={canDeletePatch}
         />
         <div className="lg:col-span-2">
           <ConnectionsCard snapshot={snapshot} />

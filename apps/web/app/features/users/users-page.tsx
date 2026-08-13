@@ -10,8 +10,11 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from ".
 import { toast } from "../../components/ui/sonner";
 import { Button } from "../../components/ui/button";
 import { DataTable, TableColumn } from "../../components/ui/data-table";
+import { usePlatformSession } from "../../components/platform-shell";
+import { can } from "../../lib/permissions";
 
 export function UsersPage({ currentUserId, defaultOrganizationId }: { currentUserId: string; defaultOrganizationId?: string }) {
+  const { user: currentUser } = usePlatformSession();
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [organizations, setOrganizations] = useState<Organization[]>([]);
@@ -70,14 +73,16 @@ export function UsersPage({ currentUserId, defaultOrganizationId }: { currentUse
     else setError(response.status === 403 ? "เฉพาะ Platform Admin ที่มีสิทธิ์ Hard Delete" : response.status === 400 ? "ไม่สามารถลบตัวเองหรือ Platform Admin คนสุดท้ายได้" : "ไม่สามารถ Hard Delete User ได้");
   }
 
-  const canHardDelete = users.find((item) => item.id === currentUserId)?.roles.includes("Platform Admin") ?? false;
+  const canCreate = can(currentUser, "user", "create") && can(currentUser, "role", "assign");
+  const canEdit = can(currentUser, "user", "update") && can(currentUser, "role", "assign");
+  const canHardDelete = can(currentUser, "user", "hard_delete");
 
   return <div className="content users-content">
     <div className="section-heading">
       <div><p>Access management</p><h2>ผู้ใช้ในระบบ</h2></div>
       <div className="heading-actions">
         <Button variant="icon" onClick={() => void loadUsers()} title="รีเฟรช" aria-label="รีเฟรชรายการผู้ใช้"><RefreshCw size={18} /></Button>
-        <Button compact onClick={() => setEditor("create")}><Plus size={18} /> เพิ่มผู้ใช้</Button>
+        {canCreate && <Button compact onClick={() => setEditor("create")}><Plus size={18} /> เพิ่มผู้ใช้</Button>}
       </div>
     </div>
     {error && <FormMessage>{error}</FormMessage>}
@@ -92,8 +97,9 @@ export function UsersPage({ currentUserId, defaultOrganizationId }: { currentUse
           <div className="grid gap-1"><span>{item.organizationName}</span><small className="block text-[11px] text-ink-soft">{item.organizationId}</small></div>
         )} />
         <TableColumn header="Role" body={(item: ManagedUser) => (
-          <div className="grid gap-1"><span>{item.roles.join(", ") || "-"}</span><small className="block text-[11px] text-ink-soft">Role และ profile แก้ไขได้</small></div>
+          <div className="grid gap-1"><span>{item.roles.join(", ") || "-"}</span><small className="block text-[11px] text-ink-soft">Role กำหนดโดยผู้ดูแลระบบ</small></div>
         )} />
+        <TableColumn header="Verified" body={(item: ManagedUser) => <StatusTag tone={item.emailVerifiedAt ? "active" : "revoked"}>{item.emailVerifiedAt ? `Verified ${formatDate(item.emailVerifiedAt)}` : "ยังไม่ Verify"}</StatusTag>} />
         <TableColumn field="failedLoginCount" header="Login" sortable body={(item: ManagedUser) => (
           <div className="grid gap-1"><span>{item.failedLoginCount.toLocaleString()} failed</span><small className="block text-[11px] text-ink-soft">{item.lockedUntil ? `Locked ${formatDate(item.lockedUntil)}` : `Updated ${formatDate(item.updatedAt)}`}</small></div>
         )} />
@@ -102,10 +108,10 @@ export function UsersPage({ currentUserId, defaultOrganizationId }: { currentUse
         )} />
         <TableColumn header="" body={(item: ManagedUser) => (
           <div className="row-actions">
-            <Button variant="icon" onClick={() => setEditor(item)} disabled={item.id === currentUserId} title="แก้ไข User/Role" aria-label={`แก้ไข ${item.displayName}`}><Pencil size={17} /></Button>
-            <Button variant="icon" onClick={() => void unlockUser(item)} disabled={!item.lockedUntil && item.failedLoginCount === 0} title="ปลดล็อก" aria-label={`ปลดล็อก ${item.displayName}`}><RotateCcw size={17} /></Button>
-            <Button variant="icon" onClick={() => setResetTarget(item)} disabled={item.id === currentUserId} title="ตั้งรหัสผ่านใหม่" aria-label={`ตั้งรหัสผ่านใหม่ให้ ${item.displayName}`}><KeyRound size={17} /></Button>
-            <Button variant="icon" danger onClick={() => void setUserActive(item, !item.isActive)} disabled={item.id === currentUserId} title={item.isActive ? "ปิดใช้งาน" : "เปิดใช้งาน"} aria-label={item.isActive ? `ปิดใช้งาน ${item.displayName}` : `เปิดใช้งาน ${item.displayName}`}>{item.isActive ? <UserX size={17} /> : <CheckCircle2 size={17} />}</Button>
+            {canEdit && item.id !== currentUserId && <Button variant="icon" onClick={() => setEditor(item)} title="แก้ไข User/Role" aria-label={`แก้ไข ${item.displayName}`}><Pencil size={17} /></Button>}
+            {can(currentUser, "user", "unlock") && <Button variant="icon" onClick={() => void unlockUser(item)} disabled={!item.lockedUntil && item.failedLoginCount === 0} title="ปลดล็อก" aria-label={`ปลดล็อก ${item.displayName}`}><RotateCcw size={17} /></Button>}
+            {can(currentUser, "user", "reset_password") && item.id !== currentUserId && <Button variant="icon" onClick={() => setResetTarget(item)} title="ตั้งรหัสผ่านใหม่" aria-label={`ตั้งรหัสผ่านใหม่ให้ ${item.displayName}`}><KeyRound size={17} /></Button>}
+            {can(currentUser, "user", "disable") && item.id !== currentUserId && <Button variant="icon" danger onClick={() => void setUserActive(item, !item.isActive)} title={item.isActive ? "ปิดใช้งาน" : "เปิดใช้งาน"} aria-label={item.isActive ? `ปิดใช้งาน ${item.displayName}` : `เปิดใช้งาน ${item.displayName}`}>{item.isActive ? <UserX size={17} /> : <CheckCircle2 size={17} />}</Button>}
             {canHardDelete && <Button variant="icon" danger onClick={() => void hardDeleteUser(item)} disabled={item.id === currentUserId} title="Hard Delete" aria-label={`Hard Delete ${item.displayName}`}><Trash2 size={17} /></Button>}
           </div>
         )} />

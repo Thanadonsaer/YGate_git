@@ -34,6 +34,7 @@ type ManagedUser struct {
 	Status           string     `json:"status"`
 	IsActive         bool       `json:"isActive"`
 	FailedLoginCount int32      `json:"failedLoginCount"`
+	EmailVerifiedAt  *time.Time `json:"emailVerifiedAt,omitempty"`
 	LockedUntil      *time.Time `json:"lockedUntil"`
 	Roles            []string   `json:"roles"`
 	CreatedAt        time.Time  `json:"createdAt"`
@@ -76,7 +77,7 @@ func (s *Service) Users(ctx context.Context, principal auth.Principal) ([]Manage
 	}
 	rows, err := s.pool.Query(ctx, `
 SELECT u.id, u.organization_id, COALESCE(o.name,''), u.email, COALESCE(u.username,''), u.display_name,
-       u.status, u.failed_login_count, u.locked_until, u.created_at, u.updated_at,
+	       u.status, u.failed_login_count, u.email_verified_at, u.locked_until, u.created_at, u.updated_at,
        COALESCE(array_agg(r.name ORDER BY r.name) FILTER (WHERE r.id IS NOT NULL), '{}')::text[] AS roles
 FROM auth.app_user u
 LEFT JOIN organization o ON o.id = u.organization_id
@@ -105,13 +106,14 @@ LIMIT 200`, principal.UserID)
 	for rows.Next() {
 		var user ManagedUser
 		var id, organizationID pgtype.UUID
-		var lockedUntil, createdAt, updatedAt pgtype.Timestamptz
-		if err = rows.Scan(&id, &organizationID, &user.OrganizationName, &user.Email, &user.Username, &user.DisplayName, &user.Status, &user.FailedLoginCount, &lockedUntil, &createdAt, &updatedAt, &user.Roles); err != nil {
+		var verifiedAt, lockedUntil, createdAt, updatedAt pgtype.Timestamptz
+		if err = rows.Scan(&id, &organizationID, &user.OrganizationName, &user.Email, &user.Username, &user.DisplayName, &user.Status, &user.FailedLoginCount, &verifiedAt, &lockedUntil, &createdAt, &updatedAt, &user.Roles); err != nil {
 			return nil, fmt.Errorf("scan user: %w", err)
 		}
 		user.ID = uuidString(id)
 		user.OrganizationID = uuidString(organizationID)
 		user.IsActive = user.Status == "ACTIVE"
+		user.EmailVerifiedAt = timePointer(verifiedAt)
 		user.LockedUntil = timePointer(lockedUntil)
 		user.CreatedAt = createdAt.Time
 		user.UpdatedAt = updatedAt.Time
@@ -135,7 +137,7 @@ func (s *Service) Roles(ctx context.Context, principal auth.Principal) ([]Role, 
 	rows, err := s.pool.Query(ctx, `
 SELECT id, organization_id, name, description, is_system
 FROM auth.role
-WHERE (organization_id IS NULL OR organization_id = $2)
+WHERE (organization_id IS NULL OR $1 OR organization_id = $2)
   AND ($1::boolean OR name <> $3)
 ORDER BY organization_id IS NOT NULL, name <> $3 DESC, name`, global, principal.OrganizationID, systemAdminRoleName)
 	if err != nil {

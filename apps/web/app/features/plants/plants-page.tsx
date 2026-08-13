@@ -36,6 +36,7 @@ import type {
   Device,
   DeviceModelOption,
   LatestTelemetry,
+  Organization,
   Plant,
 } from "../../lib/types";
 import {
@@ -61,13 +62,17 @@ import {
 import { toast } from "../../components/ui/sonner";
 import { Button } from "../../components/ui/button";
 import { DataTable, TableColumn } from "../../components/ui/data-table";
+import { usePlatformSession } from "../../components/platform-shell";
+import { can, isSystemAdmin } from "../../lib/permissions";
 
 export function PlantsPage({
   defaultOrganizationId,
 }: {
   defaultOrganizationId?: string;
 }) {
+  const { user } = usePlatformSession();
   const [plants, setPlants] = useState<Plant[]>([]);
+  const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [editor, setEditor] = useState<Plant | "create" | null>(null);
@@ -95,6 +100,12 @@ export function PlantsPage({
   useEffect(() => {
     void loadPlants();
   }, [loadPlants]);
+
+  useEffect(() => {
+    void api("/api/v1/admin/organizations").then(async (response) => {
+      if (response.ok) setOrganizations((await response.json()) as Organization[]);
+    });
+  }, []);
 
   // Deep-link from Site Map ("ดูรายละเอียดโรงไฟฟ้า" -> /plants?open=<id>) straight
   // into that plant's device management view once the list has loaded.
@@ -267,14 +278,14 @@ export function PlantsPage({
           >
             <RefreshCw size={18} />
           </Button>
-          <Button
+          {can(user, "plant", "update") && <Button
             variant="secondary"
             compact
             onClick={() => void exportAllCSV()}
             title="Export CSV (ทุกโรงไฟฟ้า)"
           >
             <Download size={16} /> Export CSV
-          </Button>
+          </Button>}
           <Button
             variant="secondary"
             compact
@@ -283,28 +294,30 @@ export function PlantsPage({
           >
             Template
           </Button>
-          <Button
-            variant="secondary"
-            compact
-            onClick={() => importInputRef.current?.click()}
-            title="Import CSV (อัปเดตทับของเดิม)"
-          >
-            <Upload size={16} /> Import CSV
-          </Button>
-          <input
-            ref={importInputRef}
-            type="file"
-            accept=".csv,text/csv"
-            className="hidden"
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (file) void importPlantCSVFile(file);
-              event.target.value = "";
-            }}
-          />
-          <Button compact onClick={() => setEditor("create")}>
+          {can(user, "plant", "update") && <>
+            <Button
+              variant="secondary"
+              compact
+              onClick={() => importInputRef.current?.click()}
+              title="Import CSV (อัปเดตทับของเดิม)"
+            >
+              <Upload size={16} /> Import CSV
+            </Button>
+            <input
+              ref={importInputRef}
+              type="file"
+              accept=".csv,text/csv"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) void importPlantCSVFile(file);
+                event.target.value = "";
+              }}
+            />
+          </>}
+          {can(user, "plant", "create") && <Button compact onClick={() => setEditor("create")}>
             <Plus size={18} /> เพิ่มโรงไฟฟ้า
-          </Button>
+          </Button>}
         </div>
       </div>
       <div className="plant-search">
@@ -441,15 +454,15 @@ export function PlantsPage({
                 >
                   <Download size={17} />
                 </Button>
-                <Button
+                {can(user, "plant", "update") && <Button
                   variant="icon"
                   onClick={() => setEditor(plant)}
                   title="แก้ไขโรงไฟฟ้า"
                   aria-label={`แก้ไข ${plant.name}`}
                 >
                   <Pencil size={17} />
-                </Button>
-                {plant.isActive && (
+                </Button>}
+                {plant.isActive && can(user, "plant", "update") && (
                   <Button
                     variant="icon"
                     onClick={() => void decommissionPlant(plant)}
@@ -459,7 +472,7 @@ export function PlantsPage({
                     <ArchiveX size={17} />
                   </Button>
                 )}
-                <Button
+                {can(user, "plant", "hard_delete") && <Button
                   variant="icon"
                   danger
                   onClick={() => void hardDeletePlant(plant)}
@@ -467,7 +480,7 @@ export function PlantsPage({
                   aria-label={`ลบ ${plant.name} ถาวร`}
                 >
                   <Trash2 size={17} />
-                </Button>
+                </Button>}
               </div>
             )}
           />
@@ -477,6 +490,8 @@ export function PlantsPage({
         <PlantEditor
           plant={editor === "create" ? undefined : editor}
           defaultOrganizationId={defaultOrganizationId}
+          organizations={organizations}
+          canChooseOrganization={isSystemAdmin(user)}
           onClose={() => setEditor(null)}
           onSaved={() => {
             setEditor(null);
@@ -495,6 +510,10 @@ function DeviceManagement({
   plant: Plant;
   onBack: () => void;
 }) {
+  const { user } = usePlatformSession();
+  const canCreateDevice = can(user, "device", "create");
+  const canUpdateDevice = can(user, "device", "update");
+  const canHardDeleteDevice = can(user, "device", "hard_delete");
   const [devices, setDevices] = useState<Device[]>([]);
   const [latestByDevice, setLatestByDevice] = useState<
     Record<string, LatestTelemetry>
@@ -719,9 +738,9 @@ function DeviceManagement({
           >
             <RefreshCw size={18} />
           </Button>
-          <Button compact onClick={() => setEditor("create")}>
+          {canCreateDevice && <Button compact onClick={() => setEditor("create")}>
             <Plus size={18} /> เพิ่ม Device
-          </Button>
+          </Button>}
         </div>
       </div>
       {error && <FormMessage>{error}</FormMessage>}
@@ -850,7 +869,7 @@ function DeviceManagement({
               const canTest = Boolean(device.modbusHost && device.modbusPort);
               return (
                 <div className="row-actions">
-                  <Button
+                  {canUpdateDevice && <Button
                     variant="icon"
                     disabled={!canTest || outcome?.pending}
                     onClick={() => void runCommand("test-connection", device)}
@@ -860,8 +879,8 @@ function DeviceManagement({
                     aria-label={`ทดสอบการเชื่อมต่อ ${device.name}`}
                   >
                     <PlugZap size={17} />
-                  </Button>
-                  <Button
+                  </Button>}
+                  {canUpdateDevice && <Button
                     variant="icon"
                     disabled={!canTest || outcome?.pending}
                     onClick={() => void runCommand("test-read", device)}
@@ -869,7 +888,7 @@ function DeviceManagement({
                     aria-label={`ทดสอบอ่านค่า ${device.name}`}
                   >
                     <RefreshCw size={17} />
-                  </Button>
+                  </Button>}
                   <Button
                     variant="icon"
                     onClick={() => setSelectedDevice(device)}
@@ -878,15 +897,15 @@ function DeviceManagement({
                   >
                     <Eye size={17} />
                   </Button>
-                  <Button
+                  {canUpdateDevice && <Button
                     variant="icon"
                     onClick={() => setEditor(device)}
                     title="แก้ไข Device"
                     aria-label={`แก้ไข ${device.name}`}
                   >
                     <Pencil size={17} />
-                  </Button>
-                  {device.isActive && (
+                  </Button>}
+                  {device.isActive && canUpdateDevice && (
                     <Button
                       variant="icon"
                       onClick={() => void decommissionDevice(device)}
@@ -896,7 +915,7 @@ function DeviceManagement({
                       <ArchiveX size={17} />
                     </Button>
                   )}
-                  <Button
+                  {canHardDeleteDevice && <Button
                     variant="icon"
                     danger
                     onClick={() => void hardDeleteDevice(device)}
@@ -904,7 +923,7 @@ function DeviceManagement({
                     aria-label={`ลบ ${device.name} ถาวร`}
                   >
                     <Trash2 size={17} />
-                  </Button>
+                  </Button>}
                 </div>
               );
             }}
@@ -1323,11 +1342,15 @@ function DeviceEditor({
 function PlantEditor({
   plant,
   defaultOrganizationId,
+  organizations,
+  canChooseOrganization,
   onClose,
   onSaved,
 }: {
   plant?: Plant;
   defaultOrganizationId?: string;
+  organizations: Organization[];
+  canChooseOrganization: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -1508,13 +1531,11 @@ function PlantEditor({
           <form className="plant-editor-form" onSubmit={submit}>
             {!plant && (
               <label className="full-field">
-                Organization ID
-                <TextInput
-                  autoFocus
-                  value={organizationId}
-                  onChange={(event) => setOrganizationId(event.target.value)}
-                  required
-                />
+                Organization
+                <Select value={organizationId} onValueChange={setOrganizationId} disabled={!canChooseOrganization}>
+                  <SelectTrigger><SelectValue placeholder="เลือก Organization" /></SelectTrigger>
+                  <SelectContent>{organizations.filter((organization) => canChooseOrganization || organization.id === defaultOrganizationId).map((organization) => <SelectItem key={organization.id} value={organization.id}>{organization.name}</SelectItem>)}</SelectContent>
+                </Select>
               </label>
             )}
             <label>

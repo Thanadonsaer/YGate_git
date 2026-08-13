@@ -1,7 +1,9 @@
 package core
 
 import (
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -40,5 +42,12 @@ func TestHasRoleMatchesExactBaselineRole(t *testing.T) {
 	roles := []string{"Engineer", "Platform Admin"}
 	if !hasRole(roles, "Platform Admin") || hasRole(roles, "Admin") {
 		t.Fatalf("roles=%v", roles)
+	}
+}
+
+func TestSelfProfileIncludesRolesInJSON(t *testing.T) {
+	data, err := json.Marshal(SelfProfile{Roles: []string{"Operator"}})
+	if err != nil || string(data) == "{}" || !strings.Contains(string(data), `"roles":["Operator"]`) {
+		t.Fatalf("profile JSON=%s err=%v", data, err)
 	}
 }

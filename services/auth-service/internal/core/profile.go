@@ -21,6 +21,7 @@ type SelfProfile struct {
 	Email          string    `json:"email"`
 	Username       string    `json:"username"`
 	DisplayName    string    `json:"displayName"`
+	Roles          []string  `json:"roles"`
 	UpdatedAt      time.Time `json:"updatedAt"`
 }
 
@@ -92,14 +93,16 @@ func (s *Service) UpdateOwnProfile(ctx context.Context, principal auth.Principal
 }
 
 func getSelfProfile(ctx context.Context, querier rowQuerier, userID pgtype.UUID, lock bool) (SelfProfile, error) {
-	query := `SELECT id, organization_id, email, COALESCE(username,''), display_name, updated_at FROM auth.app_user WHERE id=$1`
+	query := `SELECT id, organization_id, email, COALESCE(username,''), display_name,
+COALESCE((SELECT array_agg(r.name ORDER BY r.name) FROM auth.user_role ur JOIN auth.role r ON r.id=ur.role_id WHERE ur.user_id=auth.app_user.id AND ur.plant_id IS NULL), '{}')::text[], updated_at
+FROM auth.app_user WHERE id=$1`
 	if lock {
 		query += " FOR UPDATE"
 	}
 	var profile SelfProfile
 	var id, organizationID pgtype.UUID
 	var updatedAt pgtype.Timestamptz
-	if err := querier.QueryRow(ctx, query, userID).Scan(&id, &organizationID, &profile.Email, &profile.Username, &profile.DisplayName, &updatedAt); err != nil {
+	if err := querier.QueryRow(ctx, query, userID).Scan(&id, &organizationID, &profile.Email, &profile.Username, &profile.DisplayName, &profile.Roles, &updatedAt); err != nil {
 		return SelfProfile{}, fmt.Errorf("get self profile: %w", err)
 	}
 	profile.ID = uuidString(id)

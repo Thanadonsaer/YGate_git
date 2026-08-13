@@ -493,6 +493,7 @@ export function EnergyAnalysisPage() {
       </section>
 
       {error && <FormMessage>{error}</FormMessage>}
+      {loading && <div className="analytics-loading" role="status" aria-live="polite"><RefreshCw className="spin" size={20} /> กำลังโหลดข้อมูล...</div>}
       {current.truncated && (
         <p className="ts-truncated">
           ข้อมูลในช่วงนี้มากเกินไป แสดงเฉพาะส่วนล่าสุด — ลากบนกราฟเพื่อ zoom
@@ -615,7 +616,6 @@ export function EnergyAnalysisPage() {
             />
           </section>
 
-          {loading && <p className="ts-hint">กำลังโหลดข้อมูล…</p>}
         </>
       )}
     </div>
