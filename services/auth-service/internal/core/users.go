@@ -58,11 +58,12 @@ type CreateUserInput struct {
 }
 
 type UpdateUserInput struct {
-	Email       string
-	Username    string
-	DisplayName string
-	RoleID      string
-	IsActive    bool
+	OrganizationID string
+	Email          string
+	Username       string
+	DisplayName    string
+	RoleID         string
+	IsActive       bool
 }
 
 func (s *Service) Users(ctx context.Context, principal auth.Principal) ([]ManagedUser, error) {
@@ -74,11 +75,11 @@ func (s *Service) Users(ctx context.Context, principal auth.Principal) ([]Manage
 		return nil, ErrForbidden
 	}
 	rows, err := s.pool.Query(ctx, `
-SELECT u.id, u.organization_id, o.name, u.email, COALESCE(u.username,''), u.display_name,
+SELECT u.id, u.organization_id, COALESCE(o.name,''), u.email, COALESCE(u.username,''), u.display_name,
        u.status, u.failed_login_count, u.locked_until, u.created_at, u.updated_at,
        COALESCE(array_agg(r.name ORDER BY r.name) FILTER (WHERE r.id IS NOT NULL), '{}')::text[] AS roles
 FROM auth.app_user u
-JOIN organization o ON o.id = u.organization_id
+LEFT JOIN organization o ON o.id = u.organization_id
 LEFT JOIN auth.user_role ur_user ON ur_user.user_id = u.id
 LEFT JOIN auth.role r ON r.id = ur_user.role_id
 WHERE EXISTS (
@@ -270,11 +271,22 @@ func (s *Service) UpdateUser(ctx context.Context, principal auth.Principal, user
 			return ManagedUser{}, ErrUserInvalid
 		}
 	}
-	organizationID, err := parseUUID(before.OrganizationID)
+	organizationID, err := parseUUID(input.OrganizationID)
 	if err != nil {
-		return ManagedUser{}, ErrUserNotFound
+		return ManagedUser{}, ErrUserInvalid
 	}
-	if err = s.requireOrganizationPermission(ctx, q, principal, "update", "user", organizationID); err != nil {
+	beforeOrganizationID, beforeOrganizationErr := parseUUID(before.OrganizationID)
+	if beforeOrganizationErr == nil && uuidString(beforeOrganizationID) != uuidString(organizationID) {
+		global, globalErr := s.hasGlobalPermission(ctx, principal, "update", "user")
+		if globalErr != nil || !global {
+			return ManagedUser{}, ErrForbidden
+		}
+	} else if beforeOrganizationErr != nil {
+		global, globalErr := s.hasGlobalPermission(ctx, principal, "update", "user")
+		if globalErr != nil || !global {
+			return ManagedUser{}, ErrForbidden
+		}
+	} else if err = s.requireOrganizationPermission(ctx, q, principal, "update", "user", organizationID); err != nil {
 		return ManagedUser{}, err
 	}
 	if !input.IsActive {
@@ -306,11 +318,11 @@ func (s *Service) UpdateUser(ctx context.Context, principal auth.Principal, user
 	if input.Username != "" {
 		username = input.Username
 	}
-	if _, err = tx.Exec(ctx, `UPDATE auth.app_user SET email=$2, username=$3, display_name=$4, status=$5, updated_at=now() WHERE id=$1`, id, input.Email, username, input.DisplayName, status); err != nil {
-		return ManagedUser{}, mapUserWriteError(err)
-	}
 	if _, err = tx.Exec(ctx, `DELETE FROM auth.user_role WHERE user_id=$1 AND plant_id IS NULL`, id); err != nil {
 		return ManagedUser{}, fmt.Errorf("replace user baseline role: %w", err)
+	}
+	if _, err = tx.Exec(ctx, `UPDATE auth.app_user SET organization_id=$2, email=$3, username=$4, display_name=$5, status=$6, updated_at=now() WHERE id=$1`, id, organizationID, input.Email, username, input.DisplayName, status); err != nil {
+		return ManagedUser{}, mapUserWriteError(err)
 	}
 	assignmentID, err := newUUID()
 	if err != nil {
@@ -669,10 +681,10 @@ func (s *Service) getUserInTx(ctx context.Context, tx pgx.Tx, id pgtype.UUID) (M
 	var userID, organizationID pgtype.UUID
 	var lockedUntil, createdAt, updatedAt pgtype.Timestamptz
 	err := tx.QueryRow(ctx, `
-SELECT u.id, u.organization_id, o.name, u.email, COALESCE(u.username,''), u.display_name,
+SELECT u.id, u.organization_id, COALESCE(o.name,''), u.email, COALESCE(u.username,''), u.display_name,
        u.status, u.failed_login_count, u.locked_until, u.created_at, u.updated_at
 FROM auth.app_user u
-JOIN organization o ON o.id = u.organization_id
+LEFT JOIN organization o ON o.id = u.organization_id
 WHERE u.id=$1
 FOR UPDATE OF u`, id).Scan(&userID, &organizationID, &user.OrganizationName, &user.Email, &user.Username, &user.DisplayName, &user.Status, &user.FailedLoginCount, &lockedUntil, &createdAt, &updatedAt)
 	if err != nil {

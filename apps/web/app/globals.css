@@ -307,6 +307,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .ts-legend-item strong, .ts-tooltip strong { color: var(--ink); font-size: 12px; }
 .ts-swatch { width: 9px; height: 9px; border-radius: 50%; flex: none; }
 .ts-svg { display: block; width: 100%; touch-action: none; cursor: crosshair; user-select: none; }
+.ts-plot { position: relative; min-height: 120px; }
 .ts-grid { stroke: var(--line); stroke-width: 1; shape-rendering: crispEdges; }
 .ts-axis { stroke: #b9c4cb; stroke-width: 1; shape-rendering: crispEdges; }
 .ts-tick { fill: var(--muted); font-size: 10px; }
@@ -316,6 +317,14 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .ts-dot { stroke: var(--surface); stroke-width: 1.5; pointer-events: none; }
 .ts-selection { fill: var(--focus); opacity: .14; pointer-events: none; }
 .ts-empty { min-height: 120px; display: grid; place-items: center; color: var(--muted); font-size: 12px; }
+.ts-loading-overlay { position: absolute; inset: 0; display: grid; place-items: center; align-content: center; gap: 8px; background: color-mix(in srgb, var(--surface) 76%, transparent); color: var(--ink); font-size: 12px; font-weight: 750; pointer-events: none; }
+.ts-loading-track, .progress-status-track { display: block; position: relative; overflow: hidden; border-radius: 999px; background: color-mix(in srgb, var(--action) 18%, var(--surface)); }
+.ts-loading-track { width: min(220px, 70%); height: 5px; }
+.ts-loading-track i, .progress-status-track span { position: absolute; inset: 0 auto 0 0; width: 42%; border-radius: inherit; background: var(--action); animation: loading-slide 1.2s ease-in-out infinite; }
+.progress-status { display: grid; gap: 6px; padding: 9px 11px; border: 1px solid color-mix(in srgb, var(--action) 24%, var(--line)); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--action) 5%, var(--surface)); color: var(--ink); font-size: 12px; }
+.progress-status-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-weight: 750; }
+.progress-status-track { width: 100%; height: 4px; }
+@keyframes loading-slide { 0% { transform: translateX(-110%); } 50% { transform: translateX(120%); } 100% { transform: translateX(240%); } }
 .ts-tooltip { position: absolute; top: 34px; z-index: 2; display: grid; gap: 3px; min-width: 150px; max-width: 240px; padding: 8px 10px;
   border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); box-shadow: var(--shadow-lg); pointer-events: none; font-size: 11px; color: var(--muted); }
 .ts-tooltip span { display: flex; align-items: center; gap: 6px; }

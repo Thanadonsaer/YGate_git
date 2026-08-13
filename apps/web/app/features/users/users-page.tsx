@@ -122,14 +122,14 @@ function UserEditor({ user, roles, organizations, defaultOrganizationId, onClose
   const [displayName, setDisplayName] = useState(user?.displayName ?? "");
   const [password, setPassword] = useState("");
   const [organizationId, setOrganizationId] = useState(user?.organizationId ?? defaultOrganizationId ?? "");
-  const [roleId, setRoleId] = useState(roles.find((role) => user?.roles.includes(role.name))?.id ?? roles[0]?.id ?? "");
+  const [roleId, setRoleId] = useState(roles.find((role) => user?.roles.includes(role.name))?.id ?? (user ? "" : roles[0]?.id ?? ""));
   const [isActive, setIsActive] = useState(user?.isActive ?? true);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (!roleId && roles[0]) setRoleId(roles[0].id);
-  }, [roleId, roles]);
+    if (!user && !roleId && roles[0]) setRoleId(roles[0].id);
+  }, [roleId, roles, user]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -140,7 +140,7 @@ function UserEditor({ user, roles, organizations, defaultOrganizationId, onClose
       const response = await api(user ? `/api/v1/admin/users/${encodeURIComponent(user.id)}` : "/api/v1/admin/users", {
         method: user ? "PUT" : "POST",
         headers: { "X-CSRF-Token": csrfToken() },
-        body: JSON.stringify(user ? { email, username, displayName, roleId, isActive } : { organizationId, email, username, displayName, password, roleId }),
+        body: JSON.stringify(user ? { organizationId, email, username, displayName, roleId, isActive } : { organizationId, email, username, displayName, password, roleId }),
       });
       if (!response.ok) throw new Error(response.status === 409 ? "อีเมลหรือ username นี้มีอยู่แล้ว" : response.status === 403 ? "บัญชีนี้ไม่มีสิทธิ์จัดการ User/Role" : "ไม่สามารถบันทึกผู้ใช้ได้");
       onSaved();
@@ -163,8 +163,8 @@ function UserEditor({ user, roles, organizations, defaultOrganizationId, onClose
             <label>Username<TextInput value={username} onChange={(event) => setUsername(event.target.value)} maxLength={100} /></label>
             <label className="full-field">ชื่อแสดงผล<TextInput value={displayName} onChange={(event) => setDisplayName(event.target.value)} maxLength={200} required /></label>
             <label>Organization
-              {user || organizations.length === 0 ? (
-                <TextInput value={organizationId} onChange={(event) => setOrganizationId(event.target.value)} required disabled={Boolean(user)} />
+              {organizations.length === 0 ? (
+                <TextInput value={organizationId} onChange={(event) => setOrganizationId(event.target.value)} required />
               ) : (
                 <Select value={organizationId} onValueChange={setOrganizationId}>
                   <SelectTrigger><SelectValue placeholder="เลือก Organization" /></SelectTrigger>

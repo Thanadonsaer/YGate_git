@@ -23,11 +23,12 @@ type updateUserStatusRequest struct {
 }
 
 type updateUserRequest struct {
-	Email       string `json:"email"`
-	Username    string `json:"username"`
-	DisplayName string `json:"displayName"`
-	RoleID      string `json:"roleId"`
-	IsActive    *bool  `json:"isActive"`
+	OrganizationID string `json:"organizationId"`
+	Email          string `json:"email"`
+	Username       string `json:"username"`
+	DisplayName    string `json:"displayName"`
+	RoleID         string `json:"roleId"`
+	IsActive       *bool  `json:"isActive"`
 }
 
 type resetUserPasswordRequest struct {
@@ -108,7 +109,7 @@ func updateUserHandler(service *core.Service) func(http.ResponseWriter, *http.Re
 			http.Error(w, "invalid request", http.StatusBadRequest)
 			return
 		}
-		user, err := service.UpdateUser(r.Context(), principal, r.PathValue("userId"), core.UpdateUserInput{Email: request.Email, Username: request.Username, DisplayName: request.DisplayName, RoleID: request.RoleID, IsActive: *request.IsActive}, remoteIP(r.RemoteAddr))
+		user, err := service.UpdateUser(r.Context(), principal, r.PathValue("userId"), core.UpdateUserInput{OrganizationID: request.OrganizationID, Email: request.Email, Username: request.Username, DisplayName: request.DisplayName, RoleID: request.RoleID, IsActive: *request.IsActive}, remoteIP(r.RemoteAddr))
 		if writeUserError(w, err) {
 			return
 		}

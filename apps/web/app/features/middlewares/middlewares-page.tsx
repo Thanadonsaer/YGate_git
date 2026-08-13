@@ -12,6 +12,16 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from ".
 import { DataTable, TableColumn } from "../../components/ui/data-table";
 import { toast } from "../../components/ui/sonner";
 import { Button } from "../../components/ui/button";
+import { middlewareProgressLabel } from "../../lib/middleware-progress";
+
+function ProgressBar({ label }: { label: string }) {
+  return (
+    <div className="progress-status" role="status" aria-live="polite">
+      <div className="progress-status-head"><span>{label}</span><Loader2 size={14} className="animate-spin" /></div>
+      <div className="progress-status-track" aria-hidden="true"><span /></div>
+    </div>
+  );
+}
 
 export function MiddlewaresPage({ defaultOrganizationId }: { defaultOrganizationId?: string }) {
   const [gateways, setGateways] = useState<MiddlewareGateway[]>([]);
@@ -100,6 +110,7 @@ export function MiddlewaresPage({ defaultOrganizationId }: { defaultOrganization
         </section>
       )}
       {error && <FormMessage>{error}</FormMessage>}
+      {loading && <ProgressBar label="กำลังโหลด Middleware..." />}
       {loading ? (
         <div className="table-state">กำลังโหลด Middleware</div>
       ) : (
@@ -316,9 +327,11 @@ function SoftwareCard({ softwareVersion, patches, selectedPatchId, setSelectedPa
   onDeletePatch: () => void;
   onRestart: () => void;
 }) {
+  const progressLabel = middlewareProgressLabel({ uploading, staging, applying, rollingBack, restarting });
   return (
     <Card title="Software Update" subtitle={`Version ปัจจุบัน: ${softwareVersion || "ไม่ทราบ (Middleware ยังไม่เคยส่ง version มา)"} — upload patch, stage ไปที่เครื่องนี้, แล้วค่อย Apply แยกกัน (ไม่ auto)`}>
       <div className="flex flex-col gap-3">
+        {progressLabel && <ProgressBar label={progressLabel} />}
         <div className="row-actions" style={{ justifyContent: "flex-start" }}>
           <Select value={selectedPatchId} onValueChange={setSelectedPatchId} disabled={patches.length === 0}>
             <SelectTrigger className="w-56"><SelectValue placeholder="เลือก Patch..." /></SelectTrigger>
@@ -691,6 +704,7 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
         </div>
       </div>
       {error && <FormMessage>{error}</FormMessage>}
+      {loading && <ProgressBar label="กำลังโหลดข้อมูล Middleware..." />}
       {loading && <div className="table-state">กำลังโหลดข้อมูล</div>}
 
       <div className="mb-4 flex flex-wrap items-center gap-x-5 gap-y-2 rounded-[var(--radius-md)] border border-line bg-surface px-4 py-3 text-sm">

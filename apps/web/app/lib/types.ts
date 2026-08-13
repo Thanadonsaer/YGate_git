@@ -22,7 +22,7 @@ export type SiteSettings = {
 
 export type ManagedUser = {
   id: string;
-  organizationId: string;
+  organizationId?: string | null;
   organizationName: string;
   email: string;
   username?: string;

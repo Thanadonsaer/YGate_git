@@ -46,6 +46,16 @@ Expand-Archive ลง release directory ใหม่ → start.ps1 (migrate + pm
 - `PUBLIC_GATEWAY_URL` — ค่าเริ่มต้น `https://ygate.yokogawasolution.com`
 - `RELEASES_ROOT` — ค่าเริ่มต้น `D:\YGATE\releases` ต้องตรงกับที่ตั้งไว้ตอน manual deploy
 - `ENV_FILE` — ค่าเริ่มต้น `D:\YGATE\ygate.env` ไฟล์นี้ต้องมีอยู่ก่อนแล้ว (สร้างครั้งแรกตาม manual-production.md) — Jenkins ไม่สร้างหรือแก้ไฟล์นี้ให้
+
+กำหนด storage ที่ต้องอยู่ข้าม release ไว้ใน `ENV_FILE` และอย่าวางไว้ใต้ `RELEASES_ROOT`:
+
+```env
+PLATFORM_MIDDLEWARE_PATCH_DIR=D:\YGate\data\middleware-patches
+PLATFORM_SITE_LOGO_DIR=D:\YGate\data\site-logos
+PLATFORM_PLANT_IMAGE_DIR=D:\YGate\data\plant-images
+```
+
+สร้าง directory เหล่านี้ล่วงหน้าและให้ account ที่รัน PM2 มีสิทธิ์อ่าน/เขียน เพราะ Jenkins แตก release ใหม่ทุกครั้ง และ path แบบ relative จะชี้ไปยัง release ใหม่
 - approver group: `ygate-production-approvers` (ตั้งใน Manage Jenkins → Authorization)
 
 ## 5. Pipeline ทำงานอย่างไร

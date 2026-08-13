@@ -258,16 +258,15 @@ func clearAuthCookies(w http.ResponseWriter, secure bool) {
 func registerHandler(service *auth.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
-			OrganizationCode string `json:"organizationCode"`
-			Email            string `json:"email"`
-			Username         string `json:"username"`
-			DisplayName      string `json:"displayName"`
-			Password         string `json:"password"`
+			Email       string `json:"email"`
+			Username    string `json:"username"`
+			DisplayName string `json:"displayName"`
+			Password    string `json:"password"`
 		}
 		if !decodeJSON(w, r, &request, 16<<10) {
 			return
 		}
-		err := service.Register(r.Context(), auth.RegisterInput{OrganizationCode: request.OrganizationCode, Email: request.Email, Username: request.Username, DisplayName: request.DisplayName, Password: request.Password}, remoteIP(r.RemoteAddr))
+		err := service.Register(r.Context(), auth.RegisterInput{Email: request.Email, Username: request.Username, DisplayName: request.DisplayName, Password: request.Password}, remoteIP(r.RemoteAddr))
 		switch {
 		case err == nil:
 			writeJSON(w, http.StatusAccepted, map[string]string{"message": "check your email to verify your account"})

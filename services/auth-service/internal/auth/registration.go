@@ -23,11 +23,10 @@ var (
 type VerificationNotifier func(context.Context, string, string) error
 
 type RegisterInput struct {
-	OrganizationCode string
-	Email            string
-	Username         string
-	DisplayName      string
-	Password         string
+	Email       string
+	Username    string
+	DisplayName string
+	Password    string
 }
 
 func (s *Service) ConfigureEmailVerification(notifier VerificationNotifier) {
@@ -40,9 +39,8 @@ func (s *Service) Register(ctx context.Context, input RegisterInput, sourceIP *n
 	}
 	email := strings.ToLower(strings.TrimSpace(input.Email))
 	username := strings.ToLower(strings.TrimSpace(input.Username))
-	organizationCode := strings.TrimSpace(input.OrganizationCode)
 	displayName := strings.TrimSpace(input.DisplayName)
-	if !validEmail(email) || len(username) > 100 || len(displayName) == 0 || len(displayName) > 200 || !ValidateNewPassword(input.Password) || organizationCode == "" || len(organizationCode) > 100 {
+	if !validRegistrationInput(email, username, displayName, input.Password) {
 		return ErrRegistrationInvalid
 	}
 	token, tokenHash, err := newToken()
@@ -66,13 +64,8 @@ func (s *Service) Register(ctx context.Context, input RegisterInput, sourceIP *n
 		return fmt.Errorf("begin registration: %w", err)
 	}
 	defer tx.Rollback(ctx)
-	var organizationID pgtype.UUID
-	if err = tx.QueryRow(ctx, "SELECT id FROM organization WHERE lower(code)=lower($1) AND is_active", organizationCode).Scan(&organizationID); errors.Is(err, pgx.ErrNoRows) {
-		return ErrRegistrationInvalid
-	} else if err != nil {
-		return fmt.Errorf("load registration organization: %w", err)
-	}
-	if _, err = tx.Exec(ctx, `INSERT INTO auth.app_user(id, organization_id, email, username, display_name, password_hash, status, email_verified_at) VALUES($1,$2,$3,NULLIF($4,''),$5,$6,'DISABLED',NULL)`, userID, organizationID, email, username, displayName, passwordHash); err != nil {
+	var organizationID *string
+	if _, err = tx.Exec(ctx, `INSERT INTO auth.app_user(id, organization_id, email, username, display_name, password_hash, status, email_verified_at) VALUES($1,NULL,$2,NULLIF($3,''),$4,$5,'DISABLED',NULL)`, userID, email, username, displayName, passwordHash); err != nil {
 		if isUniqueViolation(err) {
 			return ErrRegistrationConflict
 		}
@@ -89,6 +82,10 @@ func (s *Service) Register(ctx context.Context, input RegisterInput, sourceIP *n
 		return fmt.Errorf("notify email verification: %w", err)
 	}
 	return nil
+}
+
+func validRegistrationInput(email, username, displayName, password string) bool {
+	return validEmail(email) && len(username) <= 100 && len(displayName) > 0 && len(displayName) <= 200 && ValidateNewPassword(password)
 }
 
 func (s *Service) VerifyEmail(ctx context.Context, token string) error {

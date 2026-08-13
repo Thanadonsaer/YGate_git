@@ -333,7 +333,7 @@ paths:
   /api/v1/admin/users:
     get:
       operationId: listAdminUsers
-      summary: List users in organizations where the caller has user-read permission
+      summary: List users in organizations where the caller has user-read permission; organization admins see only their own organization
       security:
         - cookieAuth: []
       responses:
@@ -387,7 +387,7 @@ paths:
           format: uuid
     put:
       operationId: updateAdminUser
-      summary: Update a user's profile, baseline role and active status
+      summary: Update a user's profile, organization, baseline role and active status within the caller's authorized organization scope
       security:
         - cookieAuth: []
           csrfToken: []
@@ -3284,12 +3284,8 @@ components:
     RegisterRequest:
       type: object
       additionalProperties: false
-      required: [organizationCode, email, password]
+      required: [email, password]
       properties:
-        organizationCode:
-          type: string
-          minLength: 1
-          maxLength: 100
         email:
           type: string
           format: email
@@ -3349,7 +3345,7 @@ components:
           type: string
           format: uuid
         organizationId:
-          type: string
+          type: [string, "null"]
           format: uuid
         email:
           type: string
@@ -3715,8 +3711,11 @@ components:
     UpdateAdminUserRequest:
       type: object
       additionalProperties: false
-      required: [email, username, displayName, roleId, isActive]
+      required: [organizationId, email, username, displayName, roleId, isActive]
       properties:
+        organizationId:
+          type: [string, "null"]
+          format: uuid
         email:
           type: string
           format: email

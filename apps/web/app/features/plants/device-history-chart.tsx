@@ -125,6 +125,7 @@ export function DeviceHistoryChart({
           series={series}
           from={range.from.getTime()}
           to={range.to.getTime()}
+          loading={loading}
           onZoom={(from, to) => setRange({ from, to })}
           onResetZoom={() => setRange(defaultRange())}
         />

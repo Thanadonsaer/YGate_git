@@ -26,7 +26,6 @@ export function AuthScreen({
 }) {
   const [identifier, setIdentifier] = useState("");
   const [email, setEmail] = useState("");
-  const [organizationCode, setOrganizationCode] = useState("");
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
@@ -80,7 +79,7 @@ export function AuthScreen({
       if (mode === "register") {
         const response = await api("/api/v1/auth/register", {
           method: "POST",
-          body: JSON.stringify({ organizationCode, email, username, displayName, password }),
+          body: JSON.stringify({ email, username, displayName, password }),
         });
         if (!response.ok) throw new Error(response.status === 409 ? "อีเมลหรือ username นี้มีอยู่แล้ว" : response.status === 503 ? "ระบบส่งอีเมลยังไม่พร้อมใช้งาน" : "ข้อมูลสมัครไม่ถูกต้อง");
         setNotice("สมัครสำเร็จ กรุณาตรวจสอบอีเมลเพื่อยืนยันบัญชี จากนั้นรอ Admin ตั้งสิทธิ์");
@@ -120,7 +119,7 @@ export function AuthScreen({
         <div className="auth-heading"><p>Secure access</p><h2 id="auth-title">{title}</h2></div>
         {mode !== "verify" && <form onSubmit={submit}>
           {mode === "login" && <label>อีเมลหรือชื่อผู้ใช้<TextInput autoComplete="username" value={identifier} onChange={(event) => setIdentifier(event.target.value)} required /></label>}
-          {mode === "register" && <><label>รหัสองค์กร<TextInput value={organizationCode} onChange={(event) => setOrganizationCode(event.target.value)} required /></label><label>อีเมล<TextInput type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label><label>Username<TextInput autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} /></label><label className="full-field">ชื่อแสดงผล<TextInput value={displayName} onChange={(event) => setDisplayName(event.target.value)} required /></label></>}
+          {mode === "register" && <><label>อีเมล<TextInput type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label><label>Username<TextInput autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} /></label><label className="full-field">ชื่อแสดงผล<TextInput value={displayName} onChange={(event) => setDisplayName(event.target.value)} required /></label><p className="full-field text-xs text-slate-500">หลังยืนยันอีเมล กรุณารอ Admin Assign Organization และ Role ก่อนเข้าใช้งาน</p></>}
           {mode === "forgot" && <label>อีเมล<TextInput type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>}
           {(mode === "login" || mode === "register" || mode === "reset") && (
             <label>รหัสผ่าน

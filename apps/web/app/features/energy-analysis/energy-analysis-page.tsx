@@ -3,8 +3,18 @@
 import { ChartLine, Download, RefreshCw } from "lucide-react";
 import { Checkbox, FormMessage, TextInput } from "../../components/ui/form";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, downloadBlob, errorMessage, toDatetimeLocal } from "../../lib/api";
-import { fetchRange, loadRegisterCatalogs, pointMeta, type PointMeta } from "../../lib/telemetry-history";
+import {
+  api,
+  downloadBlob,
+  errorMessage,
+  toDatetimeLocal,
+} from "../../lib/api";
+import {
+  fetchRange,
+  loadRegisterCatalogs,
+  pointMeta,
+  type PointMeta,
+} from "../../lib/telemetry-history";
 import {
   bucketEnergy,
   classifyUnit,
@@ -18,12 +28,26 @@ import {
   type Bucket,
   type Point,
 } from "../../lib/telemetry-math";
-import { SERIES_COLORS, TimeSeriesChart, type ChartSeries } from "../../components/charts/time-series-chart";
+import {
+  SERIES_COLORS,
+  TimeSeriesChart,
+  type ChartSeries,
+} from "../../components/charts/time-series-chart";
 import { MultiSelect } from "../../components/ui/multi-select";
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../../components/ui/select";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "../../components/ui/select";
 import { Button } from "../../components/ui/button";
 import type { Device, Plant } from "../../lib/types";
-import { buildScatterPoints, findSignalKey, type ScatterPoint } from "../../lib/xy-scatter";
+import {
+  buildScatterPoints,
+  findSignalKey,
+  type ScatterPoint,
+} from "../../lib/xy-scatter";
 
 const PRESETS = [
   { label: "24 ชม.", hours: 24 },
@@ -58,9 +82,16 @@ export function EnergyAnalysisPage() {
   const [deviceIds, setDeviceIds] = useState<string[]>([]);
   const [range, setRange] = useState(() => rangeOfHours(24));
   const [compare, setCompare] = useState(false);
-  const [analysisView, setAnalysisView] = useState<"trend" | "xy" | "solar">("trend");
-  const [catalogs, setCatalogs] = useState<Record<string, Record<string, PointMeta>>>({});
-  const [current, setCurrent] = useState<Loaded>({ byDevice: {}, truncated: false });
+  const [analysisView, setAnalysisView] = useState<"trend" | "xy" | "solar">(
+    "trend",
+  );
+  const [catalogs, setCatalogs] = useState<
+    Record<string, Record<string, PointMeta>>
+  >({});
+  const [current, setCurrent] = useState<Loaded>({
+    byDevice: {},
+    truncated: false,
+  });
   const [baseline, setBaseline] = useState<SeriesByDevice>({});
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [reloadToken, setReloadToken] = useState(0);
@@ -69,7 +100,10 @@ export function EnergyAnalysisPage() {
 
   const plant = plants.find((entry) => entry.id === plantId);
   const selectedDevices = useMemo(
-    () => deviceIds.map((id) => devices.find((device) => device.id === id)).filter((device): device is Device => Boolean(device)),
+    () =>
+      deviceIds
+        .map((id) => devices.find((device) => device.id === id))
+        .filter((device): device is Device => Boolean(device)),
     [deviceIds, devices],
   );
 
@@ -87,7 +121,9 @@ export function EnergyAnalysisPage() {
     setDevices([]);
     if (!plantId) return;
     const controller = new AbortController();
-    void api(`/api/v1/plants/${encodeURIComponent(plantId)}/devices`, { signal: controller.signal })
+    void api(`/api/v1/plants/${encodeURIComponent(plantId)}/devices`, {
+      signal: controller.signal,
+    })
       .then(async (response) => {
         if (!response.ok) throw new Error("ไม่สามารถโหลด Device ได้");
         const list = (await response.json()) as Device[];
@@ -109,7 +145,8 @@ export function EnergyAnalysisPage() {
     void loadRegisterCatalogs(plantId, selectedDevices, controller.signal)
       .then(setCatalogs)
       .catch(() => {
-        if (!controller.signal.aborted) setError("ไม่สามารถโหลด Metadata ของ Parameter ได้");
+        if (!controller.signal.aborted)
+          setError("ไม่สามารถโหลด Metadata ของ Parameter ได้");
       });
     return () => controller.abort();
   }, [plantId, selectedDevices]);
@@ -125,15 +162,38 @@ export function EnergyAnalysisPage() {
     setError("");
     void (async () => {
       try {
-        const pages = await Promise.all(deviceIds.map((id) => fetchRange(plantId, id, range.from, range.to, controller.signal)));
+        const pages = await Promise.all(
+          deviceIds.map((id) =>
+            fetchRange(plantId, id, range.from, range.to, controller.signal),
+          ),
+        );
         setCurrent({
-          byDevice: Object.fromEntries(deviceIds.map((id, index) => [id, toSeries(pages[index].readings)])),
+          byDevice: Object.fromEntries(
+            deviceIds.map((id, index) => [id, toSeries(pages[index].readings)]),
+          ),
           truncated: pages.some((page) => page.truncated),
         });
         if (compare) {
           const window = previousPeriod(range.from, range.to);
-          const before = await Promise.all(deviceIds.map((id) => fetchRange(plantId, id, window.from, window.to, controller.signal)));
-          setBaseline(Object.fromEntries(deviceIds.map((id, index) => [id, toSeries(before[index].readings)])));
+          const before = await Promise.all(
+            deviceIds.map((id) =>
+              fetchRange(
+                plantId,
+                id,
+                window.from,
+                window.to,
+                controller.signal,
+              ),
+            ),
+          );
+          setBaseline(
+            Object.fromEntries(
+              deviceIds.map((id, index) => [
+                id,
+                toSeries(before[index].readings),
+              ]),
+            ),
+          );
         } else {
           setBaseline({});
         }
@@ -168,7 +228,9 @@ export function EnergyAnalysisPage() {
         if (catalogs[id]?.[key]?.isEnabled !== false) keys.add(key);
       }
     }
-    return [...keys].sort((a, b) => metaOf(a).displayName.localeCompare(metaOf(b).displayName));
+    return [...keys].sort((a, b) =>
+      metaOf(a).displayName.localeCompare(metaOf(b).displayName),
+    );
   }, [current.byDevice, catalogs, deviceIds, metaOf]);
 
   // Default to whatever can actually be analysed -- a power or energy register
@@ -176,25 +238,34 @@ export function EnergyAnalysisPage() {
   useEffect(() => {
     setSelectedKeys((currentKeys) => {
       const kept = currentKeys.filter((key) => availableKeys.includes(key));
-      if (kept.length > 0) return kept.length === currentKeys.length ? currentKeys : kept;
-      const preferred = availableKeys.filter((key) => classifyUnit(metaOf(key).unit) !== "other");
+      if (kept.length > 0)
+        return kept.length === currentKeys.length ? currentKeys : kept;
+      const preferred = availableKeys.filter(
+        (key) => classifyUnit(metaOf(key).unit) !== "other",
+      );
       return (preferred.length > 0 ? preferred : availableKeys).slice(0, 3);
     });
   }, [availableKeys, metaOf]);
 
   const metricKey = useMemo(() => {
     const candidates = selectedKeys.length > 0 ? selectedKeys : availableKeys;
-    return candidates.find((key) => classifyUnit(metaOf(key).unit) === "power")
-      ?? candidates.find((key) => classifyUnit(metaOf(key).unit) === "energy");
+    return (
+      candidates.find((key) => classifyUnit(metaOf(key).unit) === "power") ??
+      candidates.find((key) => classifyUnit(metaOf(key).unit) === "energy")
+    );
   }, [selectedKeys, availableKeys, metaOf]);
 
   const metric = metricKey ? metaOf(metricKey) : undefined;
   const metricByDevice = useMemo(
-    () => (metricKey ? deviceIds.map((id) => current.byDevice[id]?.[metricKey] ?? []) : []),
+    () =>
+      metricKey
+        ? deviceIds.map((id) => current.byDevice[id]?.[metricKey] ?? [])
+        : [],
     [metricKey, deviceIds, current.byDevice],
   );
   const baseByDevice = useMemo(
-    () => (metricKey ? deviceIds.map((id) => baseline[id]?.[metricKey] ?? []) : []),
+    () =>
+      metricKey ? deviceIds.map((id) => baseline[id]?.[metricKey] ?? []) : [],
     [metricKey, deviceIds, baseline],
   );
 
@@ -202,41 +273,58 @@ export function EnergyAnalysisPage() {
   // means anything within one device, so they read the first one selected.
   const scatterDeviceId = deviceIds[0] ?? "";
   const scatterSeries = current.byDevice[scatterDeviceId] ?? {};
-  const solarXKey = findSignalKey(availableKeys, /irradiance|irradiation|sun/i) ?? selectedKeys[0];
-  const solarYKey = findSignalKey(availableKeys, /active.?power|power.?ac|ac.?power/i) ?? selectedKeys[1];
+  const solarXKey =
+    findSignalKey(availableKeys, /irradiance|irradiation|sun/i) ??
+    selectedKeys[0];
+  const solarYKey =
+    findSignalKey(availableKeys, /active.?power|power.?ac|ac.?power/i) ??
+    selectedKeys[1];
   const analysisXKey = analysisView === "solar" ? solarXKey : selectedKeys[0];
   const analysisYKey = analysisView === "solar" ? solarYKey : selectedKeys[1];
-  const analysisPoints = analysisXKey && analysisYKey
-    ? buildScatterPoints(scatterSeries[analysisXKey] ?? [], scatterSeries[analysisYKey] ?? [])
-    : [];
-  const barStep: "hour" | "day" = range.to.getTime() - range.from.getTime() > DAILY_BARS_AFTER_MS ? "day" : "hour";
+  const analysisPoints =
+    analysisXKey && analysisYKey
+      ? buildScatterPoints(
+          scatterSeries[analysisXKey] ?? [],
+          scatterSeries[analysisYKey] ?? [],
+        )
+      : [];
+  const barStep: "hour" | "day" =
+    range.to.getTime() - range.from.getTime() > DAILY_BARS_AFTER_MS
+      ? "day"
+      : "hour";
 
   // Zero-filled before summing so every device contributes on the same time
   // axis, and so the bars line up with the labels under them.
   const buckets = useMemo(
-    () => (metric
-      ? fillBuckets(
-        sumBuckets(metricByDevice.map((points) => bucketEnergy(points, metric.unit, barStep))),
-        range.from.getTime(),
-        range.to.getTime(),
-        barStep,
-      )
-      : []),
+    () =>
+      metric
+        ? fillBuckets(
+            sumBuckets(
+              metricByDevice.map((points) =>
+                bucketEnergy(points, metric.unit, barStep),
+              ),
+            ),
+            range.from.getTime(),
+            range.to.getTime(),
+            barStep,
+          )
+        : [],
     [metricByDevice, metric, barStep, range],
   );
-  const baseBuckets = useMemo(
-    () => {
-      if (!metric || !compare) return [];
-      const window = previousPeriod(range.from, range.to);
-      return fillBuckets(
-        sumBuckets(baseByDevice.map((points) => bucketEnergy(points, metric.unit, barStep))),
-        window.from.getTime(),
-        window.to.getTime(),
-        barStep,
-      );
-    },
-    [baseByDevice, metric, barStep, compare, range],
-  );
+  const baseBuckets = useMemo(() => {
+    if (!metric || !compare) return [];
+    const window = previousPeriod(range.from, range.to);
+    return fillBuckets(
+      sumBuckets(
+        baseByDevice.map((points) =>
+          bucketEnergy(points, metric.unit, barStep),
+        ),
+      ),
+      window.from.getTime(),
+      window.to.getTime(),
+      barStep,
+    );
+  }, [baseByDevice, metric, barStep, compare, range]);
 
   const series = useMemo<ChartSeries[]>(() => {
     const entries: ChartSeries[] = [];
@@ -249,7 +337,10 @@ export function EnergyAnalysisPage() {
           key: `${device.id}::${key}`,
           // One device is the common case; naming it on every line then is
           // just noise on the legend.
-          label: selectedDevices.length > 1 ? `${device.name} · ${meta.displayName}` : meta.displayName,
+          label:
+            selectedDevices.length > 1
+              ? `${device.name} · ${meta.displayName}`
+              : meta.displayName,
           unit: meta.unit,
           decimals: meta.decimals,
           color: SERIES_COLORS[entries.length % SERIES_COLORS.length],
@@ -265,19 +356,33 @@ export function EnergyAnalysisPage() {
     const flat: Record<string, Point[]> = {};
     const columns = series.map((entry) => {
       flat[entry.key] = entry.points;
-      return { key: entry.key, header: entry.unit ? `${entry.label} (${entry.unit})` : entry.label };
+      return {
+        key: entry.key,
+        header: entry.unit ? `${entry.label} (${entry.unit})` : entry.label,
+      };
     });
     const csv = seriesToCSV(columns, flat);
-    const stamp = toDatetimeLocal(range.from).replace(/[-:]/g, "").replace("T", "-");
-    const name = selectedDevices.length === 1 ? selectedDevices[0].externalId : `${plant?.code ?? "plant"}-${selectedDevices.length}devices`;
+    const stamp = toDatetimeLocal(range.from)
+      .replace(/[-:]/g, "")
+      .replace("T", "-");
+    const name =
+      selectedDevices.length === 1
+        ? selectedDevices[0].externalId
+        : `${plant?.code ?? "plant"}-${selectedDevices.length}devices`;
     // Excel needs the BOM to read the Thai display names as UTF-8.
-    downloadBlob(new Blob([`﻿${csv}`], { type: "text/csv;charset=utf-8" }), `ygate-${name}-${stamp}.csv`);
+    downloadBlob(
+      new Blob([`﻿${csv}`], { type: "text/csv;charset=utf-8" }),
+      `ygate-${name}-${stamp}.csv`,
+    );
   }, [series, selectedDevices, plant, range.from]);
 
   return (
     <div className="content energy-analysis-content">
       <div className="section-heading">
-        <div><p>Inverter telemetry</p><h2>Energy Analysis</h2></div>
+        <div>
+          <p>Inverter telemetry</p>
+          <h2>Energy Analysis</h2>
+        </div>
         <div className="heading-actions">
           <Button
             variant="icon"
@@ -304,38 +409,56 @@ export function EnergyAnalysisPage() {
           two questions the filter answers stop being one wrapping flex line. */}
       <section className="ea-filters">
         <div className="ea-filter-row">
-          <label className="ea-field">Plant
+          <label className="ea-field">
+            Plant
             <Select value={plantId} onValueChange={setPlantId}>
-              <SelectTrigger><SelectValue placeholder="เลือก Plant" /></SelectTrigger>
-              <SelectContent>{plants.map((entry) => <SelectItem key={entry.id} value={entry.id}>{entry.name} ({entry.code})</SelectItem>)}</SelectContent>
+              <SelectTrigger>
+                <SelectValue placeholder="เลือก Plant" />
+              </SelectTrigger>
+              <SelectContent>
+                {plants.map((entry) => (
+                  <SelectItem key={entry.id} value={entry.id}>
+                    {entry.name} ({entry.code})
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
           </label>
-          <label className="ea-field ea-field-wide">Device
+          <label className="ea-field ea-field-wide">
+            Device{" "}
             <MultiSelect
               value={deviceIds}
-              onValueChange={(values) => setDeviceIds(values.slice(0, MAX_DEVICES))}
-              options={devices.map((entry) => ({ label: entry.name, value: entry.id, tag: entry.externalId }))}
+              onValueChange={(values) =>
+                setDeviceIds(values.slice(0, deviceIds.length))
+              }
+              options={devices.map((entry) => ({
+                label: entry.name,
+                value: entry.id,
+                tag: entry.externalId,
+              }))}
               placeholder={plantId ? "เลือก Device" : "เลือก Plant ก่อน"}
               ariaLabel="เลือก Device"
               disabled={devices.length === 0}
             />
-            <small className="muted-text">เลือกได้สูงสุด {MAX_DEVICES} เครื่อง · เลือกหลายเครื่องเพื่อเทียบกัน</small>
           </label>
         </div>
 
         <div className="ea-filter-row">
-          <label className="ea-field">Start
+          <label className="ea-field">
+            Start
             <TextInput
               type="datetime-local"
               className="ea-input"
               value={toDatetimeLocal(range.from)}
               onChange={(event) => {
                 const from = new Date(event.target.value);
-                if (!Number.isNaN(+from)) setRange((value) => ({ ...value, from }));
+                if (!Number.isNaN(+from))
+                  setRange((value) => ({ ...value, from }));
               }}
             />
           </label>
-          <label className="ea-field">End
+          <label className="ea-field">
+            End
             <TextInput
               type="datetime-local"
               className="ea-input"
@@ -346,10 +469,17 @@ export function EnergyAnalysisPage() {
               }}
             />
           </label>
-          <div className="ea-field">ช่วงเวลา
+          <div className="ea-field">
+            ช่วงเวลา
             <div className="ea-presets">
               {PRESETS.map((preset) => (
-                <Button variant="bare" key={preset.hours} type="button" className="ea-preset" onClick={() => setRange(rangeOfHours(preset.hours))}>
+                <Button
+                  variant="bare"
+                  key={preset.hours}
+                  type="button"
+                  className="ea-preset"
+                  onClick={() => setRange(rangeOfHours(preset.hours))}
+                >
                   {preset.label}
                 </Button>
               ))}
@@ -364,7 +494,10 @@ export function EnergyAnalysisPage() {
 
       {error && <FormMessage>{error}</FormMessage>}
       {current.truncated && (
-        <p className="ts-truncated">ข้อมูลในช่วงนี้มากเกินไป แสดงเฉพาะส่วนล่าสุด — ลากบนกราฟเพื่อ zoom เข้าไปดูช่วงที่ต้องการ</p>
+        <p className="ts-truncated">
+          ข้อมูลในช่วงนี้มากเกินไป แสดงเฉพาะส่วนล่าสุด — ลากบนกราฟเพื่อ zoom
+          เข้าไปดูช่วงที่ต้องการ
+        </p>
       )}
 
       {deviceIds.length === 0 ? (
@@ -385,7 +518,12 @@ export function EnergyAnalysisPage() {
               onValueChange={setSelectedKeys}
               options={availableKeys.map((key) => {
                 const meta = metaOf(key);
-                return { label: meta.displayName, value: key, unit: meta.unit, tag: meta.tag };
+                return {
+                  label: meta.displayName,
+                  value: key,
+                  unit: meta.unit,
+                  tag: meta.tag,
+                };
               })}
               placeholder="เลือก Parameter เพื่อ plot กราฟ"
               ariaLabel="เลือก Parameter เพื่อ plot กราฟ"
@@ -393,16 +531,41 @@ export function EnergyAnalysisPage() {
             />
           </div>
 
-          <div className="ea-analysis-tabs" role="tablist" aria-label="Analytics view">
-            <Button variant={analysisView === "trend" ? "primary" : "secondary"} compact onClick={() => setAnalysisView("trend")}>Trend Viewer</Button>
-            <Button variant={analysisView === "xy" ? "primary" : "secondary"} compact onClick={() => setAnalysisView("xy")}>XY Scatter</Button>
-            <Button variant={analysisView === "solar" ? "primary" : "secondary"} compact onClick={() => setAnalysisView("solar")}>Solar Power Curve</Button>
+          <div
+            className="ea-analysis-tabs"
+            role="tablist"
+            aria-label="Analytics view"
+          >
+            <Button
+              variant={analysisView === "trend" ? "primary" : "secondary"}
+              compact
+              onClick={() => setAnalysisView("trend")}
+            >
+              Trend Viewer
+            </Button>
+            <Button
+              variant={analysisView === "xy" ? "primary" : "secondary"}
+              compact
+              onClick={() => setAnalysisView("xy")}
+            >
+              XY Scatter
+            </Button>
+            <Button
+              variant={analysisView === "solar" ? "primary" : "secondary"}
+              compact
+              onClick={() => setAnalysisView("solar")}
+            >
+              Solar Power Curve
+            </Button>
           </div>
 
           {analysisView === "trend" ? (
             <section className="ea-panel">
               {series.length === 0 ? (
-                <div className="timeseries-empty"><ChartLine size={24} /><span>เลือก Parameter เพื่อ plot กราฟ</span></div>
+                <div className="timeseries-empty">
+                  <ChartLine size={24} />
+                  <span>เลือก Parameter เพื่อ plot กราฟ</span>
+                </div>
               ) : (
                 <TimeSeriesChart
                   series={series}
@@ -419,8 +582,16 @@ export function EnergyAnalysisPage() {
                 points={analysisPoints}
                 xLabel={analysisXKey ? metaOf(analysisXKey).displayName : "X"}
                 yLabel={analysisYKey ? metaOf(analysisYKey).displayName : "Y"}
-                title={analysisView === "solar" ? "Solar Power Curve" : "XY Scatter Analysis"}
-                deviceName={selectedDevices.length > 1 ? selectedDevices[0]?.name : undefined}
+                title={
+                  analysisView === "solar"
+                    ? "Solar Power Curve"
+                    : "XY Scatter Analysis"
+                }
+                deviceName={
+                  selectedDevices.length > 1
+                    ? selectedDevices[0]?.name
+                    : undefined
+                }
               />
             </section>
           )}
@@ -428,9 +599,20 @@ export function EnergyAnalysisPage() {
           <section className="ea-panel">
             <div className="ea-panel-head">
               <h3>พลังงานราย{barStep === "day" ? "วัน" : "ชั่วโมง"}</h3>
-              {metric && <span className="ts-unit">kWh · จาก {metric.displayName}{selectedDevices.length > 1 ? ` · รวม ${selectedDevices.length} เครื่อง` : ""}</span>}
+              {metric && (
+                <span className="ts-unit">
+                  kWh · จาก {metric.displayName}
+                  {selectedDevices.length > 1
+                    ? ` · รวม ${selectedDevices.length} เครื่อง`
+                    : ""}
+                </span>
+              )}
             </div>
-            <EnergyBars buckets={buckets} baseline={baseBuckets} step={barStep} />
+            <EnergyBars
+              buckets={buckets}
+              baseline={baseBuckets}
+              step={barStep}
+            />
           </section>
 
           {loading && <p className="ts-hint">กำลังโหลดข้อมูล…</p>}
@@ -440,8 +622,29 @@ export function EnergyAnalysisPage() {
   );
 }
 
-function ScatterAnalysis({ points, xLabel, yLabel, title, deviceName }: { points: ScatterPoint[]; xLabel: string; yLabel: string; title: string; deviceName?: string }) {
-  if (points.length === 0) return <div className="timeseries-empty"><ChartLine size={24} /><span>เลือก Parameter ที่มี timestamp ตรงกันอย่างน้อย 2 ชุดเพื่อสร้าง {title}</span></div>;
+function ScatterAnalysis({
+  points,
+  xLabel,
+  yLabel,
+  title,
+  deviceName,
+}: {
+  points: ScatterPoint[];
+  xLabel: string;
+  yLabel: string;
+  title: string;
+  deviceName?: string;
+}) {
+  if (points.length === 0)
+    return (
+      <div className="timeseries-empty">
+        <ChartLine size={24} />
+        <span>
+          เลือก Parameter ที่มี timestamp ตรงกันอย่างน้อย 2 ชุดเพื่อสร้าง{" "}
+          {title}
+        </span>
+      </div>
+    );
   const width = 720;
   const height = 300;
   const margin = 34;
@@ -451,22 +654,64 @@ function ScatterAnalysis({ points, xLabel, yLabel, title, deviceName }: { points
   const maxY = Math.max(...points.map((point) => point.y));
   const spanX = maxX - minX || 1;
   const spanY = maxY - minY || 1;
-  const pointX = (value: number) => margin + ((value - minX) / spanX) * (width - margin * 2);
-  const pointY = (value: number) => height - margin - ((value - minY) / spanY) * (height - margin * 2);
+  const pointX = (value: number) =>
+    margin + ((value - minX) / spanX) * (width - margin * 2);
+  const pointY = (value: number) =>
+    height - margin - ((value - minY) / spanY) * (height - margin * 2);
   return (
     <div className="xy-analysis" aria-label={title}>
       <div className="ea-panel-head">
         <h3>{title}</h3>
         {/* Correlating two registers only means anything within one device, so
             say which one when several are selected. */}
-        <span className="ts-unit">{deviceName ? `${deviceName} · ` : ""}{xLabel} × {yLabel} · {points.length.toLocaleString()} points</span>
+        <span className="ts-unit">
+          {deviceName ? `${deviceName} · ` : ""}
+          {xLabel} × {yLabel} · {points.length.toLocaleString()} points
+        </span>
       </div>
-      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${title}: ${xLabel} versus ${yLabel}`} className="xy-analysis-chart">
-        <line x1={margin} y1={height - margin} x2={width - margin} y2={height - margin} stroke="currentColor" opacity=".25" />
-        <line x1={margin} y1={margin} x2={margin} y2={height - margin} stroke="currentColor" opacity=".25" />
-        {points.map((point) => <circle key={`${point.t}-${point.x}-${point.y}`} cx={pointX(point.x)} cy={pointY(point.y)} r="3" fill="var(--accent)" opacity=".7" />)}
-        <text x={width / 2} y={height - 8} textAnchor="middle">{xLabel}</text>
-        <text x="12" y={height / 2} textAnchor="middle" transform={`rotate(-90 12 ${height / 2})`}>{yLabel}</text>
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        role="img"
+        aria-label={`${title}: ${xLabel} versus ${yLabel}`}
+        className="xy-analysis-chart"
+      >
+        <line
+          x1={margin}
+          y1={height - margin}
+          x2={width - margin}
+          y2={height - margin}
+          stroke="currentColor"
+          opacity=".25"
+        />
+        <line
+          x1={margin}
+          y1={margin}
+          x2={margin}
+          y2={height - margin}
+          stroke="currentColor"
+          opacity=".25"
+        />
+        {points.map((point) => (
+          <circle
+            key={`${point.t}-${point.x}-${point.y}`}
+            cx={pointX(point.x)}
+            cy={pointY(point.y)}
+            r="3"
+            fill="var(--accent)"
+            opacity=".7"
+          />
+        ))}
+        <text x={width / 2} y={height - 8} textAnchor="middle">
+          {xLabel}
+        </text>
+        <text
+          x="12"
+          y={height / 2}
+          textAnchor="middle"
+          transform={`rotate(-90 12 ${height / 2})`}
+        >
+          {yLabel}
+        </text>
       </svg>
     </div>
   );
@@ -486,14 +731,28 @@ function KpiRow({
   deviceCount: number;
 }) {
   if (!metric) {
-    return <div className="table-state">ไม่พบ Parameter ที่เป็นกำลังไฟ (kW) หรือพลังงาน (kWh) จึงสรุปค่าไม่ได้</div>;
+    return (
+      <div className="table-state">
+        ไม่พบ Parameter ที่เป็นกำลังไฟ (kW) หรือพลังงาน (kWh) จึงสรุปค่าไม่ได้
+      </div>
+    );
   }
   const isPower = classifyUnit(metric.unit) === "power";
   const totals = summarise(pointsByDevice, metric, isPower);
-  const before = basePointsByDevice ? summarise(basePointsByDevice, metric, isPower) : undefined;
-  const scope = deviceCount > 1 ? `${metric.displayName} · รวม ${deviceCount} เครื่อง` : metric.displayName;
+  const before = basePointsByDevice
+    ? summarise(basePointsByDevice, metric, isPower)
+    : undefined;
+  const scope =
+    deviceCount > 1
+      ? `${metric.displayName} · รวม ${deviceCount} เครื่อง`
+      : metric.displayName;
 
-  const cards: Array<{ label: string; value: string; hint?: string; delta?: number | null }> = [
+  const cards: Array<{
+    label: string;
+    value: string;
+    hint?: string;
+    delta?: number | null;
+  }> = [
     {
       label: "พลังงานรวม",
       value: `${format(totals.kwh)} kWh`,
@@ -505,7 +764,9 @@ function KpiRow({
     cards.push({
       label: deviceCount > 1 ? "กำลังไฟสูงสุด (รวม)" : "กำลังไฟสูงสุด",
       value: `${format(totals.peak)} ${metric.unit}`,
-      hint: totals.peakAt ? peakFormat.format(new Date(totals.peakAt)) : undefined,
+      hint: totals.peakAt
+        ? peakFormat.format(new Date(totals.peakAt))
+        : undefined,
       delta: before ? percentChange(totals.peak, before.peak) : undefined,
     });
     cards.push({
@@ -520,7 +781,9 @@ function KpiRow({
       label: "Specific yield",
       value: `${format(yieldNow)} kWh/kWp`,
       hint: `ติดตั้ง ${format(installedDcKw)} kWp`,
-      delta: before ? percentChange(yieldNow, before.kwh / installedDcKw) : undefined,
+      delta: before
+        ? percentChange(yieldNow, before.kwh / installedDcKw)
+        : undefined,
     });
   }
 
@@ -544,7 +807,10 @@ function KpiRow({
   );
 }
 
-const peakFormat = new Intl.DateTimeFormat("th-TH", { dateStyle: "short", timeStyle: "short" });
+const peakFormat = new Intl.DateTimeFormat("th-TH", {
+  dateStyle: "short",
+  timeStyle: "short",
+});
 
 /**
  * Plant-level totals across the selected devices: energy adds up, and so does
@@ -552,13 +818,21 @@ const peakFormat = new Intl.DateTimeFormat("th-TH", { dateStyle: "short", timeSt
  * highest *combined* output at one moment, not the sum of each device's own
  * peak, which would overstate it whenever they peak at different times.
  */
-function summarise(pointsByDevice: Point[][], metric: PointMeta, isPower: boolean) {
-  const kwh = pointsByDevice.reduce((total, points) => total + (totalEnergyKWh(points, metric.unit) ?? 0), 0);
+function summarise(
+  pointsByDevice: Point[][],
+  metric: PointMeta,
+  isPower: boolean,
+) {
+  const kwh = pointsByDevice.reduce(
+    (total, points) => total + (totalEnergyKWh(points, metric.unit) ?? 0),
+    0,
+  );
   if (!isPower) return { kwh, peak: 0, peakAt: 0, average: 0 };
 
   const combined = new Map<number, number>();
   for (const points of pointsByDevice) {
-    for (const point of points) combined.set(point.t, (combined.get(point.t) ?? 0) + point.v);
+    for (const point of points)
+      combined.set(point.t, (combined.get(point.t) ?? 0) + point.v);
   }
   let peak = 0;
   let peakAt = 0;
@@ -570,7 +844,12 @@ function summarise(pointsByDevice: Point[][], metric: PointMeta, isPower: boolea
     }
     sum += value;
   }
-  return { kwh, peak, peakAt, average: combined.size > 0 ? sum / combined.size : 0 };
+  return {
+    kwh,
+    peak,
+    peakAt,
+    average: combined.size > 0 ? sum / combined.size : 0,
+  };
 }
 
 function percentChange(now: number, before: number) {
@@ -581,7 +860,10 @@ function percentChange(now: number, before: number) {
 function format(value: number) {
   const magnitude = Math.abs(value);
   const digits = magnitude >= 100 ? 0 : magnitude >= 1 ? 1 : 3;
-  return value.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  return value.toLocaleString(undefined, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
 }
 
 const barLabelFormat = {
@@ -597,9 +879,22 @@ const barLabelFormat = {
  * the labels beneath them, and the overlay compared whichever buckets happened
  * to land on the same array position.
  */
-function EnergyBars({ buckets, baseline, step }: { buckets: Bucket[]; baseline: Bucket[]; step: "hour" | "day" }) {
-  if (buckets.length === 0) return <div className="table-state">ไม่มีข้อมูลพอสำหรับสรุปพลังงาน</div>;
-  const peak = Math.max(...buckets.map((bucket) => bucket.kwh), ...baseline.map((bucket) => bucket.kwh), 0);
+function EnergyBars({
+  buckets,
+  baseline,
+  step,
+}: {
+  buckets: Bucket[];
+  baseline: Bucket[];
+  step: "hour" | "day";
+}) {
+  if (buckets.length === 0)
+    return <div className="table-state">ไม่มีข้อมูลพอสำหรับสรุปพลังงาน</div>;
+  const peak = Math.max(
+    ...buckets.map((bucket) => bucket.kwh),
+    ...baseline.map((bucket) => bucket.kwh),
+    0,
+  );
   const ticks = valueTicks(0, peak || 1, 4);
   // Scale to the top gridline, not to the tallest bar, so a bar's height can
   // actually be read off the axis beside it.
@@ -611,23 +906,49 @@ function EnergyBars({ buckets, baseline, step }: { buckets: Bucket[]; baseline: 
   return (
     <div className="ea-bars-frame">
       <div className="ea-bars-axis" aria-hidden="true">
-        {ticks.map((tick) => <span key={tick} style={{ bottom: `${(tick / top) * 100}%` }}>{format(tick)}</span>)}
+        {ticks.map((tick) => (
+          <span key={tick} style={{ bottom: `${(tick / top) * 100}%` }}>
+            {format(tick)}
+          </span>
+        ))}
       </div>
       <div className="ea-bars" role="img" aria-label="กราฟแท่งพลังงาน">
-        {ticks.map((tick) => <i key={tick} className="ea-bars-grid" style={{ bottom: `${(tick / top) * 100}%` }} />)}
+        {ticks.map((tick) => (
+          <i
+            key={tick}
+            className="ea-bars-grid"
+            style={{ bottom: `${(tick / top) * 100}%` }}
+          />
+        ))}
         {buckets.map((bucket, index) => {
           const before = baseline[index];
           return (
-            <div key={bucket.key} className="ea-bar-slot" title={`${bucket.key} · ${format(bucket.kwh)} kWh${before ? ` (ก่อนหน้า ${format(before.kwh)} kWh)` : ""}`}>
-              {before && <div className="ea-bar ea-bar-base" style={{ height: `${(before.kwh / top) * 100}%` }} />}
-              <div className="ea-bar" style={{ height: `${(bucket.kwh / top) * 100}%` }} />
+            <div
+              key={bucket.key}
+              className="ea-bar-slot"
+              title={`${bucket.key} · ${format(bucket.kwh)} kWh${before ? ` (ก่อนหน้า ${format(before.kwh)} kWh)` : ""}`}
+            >
+              {before && (
+                <div
+                  className="ea-bar ea-bar-base"
+                  style={{ height: `${(before.kwh / top) * 100}%` }}
+                />
+              )}
+              <div
+                className="ea-bar"
+                style={{ height: `${(bucket.kwh / top) * 100}%` }}
+              />
             </div>
           );
         })}
       </div>
       <div className="ea-bars-labels" aria-hidden="true">
         {buckets.map((bucket, index) => (
-          <small key={bucket.key}>{index % labelEvery === 0 ? barLabelFormat[step].format(new Date(bucket.start)) : ""}</small>
+          <small key={bucket.key}>
+            {index % labelEvery === 0
+              ? barLabelFormat[step].format(new Date(bucket.start))
+              : ""}
+          </small>
         ))}
       </div>
     </div>

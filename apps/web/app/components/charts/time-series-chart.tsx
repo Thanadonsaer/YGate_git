@@ -31,6 +31,7 @@ export function TimeSeriesChart({
   to,
   onZoom,
   onResetZoom,
+  loading = false,
   height = 240,
 }: {
   series: ChartSeries[];
@@ -38,6 +39,7 @@ export function TimeSeriesChart({
   to: number;
   onZoom?: (from: Date, to: Date) => void;
   onResetZoom?: () => void;
+  loading?: boolean;
   height?: number;
 }) {
   const [hoverAt, setHoverAt] = React.useState<number | null>(null);
@@ -65,6 +67,7 @@ export function TimeSeriesChart({
           onHoverAt={setHoverAt}
           onZoom={onZoom}
           onResetZoom={onResetZoom}
+          loading={loading}
         />
       ))}
       <p className="ts-axis-caption">
@@ -85,6 +88,7 @@ function ChartPanel({
   onHoverAt,
   onZoom,
   onResetZoom,
+  loading,
 }: {
   unit: string;
   series: ChartSeries[];
@@ -95,6 +99,7 @@ function ChartPanel({
   onHoverAt: (at: number | null) => void;
   onZoom?: (from: Date, to: Date) => void;
   onResetZoom?: () => void;
+  loading: boolean;
 }) {
   const containerRef = React.useRef<HTMLDivElement>(null);
   const [width, setWidth] = React.useState(0);
@@ -148,10 +153,11 @@ function ChartPanel({
         </div>
       </div>
 
-      {width === 0 || !hasData ? (
-        <div className="ts-empty">{width === 0 ? "" : "ไม่มีข้อมูลในช่วงเวลานี้"}</div>
-      ) : (
-        <svg
+      <div className="ts-plot">
+        {width === 0 || !hasData ? (
+          <div className="ts-empty">{width === 0 ? "" : loading ? "กำลังโหลดข้อมูล…" : "ไม่มีข้อมูลในช่วงเวลานี้"}</div>
+        ) : (
+          <svg
           className="ts-svg"
           width={width}
           height={height}
@@ -238,8 +244,10 @@ function ChartPanel({
               height={innerHeight}
             />
           )}
-        </svg>
-      )}
+          </svg>
+        )}
+        {loading && hasData && <div className="ts-loading-overlay" role="status" aria-live="polite"><span className="ts-loading-track" aria-hidden="true"><i /></span>กำลังโหลดข้อมูล…</div>}
+      </div>
 
       {active && hoverAt !== null && !drag && hasData && (
         <div
