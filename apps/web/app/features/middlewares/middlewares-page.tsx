@@ -12,7 +12,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from ".
 import { DataTable, TableColumn } from "../../components/ui/data-table";
 import { toast } from "../../components/ui/sonner";
 import { Button } from "../../components/ui/button";
-import { middlewareProgressLabel } from "../../lib/middleware-progress";
+import { estimateRemainingMs, middlewareProgressLabel } from "../../lib/middleware-progress";
 
 function ProgressBar({ label }: { label: string }) {
   return (
@@ -48,8 +48,8 @@ export function MiddlewaresPage({ defaultOrganizationId }: { defaultOrganization
   const [batchPatches, setBatchPatches] = useState<MiddlewarePatch[]>([]);
   const [batchPatchId, setBatchPatchId] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [selectionMode, setSelectionMode] = useState(false);
   const [batchJob, setBatchJob] = useState<MiddlewareUpdateJob | null>(null);
-  const [batchStartedAt, setBatchStartedAt] = useState<number | null>(null);
 
 
   const loadGateways = useCallback(async () => {
@@ -106,6 +106,12 @@ export function MiddlewaresPage({ defaultOrganizationId }: { defaultOrganization
     setSelectedIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
   }
 
+  function stopSelectionMode() {
+    setSelectionMode(false);
+    setSelectedIds([]);
+    setBatchPatchId("");
+  }
+
   async function startBatch(action: "stage" | "apply") {
     if (selectedIds.length === 0) return;
     if (action === "stage" && !batchPatchId) return;
@@ -117,7 +123,6 @@ export function MiddlewaresPage({ defaultOrganizationId }: { defaultOrganization
     });
     if (!response.ok) { setError(await middlewareLifecycleError(response, "เริ่มงาน Update ไม่สำเร็จ")); return; }
     setBatchJob((await response.json()) as MiddlewareUpdateJob);
-    setBatchStartedAt(Date.now());
   }
 
   async function hardDeleteGateway(gateway: MiddlewareGateway) {
@@ -169,22 +174,23 @@ export function MiddlewaresPage({ defaultOrganizationId }: { defaultOrganization
             <span className="sr-only">ค้นหา Middleware</span>
             <TextInput className={`${inputClass} pl-9`} type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="ค้นหา Middleware ด้วยชื่อ, Site หรือ Organization" />
           </label>
-          <section className="mb-3 flex flex-wrap items-center gap-2 rounded-[var(--radius-md)] border border-line bg-surface p-3">
+          {!selectionMode && <Button variant="secondary" compact onClick={() => setSelectionMode(true)}>เลือก Middleware สำหรับ Update</Button>}
+          {selectionMode && <section className="mb-3 flex flex-wrap items-center gap-2 rounded-[var(--radius-md)] border border-line bg-surface p-3">
             <strong className="text-sm">Update หลาย Middleware</strong>
             <Select value={batchPatchId} onValueChange={setBatchPatchId} disabled={batchPatches.length === 0 || Boolean(batchJob?.status === "running")}>
               <SelectTrigger className="w-56"><SelectValue placeholder="เลือก Patch..." /></SelectTrigger>
               <SelectContent>{batchPatches.map((p) => <SelectItem key={p.id} value={p.id}>{p.version} ({p.os}/{p.arch})</SelectItem>)}</SelectContent>
             </Select>
-            <Button variant="secondary" compact disabled={!batchPatchId || selectedIds.length === 0 || batchJob?.status === "running"} onClick={() => void startBatch("stage")}>Stage ที่เลือก ({selectedIds.length})</Button>
+            <Button variant="secondary" compact disabled={!batchPatchId || selectedIds.length === 0 || batchJob?.status === "running"} onClick={() => void startBatch("stage")}>Send to middleware ({selectedIds.length})</Button>
             <Button compact disabled={selectedIds.length === 0 || batchJob?.status === "running"} onClick={() => void startBatch("apply")}>Apply ที่เลือก ({selectedIds.length})</Button>
-            {batchStartedAt && batchJob?.status === "running" && <span className="text-xs text-ink-soft">ใช้เวลาแล้ว {formatElapsed(Date.now() - batchStartedAt)}</span>}
-          </section>
+            <Button variant="text" compact disabled={batchJob?.status === "running"} onClick={stopSelectionMode}>ยกเลิก</Button>
+          </section>}
           {batchJob && <section className="mb-3 rounded-[var(--radius-md)] border border-line bg-surface p-3 text-xs">
-            <div className="mb-2 flex flex-wrap items-center justify-between gap-2"><strong>Batch {batchJob.action === "stage" ? "Stage" : "Apply"}: {batchJob.status === "running" ? "กำลังทำงาน" : batchJob.status === "succeeded" ? "สำเร็จ" : "เสร็จแล้ว — มีบางเครื่องไม่สำเร็จ"}</strong><span>รวม {batchJob.durationMs ? formatElapsed(batchJob.durationMs) : batchStartedAt ? formatElapsed(Date.now() - batchStartedAt) : "-"}</span></div>
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2"><strong>Batch {batchJob.action === "stage" ? "Send to middleware" : "Apply"}: {batchJob.status === "running" ? "กำลังทำงาน" : batchJob.status === "succeeded" ? "สำเร็จ" : "เสร็จแล้ว — มีบางเครื่องไม่สำเร็จ"}</strong><span>{batchJob.status === "running" ? (() => { const remaining = estimateRemainingMs(Object.values(batchJob.items)); return remaining === null ? "กำลังประเมินเวลาที่เหลือ..." : `เหลือประมาณ ${formatElapsed(remaining)}`; })() : batchJob.durationMs ? `ใช้เวลารวม ${formatElapsed(batchJob.durationMs)}` : "-"}</span></div>
             <div className="grid gap-1 sm:grid-cols-2 lg:grid-cols-3">{Object.values(batchJob.items).map((item) => <div key={item.middlewareId} className="flex items-center justify-between gap-2 rounded border border-line px-2 py-1"><span className="truncate">{gateways.find((g) => g.id === item.middlewareId)?.name || item.middlewareId}</span><span className={item.status === "failed" ? "text-red-600" : "text-ink-soft"}>{item.status === "running" ? "กำลังทำงาน" : item.status === "succeeded" ? `สำเร็จ (${formatElapsed(item.durationMs || 0)})` : item.status === "failed" ? item.error || "ล้มเหลว" : "รอคิว"}</span></div>)}</div>
           </section>}
-          <DataTable value={filteredGateways} dataKey="id" aria-label="Middleware Gateways" emptyMessage={<div className="table-state">{gateways.length === 0 ? "ยังไม่มี Middleware Gateway" : "ไม่พบ Middleware ที่ค้นหา"}</div>}>
-            <TableColumn header={<Checkbox checked={filteredGateways.length > 0 && filteredGateways.every((g) => selectedIds.includes(g.id))} onChange={(checked) => setSelectedIds(checked ? filteredGateways.map((g) => g.id) : [])} />} body={(row: MiddlewareGateway) => <Checkbox checked={selectedIds.includes(row.id)} onChange={() => toggleSelected(row.id)} />} />
+          <DataTable key={`${selectionMode}:${selectedIds.join(",")}`} value={filteredGateways} dataKey="id" aria-label="Middleware Gateways" emptyMessage={<div className="table-state">{gateways.length === 0 ? "ยังไม่มี Middleware Gateway" : "ไม่พบ Middleware ที่ค้นหา"}</div>}>
+            {selectionMode && <TableColumn header={<Checkbox checked={filteredGateways.length > 0 && filteredGateways.every((g) => selectedIds.includes(g.id))} onChange={(checked) => setSelectedIds(checked ? filteredGateways.map((g) => g.id) : [])} />} body={(row: MiddlewareGateway) => <Checkbox checked={selectedIds.includes(row.id)} onChange={() => toggleSelected(row.id)} />} />}
             <TableColumn field="name" header="Gateway" sortable body={(row: MiddlewareGateway) => (
               <div className="grid min-w-0 gap-1"><strong className="truncate text-ink">{row.name}</strong><small className="truncate text-[11px] text-ink-soft">{row.id}</small></div>
             )} />
@@ -426,11 +432,11 @@ function SoftwareCard({ softwareVersion, patches, selectedPatchId, setSelectedPa
 
         <div className="flex flex-wrap items-center gap-2 rounded-[var(--radius-sm)] border border-dashed border-line bg-canvas/40 p-2.5">
           <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-ink-soft text-[10px] font-bold text-white">1</span>
-          <Button variant="secondary" compact disabled={!selectedPatchId || lifecycleBusy} onClick={onStage}>{staging ? "กำลัง Stage..." : "Stage"}</Button>
+          <Button variant="secondary" compact disabled={!selectedPatchId || lifecycleBusy} onClick={onStage}>{staging ? "กำลังส่งไปยัง Middleware..." : "Send to middleware"}</Button>
           <ArrowRight size={14} className="shrink-0 text-ink-soft" />
           <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-ink-soft text-[10px] font-bold text-white">2</span>
           <Button compact disabled={lifecycleBusy} onClick={onApply}>{applying ? "กำลัง Apply..." : "Apply"}</Button>
-          <span className="text-[11px] text-ink-soft">ต้อง Stage patch ก่อน — Apply จะ restart service</span>
+          <span className="text-[11px] text-ink-soft">ต้องส่ง patch ไปยัง Middleware ก่อน — Apply จะ restart service</span>
         </div>
 
         <div className="row-actions" style={{ justifyContent: "flex-start" }}>
@@ -686,7 +692,7 @@ function MiddlewareConfigEditor({ gateway, onBack }: { gateway: MiddlewareGatewa
         body: JSON.stringify({ patchId: selectedPatchId }),
       });
       if (!response.ok) throw new Error(await middlewareLifecycleError(response, "Middleware อาจ offline หรือไม่ตอบสนอง"));
-      toast.success(`Stage patch บน ${gateway.name} แล้ว — กด "Apply" เพื่อติดตั้งจริง`);
+      toast.success(`ส่ง patch ไปยัง ${gateway.name} แล้ว — กด "Apply" เพื่อติดตั้งจริง`);
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
