@@ -57,9 +57,10 @@
   --shadow-sm: var(--shadow-sm);
   --shadow-lg: var(--shadow-lg);
 
-  --font-display: var(--font-manrope), sans-serif;
-  --font-body: var(--font-inter), "Segoe UI", Tahoma, sans-serif;
-  --font-mono: var(--font-jetbrains-mono), Consolas, monospace;
+  /* Keep production builds independent from Google Fonts/network access. */
+  --font-display: "Segoe UI", Tahoma, Arial, sans-serif;
+  --font-body: "Segoe UI", Tahoma, Arial, sans-serif;
+  --font-mono: Consolas, "Courier New", monospace;
 }
 
 * { box-sizing: border-box; }
