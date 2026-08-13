@@ -45,6 +45,7 @@ type envelope struct {
 	GatewayID       string `json:"gatewayId,omitempty"`
 	AppliedVersion  int64  `json:"appliedVersion,omitempty"`
 	SoftwareVersion string `json:"softwareVersion,omitempty"`
+	Capabilities    []string `json:"capabilities,omitempty"`
 	Status          string `json:"status,omitempty"`
 	Reason          string `json:"reason,omitempty"`
 	CommandID       string `json:"commandId,omitempty"`
@@ -155,7 +156,7 @@ func (b *Bridge) runOnce(ctx context.Context, cfg GatewayConfig) (bool, error) {
 	defer conn.CloseNow()
 	conn.SetReadLimit(1 << 20)
 	writer := &socketWriter{conn: conn}
-	if err = writer.write(ctx, envelope{Type: "hello", GatewayID: cfg.GatewayID, AppliedVersion: cfg.Version, SoftwareVersion: b.Version}); err != nil {
+	if err = writer.write(ctx, envelope{Type: "hello", GatewayID: cfg.GatewayID, AppliedVersion: cfg.Version, SoftwareVersion: b.Version, Capabilities: []string{"update-bridge"}}); err != nil {
 		return true, fmt.Errorf("send hello: %w", err)
 	}
 

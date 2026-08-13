@@ -29,6 +29,16 @@ type gatewayEnvelope struct {
 	Phase           string `json:"phase,omitempty"`
 	DownloadedBytes int64  `json:"downloadedBytes,omitempty"`
 	TotalBytes      int64  `json:"totalBytes,omitempty"`
+	Capabilities    []string `json:"capabilities,omitempty"`
+}
+
+func shouldStartTelemetryPull(capabilities []string) bool {
+	for _, capability := range capabilities {
+		if capability == "update-bridge" {
+			return false
+		}
+	}
+	return true
 }
 
 // gatewayRealtimeHandler accepts the outbound-initiated WebSocket connection
@@ -62,8 +72,6 @@ func gatewayRealtimeHandler(ingestionService *ingestion.Service, registryService
 		out, resolve, unregister := hub.Register(gatewayID)
 		defer unregister()
 
-		go telemetrypull.Run(ctx, hub, ingestionService, client, gatewayID)
-
 		incoming := make(chan []byte, 8)
 		readDone := make(chan struct{})
 		go func() {
@@ -83,6 +91,7 @@ func gatewayRealtimeHandler(ingestionService *ingestion.Service, registryService
 
 		heartbeat := time.NewTicker(20 * time.Second)
 		defer heartbeat.Stop()
+		telemetryStarted := false
 
 		for {
 			select {
@@ -105,6 +114,10 @@ func gatewayRealtimeHandler(ingestionService *ingestion.Service, registryService
 				}
 				switch envelope.Type {
 				case "hello":
+					if !telemetryStarted && shouldStartTelemetryPull(envelope.Capabilities) {
+						go telemetrypull.Run(ctx, hub, ingestionService, client, gatewayID)
+						telemetryStarted = true
+					}
 					payload, shouldPush, err := registryService.HandleGatewayHello(ctx, client.ID, envelope.AppliedVersion, envelope.SoftwareVersion)
 					if err != nil {
 						log.Printf("gateway hello failed for %s: %v", gatewayID, err)
