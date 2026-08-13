@@ -12,7 +12,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from ".
 import { DataTable, TableColumn } from "../../components/ui/data-table";
 import { toast } from "../../components/ui/sonner";
 import { Button } from "../../components/ui/button";
-import { estimateRemainingMs, middlewareProgressLabel } from "../../lib/middleware-progress";
+import { estimateDownloadRemainingMs, estimateRemainingMs, middlewareProgressLabel } from "../../lib/middleware-progress";
 import { usePlatformSession } from "../../components/platform-shell";
 import { can } from "../../lib/permissions";
 
@@ -33,10 +33,26 @@ function formatElapsed(milliseconds: number): string {
   return hours > 0 ? `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}` : `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
+function formatMiB(bytes: number): string {
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function middlewareItemProgress(item: { status: string; phase?: string; downloadedBytes?: number; totalBytes?: number; startedAt?: string; error?: string; durationMs?: number }): string {
+  if (item.status === "running" && item.totalBytes) {
+    const percent = Math.min(100, Math.round(((item.downloadedBytes || 0) / item.totalBytes) * 100));
+    const eta = estimateDownloadRemainingMs([item]);
+    return `${item.phase === "download" ? "กำลังส่ง" : "กำลังเตรียม"} ${percent}% · ${formatMiB(item.downloadedBytes || 0)} / ${formatMiB(item.totalBytes)}${eta === null ? "" : ` · เหลือประมาณ ${formatElapsed(eta)}`}`;
+  }
+  if (item.status === "running") return "กำลังทำงาน";
+  if (item.status === "succeeded") return `สำเร็จ (${formatElapsed(item.durationMs || 0)})`;
+  if (item.status === "failed") return item.error || "ล้มเหลว";
+  return "รอคิว";
+}
+
 type MiddlewareUpdateJob = {
   id: string; action: "stage" | "apply"; status: "running" | "succeeded" | "failed";
   createdAt: string; startedAt?: string; finishedAt?: string; durationMs?: number;
-  items: Record<string, { middlewareId: string; status: string; error?: string; startedAt?: string; finishedAt?: string; durationMs?: number }>;
+  items: Record<string, { middlewareId: string; status: string; error?: string; startedAt?: string; finishedAt?: string; durationMs?: number; phase?: string; downloadedBytes?: number; totalBytes?: number }>;
 };
 
 export function MiddlewaresPage({ defaultOrganizationId }: { defaultOrganizationId?: string }) {
@@ -193,8 +209,8 @@ export function MiddlewaresPage({ defaultOrganizationId }: { defaultOrganization
             <Button variant="text" compact disabled={batchJob?.status === "running"} onClick={stopSelectionMode}>ยกเลิก</Button>
           </section>}
           {batchJob && <section className="mb-3 rounded-[var(--radius-md)] border border-line bg-surface p-3 text-xs">
-            <div className="mb-2 flex flex-wrap items-center justify-between gap-2"><strong>Batch {batchJob.action === "stage" ? "Send to middleware" : "Apply"}: {batchJob.status === "running" ? "กำลังทำงาน" : batchJob.status === "succeeded" ? "สำเร็จ" : "เสร็จแล้ว — มีบางเครื่องไม่สำเร็จ"}</strong><span>{batchJob.status === "running" ? (() => { const remaining = estimateRemainingMs(Object.values(batchJob.items)); return remaining === null ? "กำลังประเมินเวลาที่เหลือ..." : `เหลือประมาณ ${formatElapsed(remaining)}`; })() : batchJob.durationMs ? `ใช้เวลารวม ${formatElapsed(batchJob.durationMs)}` : "-"}</span></div>
-            <div className="grid gap-1 sm:grid-cols-2 lg:grid-cols-3">{Object.values(batchJob.items).map((item) => <div key={item.middlewareId} className="flex items-center justify-between gap-2 rounded border border-line px-2 py-1"><span className="truncate">{gateways.find((g) => g.id === item.middlewareId)?.name || item.middlewareId}</span><span className={item.status === "failed" ? "text-red-600" : "text-ink-soft"}>{item.status === "running" ? "กำลังทำงาน" : item.status === "succeeded" ? `สำเร็จ (${formatElapsed(item.durationMs || 0)})` : item.status === "failed" ? item.error || "ล้มเหลว" : "รอคิว"}</span></div>)}</div>
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2"><strong>Batch {batchJob.action === "stage" ? "Send to middleware" : "Apply"}: {batchJob.status === "running" ? "กำลังทำงาน" : batchJob.status === "succeeded" ? "สำเร็จ" : "เสร็จแล้ว — มีบางเครื่องไม่สำเร็จ"}</strong><span>{batchJob.status === "running" ? (() => { const remaining = batchJob.action === "stage" ? estimateDownloadRemainingMs(Object.values(batchJob.items)) : estimateRemainingMs(Object.values(batchJob.items)); return remaining === null ? "กำลังประเมินเวลาที่เหลือ..." : `เหลือประมาณ ${formatElapsed(remaining)}`; })() : batchJob.durationMs ? `ใช้เวลารวม ${formatElapsed(batchJob.durationMs)}` : "-"}</span></div>
+            <div className="grid gap-1 sm:grid-cols-2 lg:grid-cols-3">{Object.values(batchJob.items).map((item) => <div key={item.middlewareId} className="flex items-center justify-between gap-2 rounded border border-line px-2 py-1"><span className="truncate">{gateways.find((g) => g.id === item.middlewareId)?.name || item.middlewareId}</span><span className={item.status === "failed" ? "text-red-600" : "text-ink-soft"}>{middlewareItemProgress(item)}</span></div>)}</div>
           </section>}
           <DataTable key={`${selectionMode}:${selectedIds.join(",")}`} value={filteredGateways} dataKey="id" aria-label="Middleware Gateways" emptyMessage={<div className="table-state">{gateways.length === 0 ? "ยังไม่มี Middleware Gateway" : "ไม่พบ Middleware ที่ค้นหา"}</div>}>
             {selectionMode && <TableColumn header={<Checkbox checked={filteredGateways.length > 0 && filteredGateways.every((g) => selectedIds.includes(g.id))} onChange={(checked) => setSelectedIds(checked ? filteredGateways.map((g) => g.id) : [])} />} body={(row: MiddlewareGateway) => <Checkbox checked={selectedIds.includes(row.id)} onChange={() => toggleSelected(row.id)} />} />}
@@ -312,6 +328,10 @@ async function middlewareLifecycleError(response: Response, fallbackHint: string
   if (response.status === 503) return "Middleware ออฟไลน์อยู่";
   if (response.status === 504) return "Middleware เชื่อมต่ออยู่ (online) แต่ไม่ตอบสนองคำสั่งนี้ — อาจเป็น Middleware เวอร์ชันเก่าที่ยังไม่รองรับ remote update";
   const body = (await response.text()).trim();
+  try {
+    const diagnostic = JSON.parse(body) as { code?: string; phase?: string; detail?: string; message?: string };
+    if (diagnostic.code) return `[${diagnostic.code}${diagnostic.phase ? `/${diagnostic.phase}` : ""}] ${diagnostic.detail || diagnostic.message || fallbackHint}`;
+  } catch {}
   return body || `ดำเนินการไม่สำเร็จ (${fallbackHint})`;
 }
 

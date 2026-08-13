@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -32,7 +33,42 @@ type Service struct {
 	idleMu        sync.Mutex
 	lastEnqueued  map[string]enqueuedReading
 	idleHeartbeat time.Duration
+
+	maintenanceMu   sync.Mutex
+	maintenanceGate chan struct{}
 }
+
+func (s *Service) gate() chan struct{} {
+	s.maintenanceMu.Lock()
+	defer s.maintenanceMu.Unlock()
+	if s.maintenanceGate == nil {
+		s.maintenanceGate = make(chan struct{}, 1)
+		s.maintenanceGate <- struct{}{}
+	}
+	return s.maintenanceGate
+}
+
+// BeginMaintenance waits for any active polling sweep to finish, then blocks
+// new sweeps until the returned release function is called.
+func (s *Service) BeginMaintenance(ctx context.Context) (func(), error) {
+	select {
+	case <-s.gate():
+		return func() { s.gate() <- struct{}{} }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (s *Service) tryBeginPoll() bool {
+	select {
+	case <-s.gate():
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *Service) endPoll() { s.gate() <- struct{}{} }
 
 type enqueuedReading struct {
 	values string

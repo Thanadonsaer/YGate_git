@@ -14,6 +14,11 @@ func (s *Service) PollEnabledConnections(gatewayID string, logf func(string, ...
 	if logf == nil {
 		logf = log.Printf
 	}
+	if !s.tryBeginPoll() {
+		logf("poll sweep skipped: middleware is in maintenance mode")
+		return nil
+	}
+	defer s.endPoll()
 	connections := []domain.ConnectionConfig{}
 	for _, c := range s.Cache.Load().Connections {
 		if c.Enabled {

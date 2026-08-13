@@ -18,7 +18,12 @@ type conn struct {
 	out chan []byte
 
 	mu      sync.Mutex
-	pending map[string]chan json.RawMessage
+	pending map[string]pendingCommand
+}
+
+type pendingCommand struct {
+	result   chan json.RawMessage
+	progress func(json.RawMessage)
 }
 
 // Hub tracks one live connection per gateway ID (middleware_client.id).
@@ -38,18 +43,18 @@ func New() *Hub {
 // the hub, so callers must select on their own context/connection lifetime
 // rather than ranging over it.
 func (h *Hub) Register(gatewayID string) (out <-chan []byte, resolve func(commandID string, result json.RawMessage), unregister func()) {
-	c := &conn{out: make(chan []byte, 16), pending: map[string]chan json.RawMessage{}}
+	c := &conn{out: make(chan []byte, 16), pending: map[string]pendingCommand{}}
 	h.mu.Lock()
 	h.conns[gatewayID] = c
 	h.mu.Unlock()
 
 	resolve = func(commandID string, result json.RawMessage) {
 		c.mu.Lock()
-		ch := c.pending[commandID]
+		pending := c.pending[commandID]
 		delete(c.pending, commandID)
 		c.mu.Unlock()
-		if ch != nil {
-			ch <- result
+		if pending.result != nil {
+			pending.result <- result
 		}
 	}
 	unregister = func() {
@@ -60,6 +65,22 @@ func (h *Hub) Register(gatewayID string) (out <-chan []byte, resolve func(comman
 		h.mu.Unlock()
 	}
 	return c.out, resolve, unregister
+}
+
+// Progress forwards an in-flight command update without resolving it.
+func (h *Hub) Progress(gatewayID, commandID string, payload json.RawMessage) {
+	h.mu.Lock()
+	c := h.conns[gatewayID]
+	h.mu.Unlock()
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	pending := c.pending[commandID]
+	c.mu.Unlock()
+	if pending.progress != nil {
+		pending.progress(payload)
+	}
 }
 
 // IsOnline reports whether gatewayID currently has a live connection.
@@ -91,6 +112,10 @@ func (h *Hub) PushConfig(gatewayID string, payload []byte) bool {
 // RunCommand sends payload to gatewayID and blocks until a matching
 // command.result is resolved, ctx is done, or the gateway is offline.
 func (h *Hub) RunCommand(ctx context.Context, gatewayID, commandID string, payload []byte) (json.RawMessage, error) {
+	return h.RunCommandWithProgress(ctx, gatewayID, commandID, payload, nil)
+}
+
+func (h *Hub) RunCommandWithProgress(ctx context.Context, gatewayID, commandID string, payload []byte, progress func(json.RawMessage)) (json.RawMessage, error) {
 	h.mu.Lock()
 	c := h.conns[gatewayID]
 	h.mu.Unlock()
@@ -99,7 +124,7 @@ func (h *Hub) RunCommand(ctx context.Context, gatewayID, commandID string, paylo
 	}
 	result := make(chan json.RawMessage, 1)
 	c.mu.Lock()
-	c.pending[commandID] = result
+	c.pending[commandID] = pendingCommand{result: result, progress: progress}
 	c.mu.Unlock()
 	defer func() {
 		c.mu.Lock()

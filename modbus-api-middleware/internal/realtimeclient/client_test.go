@@ -123,3 +123,29 @@ func TestTelemetryDrainThenAckDeliversAndMarksRows(t *testing.T) {
 		t.Fatalf("expected no PENDING/RETRYING rows after ack, got %d (acked ids=%v)", len(remaining), ids)
 	}
 }
+
+func TestDownloadPatchReportsActualTransferredBytes(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", "5")
+		_, _ = w.Write([]byte("hello"))
+	}))
+	defer server.Close()
+
+	var progress []DownloadProgress
+	data, err := downloadPatch(context.Background(), server.URL, "test-key", func(next DownloadProgress) {
+		progress = append(progress, next)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "hello" {
+		t.Fatalf("download = %q, want hello", data)
+	}
+	if len(progress) == 0 {
+		t.Fatal("expected progress updates")
+	}
+	last := progress[len(progress)-1]
+	if last.DownloadedBytes != 5 || last.TotalBytes != 5 {
+		t.Fatalf("last progress = %+v, want 5/5", last)
+	}
+}

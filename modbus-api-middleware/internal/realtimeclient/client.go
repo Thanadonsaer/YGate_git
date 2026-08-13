@@ -42,6 +42,11 @@ type Client struct {
 	Reload chan struct{}
 }
 
+type DownloadProgress struct {
+	DownloadedBytes int64
+	TotalBytes      int64
+}
+
 func (c *Client) reloadChan() <-chan struct{} {
 	if c.Reload == nil {
 		return nil // nil channel: select never fires on it, which is fine
@@ -70,6 +75,9 @@ type envelope struct {
 	Ok              bool            `json:"ok,omitempty"`
 	Data            json.RawMessage `json:"data,omitempty"`
 	Error           string          `json:"error,omitempty"`
+	Phase           string          `json:"phase,omitempty"`
+	DownloadedBytes int64           `json:"downloadedBytes,omitempty"`
+	TotalBytes      int64           `json:"totalBytes,omitempty"`
 	// update.stage command fields -- "patchVersion" not "version", which
 	// domain.ConfigSnapshot below already claims for the config version.
 	DownloadURL  string `json:"downloadUrl,omitempty"`
@@ -295,7 +303,9 @@ func (c *Client) handleCommand(ctx context.Context, conn *websocket.Conn, msg en
 			result.Ok = true
 		}
 	case "update.stage":
-		if err := c.stageUpdate(ctx, msg); err != nil {
+		if err := c.stageUpdate(ctx, msg, func(progress DownloadProgress) {
+			_ = wsjson.Write(ctx, conn, envelope{Type: "command.progress", CommandID: msg.CommandID, Phase: "download", DownloadedBytes: progress.DownloadedBytes, TotalBytes: progress.TotalBytes})
+		}); err != nil {
 			result.Ok, result.Error = false, err.Error()
 		} else {
 			result.Ok = true
@@ -331,37 +341,65 @@ func (c *Client) handleCommand(ctx context.Context, conn *websocket.Conn, msg en
 // stageUpdate downloads the patch zip msg.DownloadURL points at (the same
 // platform-api host this WS connection is already talking to, authenticated
 // the same X-Api-Key way) and hands it to the updater for validation+staging.
-func (c *Client) stageUpdate(ctx context.Context, msg envelope) error {
+func (c *Client) stageUpdate(ctx context.Context, msg envelope, report func(DownloadProgress)) error {
 	if msg.DownloadURL == "" {
 		return fmt.Errorf("update.stage: downloadUrl is required")
 	}
+	release, err := c.App.BeginMaintenance(ctx)
+	if err != nil {
+		return fmt.Errorf("maintenance: wait for active Modbus poll: %w", err)
+	}
+	defer release()
 	cfg, err := c.Store.GatewayConfig()
 	if err != nil {
 		return fmt.Errorf("read gateway config: %w", err)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, msg.DownloadURL, nil)
+	data, err := downloadPatch(ctx, msg.DownloadURL, cfg.APIKey, report)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("X-Api-Key", strings.TrimSpace(cfg.APIKey))
-	// The platform batch update job owns the lifecycle and must remain open for
-	// slow Plant links. The request context is still cancelled if the realtime
-	// connection itself is closed.
-	httpClient := &http.Client{}
-	resp, err := httpClient.Do(req)
+	_, err = c.updater().StageZip(data)
+	return err
+}
+
+func downloadPatch(ctx context.Context, downloadURL, apiKey string, report func(DownloadProgress)) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
 	if err != nil {
-		return fmt.Errorf("download patch: %w", err)
+		return nil, err
+	}
+	req.Header.Set("X-Api-Key", strings.TrimSpace(apiKey))
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("download patch: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("download patch: unexpected status %s", resp.Status)
+		return nil, fmt.Errorf("download patch: unexpected status %s", resp.Status)
 	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 128<<20))
+	reader := &progressReader{reader: io.LimitReader(resp.Body, 128<<20), total: resp.ContentLength, report: report}
+	data, err := io.ReadAll(reader)
 	if err != nil {
-		return fmt.Errorf("download patch: %w", err)
+		return nil, fmt.Errorf("download patch: %w", err)
 	}
-	_, err = c.updater().StageZip(data)
-	return err
+	return data, nil
+}
+
+type progressReader struct {
+	reader io.Reader
+	total  int64
+	read   int64
+	report func(DownloadProgress)
+}
+
+func (r *progressReader) Read(p []byte) (int, error) {
+	n, err := r.reader.Read(p)
+	if n > 0 {
+		r.read += int64(n)
+		if r.report != nil {
+			r.report(DownloadProgress{DownloadedBytes: r.read, TotalBytes: r.total})
+		}
+	}
+	return n, err
 }
 
 func wsURLFromEndpoint(endpoint string) (string, error) {

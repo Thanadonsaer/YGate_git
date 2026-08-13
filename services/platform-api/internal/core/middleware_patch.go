@@ -254,7 +254,7 @@ func (s *Service) MiddlewarePatchFilePath(ctx context.Context, patchID string) (
 // update.rollback/service.restart) over the same command.request/result WS
 // channel ImportMiddlewareConfig uses, after checking the global
 // middleware_patch/update permission and auditing the action.
-func (s *Service) runMiddlewareLifecycleCommand(ctx context.Context, principal auth.Principal, middlewareID, kind string, extra map[string]any, auditAction string, sourceIP *netip.Addr) error {
+func (s *Service) runMiddlewareLifecycleCommand(ctx context.Context, principal auth.Principal, middlewareID, kind string, extra map[string]any, auditAction string, sourceIP *netip.Addr, progress func(json.RawMessage)) error {
 	if err := s.requireGlobalPermission(ctx, principal, "update", "middleware_patch"); err != nil {
 		return err
 	}
@@ -290,7 +290,7 @@ func (s *Service) runMiddlewareLifecycleCommand(ctx context.Context, principal a
 		runCtx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
 	}
-	raw, err := s.hub.RunCommand(runCtx, uuidString(mwUUID), uuidString(commandID), payload)
+	raw, err := s.hub.RunCommandWithProgress(runCtx, uuidString(mwUUID), uuidString(commandID), payload, progress)
 	if errors.Is(err, context.DeadlineExceeded) {
 		return fmt.Errorf("middleware command timed out: %w", ErrMiddlewareCommandNAK)
 	}
@@ -320,6 +320,10 @@ func (s *Service) runMiddlewareLifecycleCommand(ctx context.Context, principal a
 }
 
 func (s *Service) StageMiddlewareUpdate(ctx context.Context, principal auth.Principal, middlewareID, patchID string, sourceIP *netip.Addr) error {
+	return s.stageMiddlewareUpdate(ctx, principal, middlewareID, patchID, sourceIP, nil)
+}
+
+func (s *Service) stageMiddlewareUpdate(ctx context.Context, principal auth.Principal, middlewareID, patchID string, sourceIP *netip.Addr, progress func(json.RawMessage)) error {
 	if s.publicBaseURL == "" {
 		return fmt.Errorf("%w: PLATFORM_PUBLIC_BASE_URL is not configured", ErrMiddlewareInvalid)
 	}
@@ -344,17 +348,17 @@ func (s *Service) StageMiddlewareUpdate(ctx context.Context, principal auth.Prin
 		// decoding of this message entirely.
 		"downloadUrl": downloadURL, "sha256": patch.SHA256, "patchVersion": patch.Version,
 		"os": patch.OS, "arch": patch.Arch, "binary": patch.BinaryFilename,
-	}, "middleware_client.update_staged", sourceIP)
+	}, "middleware_client.update_staged", sourceIP, progress)
 }
 
 func (s *Service) ApplyMiddlewareUpdate(ctx context.Context, principal auth.Principal, middlewareID string, sourceIP *netip.Addr) error {
-	return s.runMiddlewareLifecycleCommand(ctx, principal, middlewareID, "update.apply", nil, "middleware_client.update_applied", sourceIP)
+	return s.runMiddlewareLifecycleCommand(ctx, principal, middlewareID, "update.apply", nil, "middleware_client.update_applied", sourceIP, nil)
 }
 
 func (s *Service) RollbackMiddlewareUpdate(ctx context.Context, principal auth.Principal, middlewareID string, sourceIP *netip.Addr) error {
-	return s.runMiddlewareLifecycleCommand(ctx, principal, middlewareID, "update.rollback", nil, "middleware_client.update_rolled_back", sourceIP)
+	return s.runMiddlewareLifecycleCommand(ctx, principal, middlewareID, "update.rollback", nil, "middleware_client.update_rolled_back", sourceIP, nil)
 }
 
 func (s *Service) RestartMiddleware(ctx context.Context, principal auth.Principal, middlewareID string, sourceIP *netip.Addr) error {
-	return s.runMiddlewareLifecycleCommand(ctx, principal, middlewareID, "service.restart", nil, "middleware_client.restarted", sourceIP)
+	return s.runMiddlewareLifecycleCommand(ctx, principal, middlewareID, "service.restart", nil, "middleware_client.restarted", sourceIP, nil)
 }

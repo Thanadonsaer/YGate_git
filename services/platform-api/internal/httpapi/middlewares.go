@@ -164,7 +164,10 @@ func writeMiddlewareError(w http.ResponseWriter, err error) bool {
 	case errors.Is(err, core.ErrMiddlewareOffline):
 		http.Error(w, "middleware gateway is offline", http.StatusServiceUnavailable)
 	case errors.Is(err, core.ErrMiddlewareCommandNAK):
-		http.Error(w, "middleware gateway did not respond in time", http.StatusGatewayTimeout)
+		writeJSON(w, http.StatusGatewayTimeout, map[string]any{
+			"code": "MIDDLEWARE_COMMAND_FAILED", "phase": "stage", "retryable": true,
+			"message": "Middleware ไม่สามารถทำคำสั่ง update ได้", "detail": err.Error(),
+		})
 	default:
 		log.Printf("middleware write failed: %v", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)

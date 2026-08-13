@@ -6,6 +6,25 @@ export type MiddlewareProgressState = {
   restarting: boolean;
 };
 
+type DownloadProgressItem = {
+  status: string;
+  startedAt?: string;
+  downloadedBytes?: number;
+  totalBytes?: number;
+};
+
+export function estimateDownloadRemainingMs(items: DownloadProgressItem[], now = Date.now()): number | null {
+  const estimates = items.flatMap((item) => {
+    const downloaded = item.downloadedBytes || 0;
+    const total = item.totalBytes || 0;
+    const startedAt = item.startedAt ? Date.parse(item.startedAt) : NaN;
+    const elapsed = now - startedAt;
+    if (item.status !== "running" || downloaded <= 0 || total <= downloaded || !Number.isFinite(startedAt) || elapsed <= 0) return [];
+    return [Math.round(((total - downloaded) / (downloaded / elapsed)))];
+  });
+  return estimates.length === 0 ? null : Math.max(...estimates);
+}
+
 export function estimateRemainingMs(items: Array<{ status: string; durationMs?: number }>): number | null {
   const remaining = items.filter((item) => item.status !== "succeeded" && item.status !== "failed").length;
   if (remaining === 0) return 0;

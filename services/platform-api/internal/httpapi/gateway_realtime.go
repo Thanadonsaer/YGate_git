@@ -23,9 +23,12 @@ type gatewayEnvelope struct {
 	AppliedVersion  int64  `json:"appliedVersion,omitempty"`
 	SoftwareVersion string `json:"softwareVersion,omitempty"`
 	Version         int64  `json:"version,omitempty"`
-	Status         string `json:"status,omitempty"`
-	Reason         string `json:"reason,omitempty"`
-	CommandID      string `json:"commandId,omitempty"`
+	Status          string `json:"status,omitempty"`
+	Reason          string `json:"reason,omitempty"`
+	CommandID       string `json:"commandId,omitempty"`
+	Phase           string `json:"phase,omitempty"`
+	DownloadedBytes int64  `json:"downloadedBytes,omitempty"`
+	TotalBytes      int64  `json:"totalBytes,omitempty"`
 }
 
 // gatewayRealtimeHandler accepts the outbound-initiated WebSocket connection
@@ -120,6 +123,8 @@ func gatewayRealtimeHandler(ingestionService *ingestion.Service, registryService
 					}
 				case "command.result":
 					resolve(envelope.CommandID, json.RawMessage(data))
+				case "command.progress":
+					hub.Progress(gatewayID, envelope.CommandID, json.RawMessage(data))
 				}
 			}
 		}

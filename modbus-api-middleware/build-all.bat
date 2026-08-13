@@ -37,7 +37,7 @@ if not defined CHPP_LICENSE_PUBLIC_KEY (
   echo Set CHPP_LICENSE_PUBLIC_KEY or create license-keys.env from license-keys.env.example.
   goto error
 )
-set "LDFLAGS=-X main.version=%VERSION% -X main.licensePublicKey=%CHPP_LICENSE_PUBLIC_KEY%"
+set "LDFLAGS=-s -w -X main.version=%VERSION% -X main.licensePublicKey=%CHPP_LICENSE_PUBLIC_KEY%"
 
 echo Version: %VERSION%
 if defined CHPP_LICENSE_KEY_NAME echo License key: %CHPP_LICENSE_KEY_NAME%

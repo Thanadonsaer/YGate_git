@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/netip"
 	"sync"
@@ -11,12 +12,15 @@ import (
 )
 
 type MiddlewareUpdateJobItem struct {
-	MiddlewareID string    `json:"middlewareId"`
-	Status       string    `json:"status"`
-	Error        string    `json:"error,omitempty"`
-	StartedAt    time.Time `json:"startedAt,omitempty"`
-	FinishedAt   time.Time `json:"finishedAt,omitempty"`
-	DurationMs   int64     `json:"durationMs,omitempty"`
+	MiddlewareID    string    `json:"middlewareId"`
+	Status          string    `json:"status"`
+	Error           string    `json:"error,omitempty"`
+	StartedAt       time.Time `json:"startedAt,omitempty"`
+	FinishedAt      time.Time `json:"finishedAt,omitempty"`
+	DurationMs      int64     `json:"durationMs,omitempty"`
+	Phase           string    `json:"phase,omitempty"`
+	DownloadedBytes int64     `json:"downloadedBytes,omitempty"`
+	TotalBytes      int64     `json:"totalBytes,omitempty"`
 }
 
 type MiddlewareUpdateJob struct {
@@ -95,6 +99,16 @@ func (s *middlewareUpdateJobStore) finishItem(jobID, middlewareID string, ok boo
 	job.DurationMs = job.FinishedAt.Sub(job.StartedAt).Milliseconds()
 }
 
+func (s *middlewareUpdateJobStore) updateProgress(jobID, middlewareID, phase string, downloadedBytes, totalBytes int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if job := s.jobs[jobID]; job != nil {
+		item := job.Items[middlewareID]
+		item.Phase, item.DownloadedBytes, item.TotalBytes = phase, downloadedBytes, totalBytes
+		job.Items[middlewareID] = item
+	}
+}
+
 func (s *middlewareUpdateJobStore) get(jobID string) (MiddlewareUpdateJob, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -138,7 +152,16 @@ func (s *Service) CreateMiddlewareUpdateBatch(ctx context.Context, principal aut
 				s.updateJobs.startItem(job.ID, middlewareID)
 				var err error
 				if action == "stage" {
-					err = s.StageMiddlewareUpdate(context.Background(), principal, middlewareID, patchID, sourceIP)
+					err = s.stageMiddlewareUpdate(context.Background(), principal, middlewareID, patchID, sourceIP, func(raw json.RawMessage) {
+						var progress struct {
+							Phase           string `json:"phase"`
+							DownloadedBytes int64  `json:"downloadedBytes"`
+							TotalBytes      int64  `json:"totalBytes"`
+						}
+						if json.Unmarshal(raw, &progress) == nil {
+							s.updateJobs.updateProgress(job.ID, middlewareID, progress.Phase, progress.DownloadedBytes, progress.TotalBytes)
+						}
+					})
 				} else {
 					err = s.ApplyMiddlewareUpdate(context.Background(), principal, middlewareID, sourceIP)
 				}
