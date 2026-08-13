@@ -47,6 +47,15 @@ type DownloadProgress struct {
 	TotalBytes      int64
 }
 
+// A patch stage is a gateway-side job. It must not inherit a short-lived
+// realtime/request deadline: losing the socket while the gateway is reading
+// the patch must not abort an otherwise valid update.
+const stageDownloadTimeout = 30 * time.Minute
+
+func newStageDownloadContext(parent context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(parent), stageDownloadTimeout)
+}
+
 func (c *Client) reloadChan() <-chan struct{} {
 	if c.Reload == nil {
 		return nil // nil channel: select never fires on it, which is fine
@@ -345,7 +354,9 @@ func (c *Client) stageUpdate(ctx context.Context, msg envelope, report func(Down
 	if msg.DownloadURL == "" {
 		return fmt.Errorf("update.stage: downloadUrl is required")
 	}
-	release, err := c.App.BeginMaintenance(ctx)
+	stageCtx, cancel := newStageDownloadContext(ctx)
+	defer cancel()
+	release, err := c.App.BeginMaintenance(stageCtx)
 	if err != nil {
 		return fmt.Errorf("maintenance: wait for active Modbus poll: %w", err)
 	}
@@ -354,7 +365,7 @@ func (c *Client) stageUpdate(ctx context.Context, msg envelope, report func(Down
 	if err != nil {
 		return fmt.Errorf("read gateway config: %w", err)
 	}
-	data, err := downloadPatch(ctx, msg.DownloadURL, cfg.APIKey, report)
+	data, err := downloadPatch(stageCtx, msg.DownloadURL, cfg.APIKey, report)
 	if err != nil {
 		return err
 	}
@@ -368,12 +379,16 @@ func downloadPatch(ctx context.Context, downloadURL, apiKey string, report func(
 		return nil, err
 	}
 	req.Header.Set("X-Api-Key", strings.TrimSpace(apiKey))
-	resp, err := (&http.Client{}).Do(req)
+	resp, err := (&http.Client{Timeout: stageDownloadTimeout}).Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("download patch: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
+		detail, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if message := strings.TrimSpace(string(detail)); message != "" {
+			return nil, fmt.Errorf("download patch: unexpected status %s: %s", resp.Status, message)
+		}
 		return nil, fmt.Errorf("download patch: unexpected status %s", resp.Status)
 	}
 	reader := &progressReader{reader: io.LimitReader(resp.Body, 128<<20), total: resp.ContentLength, report: report}
@@ -385,17 +400,25 @@ func downloadPatch(ctx context.Context, downloadURL, apiKey string, report func(
 }
 
 type progressReader struct {
-	reader io.Reader
-	total  int64
-	read   int64
-	report func(DownloadProgress)
+	reader         io.Reader
+	total          int64
+	read           int64
+	reported       int64
+	lastReportTime time.Time
+	report         func(DownloadProgress)
 }
 
 func (r *progressReader) Read(p []byte) (int, error) {
 	n, err := r.reader.Read(p)
 	if n > 0 {
 		r.read += int64(n)
-		if r.report != nil {
+		// Do not turn a large file into thousands of websocket writes. The
+		// UI still gets responsive progress, while the actual download keeps
+		// the network bandwidth instead of spending it on progress messages.
+		shouldReport := r.reported == 0 || r.read-r.reported >= 256<<10 || time.Since(r.lastReportTime) >= 250*time.Millisecond || err == io.EOF
+		if r.report != nil && shouldReport {
+			r.reported = r.read
+			r.lastReportTime = time.Now()
 			r.report(DownloadProgress{DownloadedBytes: r.read, TotalBytes: r.total})
 		}
 	}

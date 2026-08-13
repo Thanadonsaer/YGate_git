@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -147,5 +148,29 @@ func TestDownloadPatchReportsActualTransferredBytes(t *testing.T) {
 	last := progress[len(progress)-1]
 	if last.DownloadedBytes != 5 || last.TotalBytes != 5 {
 		t.Fatalf("last progress = %+v, want 5/5", last)
+	}
+}
+
+func TestStageDownloadContextSurvivesRealtimeContextCancellation(t *testing.T) {
+	parent, cancelParent := context.WithCancel(context.Background())
+	stageCtx, cancelStage := newStageDownloadContext(parent)
+	defer cancelStage()
+
+	cancelParent()
+	if err := stageCtx.Err(); err != nil {
+		t.Fatalf("stage download context canceled with realtime context: %v", err)
+	}
+}
+
+func TestDownloadPatchIncludesGatewayResponseBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusGatewayTimeout)
+		_, _ = w.Write([]byte("origin download timed out"))
+	}))
+	defer server.Close()
+
+	_, err := downloadPatch(context.Background(), server.URL, "test-key", nil)
+	if err == nil || !strings.Contains(err.Error(), "origin download timed out") {
+		t.Fatalf("downloadPatch() error = %v, want response body detail", err)
 	}
 }
