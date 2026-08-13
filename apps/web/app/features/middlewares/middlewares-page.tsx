@@ -325,13 +325,13 @@ function MiddlewareEditor({ gateway, defaultOrganizationId, onClose, onSaved }: 
 // failure modes (missing server config, unsupported old middleware build,
 // no staged patch, etc) that a generic message would otherwise conflate.
 async function middlewareLifecycleError(response: Response, fallbackHint: string): Promise<string> {
-  if (response.status === 503) return "Middleware ออฟไลน์อยู่";
-  if (response.status === 504) return "Middleware เชื่อมต่ออยู่ (online) แต่ไม่ตอบสนองคำสั่งนี้ — อาจเป็น Middleware เวอร์ชันเก่าที่ยังไม่รองรับ remote update";
   const body = (await response.text()).trim();
   try {
     const diagnostic = JSON.parse(body) as { code?: string; phase?: string; detail?: string; message?: string };
     if (diagnostic.code) return `[${diagnostic.code}${diagnostic.phase ? `/${diagnostic.phase}` : ""}] ${diagnostic.detail || diagnostic.message || fallbackHint}`;
   } catch {}
+  if (response.status === 503) return "Middleware ออฟไลน์อยู่";
+  if (response.status === 504) return "Middleware เชื่อมต่ออยู่ (online) แต่ไม่ตอบสนองคำสั่งนี้ — อาจเป็น Middleware เวอร์ชันเก่าที่ยังไม่รองรับ remote update";
   return body || `ดำเนินการไม่สำเร็จ (${fallbackHint})`;
 }
 
@@ -407,7 +407,7 @@ function ConfigCard({ isOnline, pushing, importing, onPush, onImport, canManage 
   );
 }
 
-function SoftwareCard({ softwareVersion, patches, selectedPatchId, setSelectedPatchId, lifecycleBusy, uploading, staging, applying, rollingBack, restarting, onUpload, onStage, onApply, onRollback, onDeletePatch, onRestart, canCreatePatch, canUpdatePatch, canDeletePatch }: {
+function SoftwareCard({ softwareVersion, patches, selectedPatchId, setSelectedPatchId, lifecycleBusy, uploading, staging, applying, rollingBack, restarting, onUpload, onStage, onApply, onRollback, onDeletePatch, onRestart, canCreatePatch, canUpdatePatch, canDeletePatch, middlewareId, stageJob }: {
   softwareVersion?: string | null;
   patches: MiddlewarePatch[];
   selectedPatchId: string;
@@ -427,12 +427,19 @@ function SoftwareCard({ softwareVersion, patches, selectedPatchId, setSelectedPa
   canCreatePatch: boolean;
   canUpdatePatch: boolean;
   canDeletePatch: boolean;
+  middlewareId: string;
+  stageJob: MiddlewareUpdateJob | null;
 }) {
   const progressLabel = middlewareProgressLabel({ uploading, staging, applying, rollingBack, restarting });
   return (
     <Card title="Software Update" subtitle={`Version ปัจจุบัน: ${softwareVersion || "ไม่ทราบ (Middleware ยังไม่เคยส่ง version มา)"} — upload patch, stage ไปที่เครื่องนี้, แล้วค่อย Apply แยกกัน (ไม่ auto)`}>
       <div className="flex flex-col gap-3">
         {progressLabel && <ProgressBar label={progressLabel} />}
+        {stageJob && <div className="rounded-[var(--radius-sm)] border border-line bg-canvas/40 p-2 text-xs" role="status" aria-live="polite">
+          <strong>{stageJob.status === "running" ? "Maintenance: หยุดอ่าน Modbus ชั่วคราวระหว่างส่ง patch" : stageJob.status === "succeeded" ? "ส่ง patch สำเร็จ — พร้อม Apply" : "ส่ง patch ไม่สำเร็จ"}</strong>
+          <div>{middlewareItemProgress(stageJob.items[middlewareId] || { status: stageJob.status })}</div>
+          {stageJob.items[middlewareId]?.error && <div className="text-red-600">{stageJob.items[middlewareId].error}</div>}
+        </div>}
         <div className="row-actions" style={{ justifyContent: "flex-start" }}>
           <Select value={selectedPatchId} onValueChange={setSelectedPatchId} disabled={patches.length === 0}>
             <SelectTrigger className="w-56"><SelectValue placeholder="เลือก Patch..." /></SelectTrigger>
@@ -522,6 +529,7 @@ function MiddlewareConfigEditor({ gateway, onBack, canManageGateway, canManagePl
   const [selectedPatchId, setSelectedPatchId] = useState("");
   const [uploading, setUploading] = useState(false);
   const [staging, setStaging] = useState(false);
+  const [stageJob, setStageJob] = useState<MiddlewareUpdateJob | null>(null);
   const [applying, setApplying] = useState(false);
   // Tracks the freshest copy of this gateway's own list-row fields (online
   // state, config version, software version) so the status header above the
@@ -530,7 +538,19 @@ function MiddlewareConfigEditor({ gateway, onBack, canManageGateway, canManagePl
   const [liveGateway, setLiveGateway] = useState<MiddlewareGateway>(gateway);
   const [rollingBack, setRollingBack] = useState(false);
   const [restarting, setRestarting] = useState(false);
-  const lifecycleBusy = uploading || staging || applying || rollingBack || restarting;
+  const lifecycleBusy = uploading || staging || applying || rollingBack || restarting || stageJob?.status === "running";
+
+  useEffect(() => {
+    if (!stageJob || stageJob.status !== "running") return;
+    const timer = window.setInterval(async () => {
+      const response = await api(`/api/v1/admin/middleware-update-jobs/${encodeURIComponent(stageJob.id)}`);
+      if (!response.ok) return;
+      const next = (await response.json()) as MiddlewareUpdateJob;
+      setStageJob(next);
+      if (next.status !== "running") setStaging(false);
+    }, 1500);
+    return () => window.clearInterval(timer);
+  }, [stageJob]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -714,19 +734,23 @@ function MiddlewareConfigEditor({ gateway, onBack, canManageGateway, canManagePl
 
   async function stageUpdate() {
     if (!selectedPatchId) return;
+    if (!liveGateway.isOnline) {
+      setError("Middleware ยัง Offline อยู่ จึงเริ่มส่ง patch ไม่ได้");
+      return;
+    }
     setStaging(true);
     setError("");
     try {
-      const response = await api(`/api/v1/admin/middlewares/${encodeURIComponent(gateway.id)}/update/stage`, {
+      const response = await api("/api/v1/admin/middleware-update-jobs", {
         method: "POST",
         headers: { "X-CSRF-Token": csrfToken() },
-        body: JSON.stringify({ patchId: selectedPatchId }),
+        body: JSON.stringify({ action: "stage", patchId: selectedPatchId, middlewareIds: [gateway.id] }),
       });
-      if (!response.ok) throw new Error(await middlewareLifecycleError(response, "Middleware อาจ offline หรือไม่ตอบสนอง"));
-      toast.success(`ส่ง patch ไปยัง ${gateway.name} แล้ว — กด "Apply" เพื่อติดตั้งจริง`);
+      if (!response.ok) throw new Error(await middlewareLifecycleError(response, "เริ่มส่ง patch ไม่สำเร็จ"));
+      setStageJob((await response.json()) as MiddlewareUpdateJob);
+      toast.success(`เริ่มส่ง patch ไปยัง ${gateway.name} แล้ว`);
     } catch (cause) {
       setError(errorMessage(cause));
-    } finally {
       setStaging(false);
     }
   }
@@ -854,6 +878,8 @@ function MiddlewareConfigEditor({ gateway, onBack, canManageGateway, canManagePl
           onRollback={() => void rollbackUpdate()}
           onDeletePatch={() => void deletePatch()}
           onRestart={() => void restartMiddlewareService()}
+          middlewareId={gateway.id}
+          stageJob={stageJob}
           canCreatePatch={canCreatePatch}
           canUpdatePatch={canUpdatePatch}
           canDeletePatch={canDeletePatch}

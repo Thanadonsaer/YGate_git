@@ -102,11 +102,11 @@ func stageMiddlewareUpdateHandler(service *core.Service) func(http.ResponseWrite
 		if !decodeJSON(w, r, &request, 4<<10) {
 			return
 		}
-		err := service.StageMiddlewareUpdate(r.Context(), principal, r.PathValue("middlewareId"), request.PatchID, remoteIP(r.RemoteAddr))
+		job, err := service.CreateMiddlewareUpdateBatch(r.Context(), principal, "stage", request.PatchID, []string{r.PathValue("middlewareId")}, remoteIP(r.RemoteAddr))
 		if writeMiddlewareError(w, err) {
 			return
 		}
-		w.WriteHeader(http.StatusNoContent)
+		writeJSON(w, http.StatusAccepted, job)
 	}
 }
 
