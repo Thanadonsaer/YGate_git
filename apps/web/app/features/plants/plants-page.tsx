@@ -38,6 +38,7 @@ import type {
   LatestTelemetry,
   Organization,
   Plant,
+  AlarmNotifyRole,
 } from "../../lib/types";
 import {
   loadRegisterCatalog,
@@ -1028,7 +1029,7 @@ function DeviceDetailView({
                 className="mt-0.5 block truncate text-base text-slate-900"
                 title={String(value)}
               >
-                {Number.isFinite(value)
+                {reading?.displayItemMap?.[key] ?? (Number.isFinite(value)
                   ? value.toLocaleString(
                       undefined,
                       meta
@@ -1036,9 +1037,9 @@ function DeviceDetailView({
                             minimumFractionDigits: meta.decimals,
                             maximumFractionDigits: meta.decimals,
                           }
-                        : undefined,
+                    : undefined,
                     )
-                  : "-"}
+                  : "-")}
                 {meta?.unit ? (
                   <span className="ml-1 text-xs font-normal text-slate-500">
                     {meta.unit}
@@ -1135,7 +1136,7 @@ function LatestValues({ reading }: { reading?: LatestTelemetry }) {
     >
       {values.map(([key, value]) => (
         <small key={key}>
-          {key}: {Number.isFinite(value) ? value.toLocaleString() : "-"}
+          {key}: {reading.displayItemMap?.[key] ?? (Number.isFinite(value) ? value.toLocaleString() : "-")}
         </small>
       ))}
       {reading.parameterCount > values.length && (
@@ -1374,12 +1375,22 @@ function PlantEditor({
     Plant["lifecycleStatus"]
   >(plant?.lifecycleStatus ?? "OPERATIONAL");
   const [isActive, setIsActive] = useState(plant?.isActive ?? true);
+  const [alarmEmailEnabled, setAlarmEmailEnabled] = useState(plant?.alarmEmailEnabled ?? false);
+  const [alarmNotifyRoleId, setAlarmNotifyRoleId] = useState(plant?.alarmNotifyRoleId ?? "");
+  const [notifyRoles, setNotifyRoles] = useState<AlarmNotifyRole[]>([]);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [imagePreview, setImagePreview] = useState(
     plant?.imageUrl ? assetURL(plant.imageUrl) : null,
   );
   const [imagePending, setImagePending] = useState(false);
+
+  useEffect(() => {
+    if (!plant) return;
+    void api(`/api/v1/plants/${plant.id}/alarms/notify-roles`).then(async (response) => {
+      if (response.ok) setNotifyRoles((await response.json()) as AlarmNotifyRole[]);
+    });
+  }, [plant]);
 
   function optionalNumber(value: string) {
     return value.trim() === "" ? null : Number(value);
@@ -1486,6 +1497,8 @@ function PlantEditor({
       installedDcKw: optionalNumber(installedDcKw),
       installedAcKw: optionalNumber(installedAcKw),
       lifecycleStatus,
+      alarmEmailEnabled,
+      alarmNotifyRoleId: alarmNotifyRoleId || null,
       ...(plant ? { isActive } : {}),
     };
     try {
@@ -1626,6 +1639,21 @@ function PlantEditor({
                   <SelectItem value="RETIRED">Retired</SelectItem>
                 </SelectContent>
               </Select>
+            </label>
+            <label className="toggle-field full-field">
+              <Checkbox checked={alarmEmailEnabled} onChange={setAlarmEmailEnabled} />
+              <span>ส่ง Email เมื่อเกิด Alarm</span>
+            </label>
+            <label className="full-field">
+              ผู้รับ Email Alarm
+              <Select value={alarmNotifyRoleId || "__none__"} onValueChange={(value) => setAlarmNotifyRoleId(value === "__none__" ? "" : value)} disabled={!alarmEmailEnabled || notifyRoles.length === 0}>
+                <SelectTrigger><SelectValue placeholder={notifyRoles.length === 0 ? "ไม่มี Role ที่เลือกได้" : "เลือก Role ผู้รับ"} /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">ไม่ระบุ Role</SelectItem>
+                  {notifyRoles.map((role) => <SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <small className="block text-[11px] text-ink-soft">ใช้ email ของสมาชิกใน Role นี้ และใช้ร่วมกับ Alarm Rule</small>
             </label>
             {plant && (
               <div className="plant-image-field full-field">

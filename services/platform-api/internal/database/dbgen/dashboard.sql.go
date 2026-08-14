@@ -311,11 +311,10 @@ type ListDashboardPlantStatusRow struct {
 // wants is "when did this device last report", and going through the mapping
 // view made it unnest and Register-Metadata-join every register of every
 // device only to discard the resulting data_item_map.
-// ponytail: the view's DISTINCT ON walks the whole device-time index once per
-// dashboard load. Cheap next to the mapping view it replaced, but still
-// O(readings) in index entries -- if it shows up in slow-query logs, replace
-// with a correlated LATERAL max() per device, hand-written (sqlc's analyzer
-// cannot resolve lateral aliases).
+// The view is a correlated LATERAL over plant.device (migration 000045), so
+// this costs one index descent per device rather than the O(all readings) sort
+// its earlier DISTINCT ON form did. Kept as a view so sqlc still sees a plain
+// relation -- its analyzer cannot resolve lateral aliases written inline here.
 func (q *Queries) ListDashboardPlantStatus(ctx context.Context, arg ListDashboardPlantStatusParams) ([]ListDashboardPlantStatusRow, error) {
 	rows, err := q.db.Query(ctx, listDashboardPlantStatus, arg.StaleBefore, arg.UserID)
 	if err != nil {

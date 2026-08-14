@@ -181,11 +181,13 @@ export function AlarmsPage() {
               <div className="grid gap-1"><strong>{formatDate(event.breachedAt)}</strong><small className="block text-[11px] text-ink-soft">{event.clearedAt ? `Cleared ${formatDate(event.clearedAt)}` : "เปิดอยู่"}</small></div>
             )} />
             <TableColumn header="Point" body={(event: AlarmEvent) => (
-              <div className="grid gap-1"><strong>{deviceName(event.deviceId)}</strong><small className="block text-[11px] text-ink-soft">{(event.conditionSnapshot ?? []).map((c) => pointLabel(event.deviceId, c.pointKey)).join(", ") || "-"}</small></div>
+              <div className="grid gap-1"><strong>{deviceName(event.deviceId)}</strong><small className="block text-[11px] text-ink-soft">{event.sourceType === "REGISTER" && event.registerSnapshot ? `${event.registerSnapshot.addressKey} · Register Alarm` : (event.conditionSnapshot ?? []).map((c) => pointLabel(event.deviceId, c.pointKey)).join(", ") || "-"}</small></div>
             )} />
             <TableColumn header="ค่า / Threshold" body={(event: AlarmEvent) => (
               <div className="grid gap-1">
-                {(event.conditionSnapshot ?? []).map((c) => (
+                {event.sourceType === "REGISTER" && event.registerSnapshot ? (
+                  <div><strong>⚠ {event.registerSnapshot.displayValue}</strong><small className="block text-[11px] text-ink-soft">raw {event.registerSnapshot.rawValue.toLocaleString()} · numeric {event.registerSnapshot.numericValue.toLocaleString()}</small></div>
+                ) : (event.conditionSnapshot ?? []).map((c) => (
                   <div key={c.pointKey}><strong>{c.breached ? "⚠ " : ""}{c.value.toLocaleString()}</strong><small> {conditionThreshold(c)}</small></div>
                 ))}
               </div>

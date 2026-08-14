@@ -32,6 +32,13 @@ func parseUUID(value string) (pgtype.UUID, error) {
 	return id, nil
 }
 
+func optionalOrganizationIDForAudit(value string) (pgtype.UUID, error) {
+	if strings.TrimSpace(value) == "" {
+		return pgtype.UUID{}, nil
+	}
+	return parseUUID(value)
+}
+
 func newUUID() (pgtype.UUID, error) {
 	var value pgtype.UUID
 	if _, err := rand.Read(value.Bytes[:]); err != nil {

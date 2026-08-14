@@ -11,36 +11,40 @@ import (
 )
 
 type AlarmAlarmEvent struct {
-	ID                int64
-	OrganizationID    pgtype.UUID
-	PlantID           pgtype.UUID
-	DeviceID          pgtype.UUID
-	AlarmRuleID       pgtype.UUID
-	PointKey          pgtype.Text
-	Severity          string
-	Value             pgtype.Float8
-	ThresholdMin      pgtype.Float8
-	ThresholdMax      pgtype.Float8
-	BreachedAt        pgtype.Timestamptz
-	ClearedAt         pgtype.Timestamptz
-	AcknowledgedBy    pgtype.UUID
-	AcknowledgedAt    pgtype.Timestamptz
-	AcknowledgedNote  pgtype.Text
-	ConditionSnapshot []byte
+	ID                      int64
+	OrganizationID          pgtype.UUID
+	PlantID                 pgtype.UUID
+	DeviceID                pgtype.UUID
+	AlarmRuleID             pgtype.UUID
+	PointKey                pgtype.Text
+	Severity                string
+	Value                   pgtype.Float8
+	ThresholdMin            pgtype.Float8
+	ThresholdMax            pgtype.Float8
+	BreachedAt              pgtype.Timestamptz
+	ClearedAt               pgtype.Timestamptz
+	AcknowledgedBy          pgtype.UUID
+	AcknowledgedAt          pgtype.Timestamptz
+	AcknowledgedNote        pgtype.Text
+	ConditionSnapshot       []byte
+	SourceType              string
+	RegisterMappingSourceID pgtype.UUID
+	RegisterSnapshot        []byte
 }
 
 type AlarmAlarmRule struct {
-	ID             pgtype.UUID
-	OrganizationID pgtype.UUID
-	PlantID        pgtype.UUID
-	DeviceID       pgtype.UUID
-	Label          string
-	Severity       string
-	IsActive       bool
-	CreatedAt      pgtype.Timestamptz
-	UpdatedAt      pgtype.Timestamptz
-	NotifyRoleID   pgtype.UUID
-	ConditionLogic string
+	ID                pgtype.UUID
+	OrganizationID    pgtype.UUID
+	PlantID           pgtype.UUID
+	DeviceID          pgtype.UUID
+	Label             string
+	Severity          string
+	IsActive          bool
+	CreatedAt         pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
+	NotifyRoleID      pgtype.UUID
+	ConditionLogic    string
+	AlarmDelaySeconds int32
 }
 
 type AlarmAlarmRuleCondition struct {
@@ -50,6 +54,24 @@ type AlarmAlarmRuleCondition struct {
 	MinValue    pgtype.Float8
 	MaxValue    pgtype.Float8
 	Position    int32
+	Logic       string
+}
+
+type AlarmEventLogbook struct {
+	ID             pgtype.UUID
+	OrganizationID pgtype.UUID
+	PlantID        pgtype.UUID
+	DeviceID       pgtype.UUID
+	EventType      string
+	Category       string
+	Title          string
+	StartsAt       pgtype.Timestamptz
+	EndsAt         pgtype.Timestamptz
+	Note           string
+	Source         string
+	CreatedBy      pgtype.UUID
+	CreatedAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
 }
 
 type AuditLog struct {
@@ -119,6 +141,7 @@ type AuthMiddlewareClient struct {
 	SoftwareVersion      pgtype.Text
 	PollIntervalSeconds  int32
 	ApiPollingEnabled    bool
+	IdleHeartbeatSeconds int32
 }
 
 type AuthPasswordRecoveryAttempt struct {
@@ -294,6 +317,7 @@ type PlantDeviceModel struct {
 	ModbusByteOrder    string
 	ModbusWordOrder    string
 	ModbusMaxBlockSize int32
+	RegisterProfileID  pgtype.UUID
 }
 
 type PlantDeviceModelRegisterMetadatum struct {
@@ -349,8 +373,55 @@ type PlantPlant struct {
 	CreatedAt      pgtype.Timestamptz
 	UpdatedAt      pgtype.Timestamptz
 	// Relative API path for the Plant primary image
-	ImageUrl        pgtype.Text
-	LifecycleStatus string
+	ImageUrl          pgtype.Text
+	LifecycleStatus   string
+	AlarmEmailEnabled bool
+	AlarmNotifyRoleID pgtype.UUID
+}
+
+type PlantRegisterProfile struct {
+	ID             pgtype.UUID
+	OrganizationID pgtype.UUID
+	Name           string
+	Manufacturer   string
+	Description    string
+	CreatedAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
+}
+
+type PlantRegisterProfileAddress struct {
+	ID                 pgtype.UUID
+	OrganizationID     pgtype.UUID
+	ProfileID          pgtype.UUID
+	AddressKey         string
+	DisplayName        string
+	Unit               string
+	DataType           string
+	Scale              float64
+	ValueOffset        float64
+	Decimals           int32
+	IsEnabled          bool
+	Notes              string
+	ModbusFunctionCode pgtype.Int4
+	ModbusRegister     pgtype.Int4
+	ModbusWordOrder    pgtype.Text
+	ModbusDataType     pgtype.Text
+	IsAlarm            bool
+	MappingMode        string
+	CreatedAt          pgtype.Timestamptz
+	UpdatedAt          pgtype.Timestamptz
+}
+
+type PlantRegisterValueMapping struct {
+	ID               pgtype.UUID
+	OrganizationID   pgtype.UUID
+	ProfileAddressID pgtype.UUID
+	MatchValue       pgtype.Int8
+	BitIndex         pgtype.Int4
+	DisplayValue     string
+	AlarmState       pgtype.Text
+	Severity         pgtype.Text
+	SortOrder        int32
 }
 
 type ScadaScadaScreen struct {
@@ -548,6 +619,7 @@ type TelemetryRawTelemetryLatest struct {
 	ReceivedAt         pgtype.Timestamptz
 	DataItemMap        []byte
 	ParameterCount     int32
+	DisplayItemMap     []byte
 }
 
 type TelemetryTelemetryIngestBatch struct {

@@ -18,22 +18,23 @@ import (
 )
 
 type Device struct {
-	ID             string    `json:"id"`
-	OrganizationID string    `json:"organizationId"`
-	PlantID        string    `json:"plantId"`
-	ExternalID     string    `json:"externalId"`
-	Name           string    `json:"name"`
-	DeviceModelID  string    `json:"deviceModelId"`
-	Manufacturer   string    `json:"manufacturer"`
-	Model          string    `json:"model"`
-	DeviceType     string    `json:"deviceType"`
-	SourceTypeID   *int32    `json:"sourceTypeId"`
-	ModbusHost     *string   `json:"modbusHost"`
-	ModbusPort     *int32    `json:"modbusPort"`
-	ModbusUnitID   int32     `json:"modbusUnitId"`
-	IsActive       bool      `json:"isActive"`
-	CreatedAt      time.Time `json:"createdAt"`
-	UpdatedAt      time.Time `json:"updatedAt"`
+	ID                string    `json:"id"`
+	OrganizationID    string    `json:"organizationId"`
+	PlantID           string    `json:"plantId"`
+	ExternalID        string    `json:"externalId"`
+	Name              string    `json:"name"`
+	DeviceModelID     string    `json:"deviceModelId"`
+	Manufacturer      string    `json:"manufacturer"`
+	Model             string    `json:"model"`
+	DeviceType        string    `json:"deviceType"`
+	SourceTypeID      *int32    `json:"sourceTypeId"`
+	RegisterProfileID string    `json:"registerProfileId"`
+	ModbusHost        *string   `json:"modbusHost"`
+	ModbusPort        *int32    `json:"modbusPort"`
+	ModbusUnitID      int32     `json:"modbusUnitId"`
+	IsActive          bool      `json:"isActive"`
+	CreatedAt         time.Time `json:"createdAt"`
+	UpdatedAt         time.Time `json:"updatedAt"`
 }
 
 // UpdateDeviceInput and CreateDeviceInput are admin-facing (httpapi) inputs
@@ -79,15 +80,16 @@ type DeviceRegisterMetadata struct {
 }
 
 type DeviceModelOption struct {
-	ID             string    `json:"id"`
-	OrganizationID string    `json:"organizationId"`
-	Manufacturer   string    `json:"manufacturer"`
-	Model          string    `json:"model"`
-	DeviceType     string    `json:"deviceType"`
-	SourceTypeID   *int32    `json:"sourceTypeId"`
-	IsActive       bool      `json:"isActive"`
-	CreatedAt      time.Time `json:"createdAt"`
-	UpdatedAt      time.Time `json:"updatedAt"`
+	ID                string    `json:"id"`
+	OrganizationID    string    `json:"organizationId"`
+	Manufacturer      string    `json:"manufacturer"`
+	Model             string    `json:"model"`
+	DeviceType        string    `json:"deviceType"`
+	SourceTypeID      *int32    `json:"sourceTypeId"`
+	RegisterProfileID string    `json:"registerProfileId"`
+	IsActive          bool      `json:"isActive"`
+	CreatedAt         time.Time `json:"createdAt"`
+	UpdatedAt         time.Time `json:"updatedAt"`
 }
 
 type DeviceModelInput struct {
@@ -115,12 +117,15 @@ type DeviceModelRegisterMetadata struct {
 	// Modbus register-decode config, used by a middleware's computed
 	// config snapshot -- see core/middleware_config.go's buildConfigSnapshot.
 	// Nil/empty means this row is display-metadata only, not pollable.
-	ModbusFunctionCode *int32    `json:"modbusFunctionCode"`
-	ModbusRegister     *int32    `json:"modbusRegister"`
-	ModbusWordOrder    *string   `json:"modbusWordOrder"`
-	ModbusDataType     *string   `json:"modbusDataType"`
-	CreatedAt          time.Time `json:"createdAt"`
-	UpdatedAt          time.Time `json:"updatedAt"`
+	ModbusFunctionCode *int32                 `json:"modbusFunctionCode"`
+	ModbusRegister     *int32                 `json:"modbusRegister"`
+	ModbusWordOrder    *string                `json:"modbusWordOrder"`
+	ModbusDataType     *string                `json:"modbusDataType"`
+	IsAlarm            bool                   `json:"isAlarm"`
+	MappingMode        string                 `json:"mappingMode"`
+	Mappings           []RegisterValueMapping `json:"mappings"`
+	CreatedAt          time.Time              `json:"createdAt"`
+	UpdatedAt          time.Time              `json:"updatedAt"`
 }
 
 type UpdateDeviceRegisterMetadataInput struct {
@@ -145,6 +150,9 @@ type UpdateDeviceModelRegisterMetadataInput struct {
 	ModbusRegister     *int32
 	ModbusWordOrder    string
 	ModbusDataType     string
+	IsAlarm            bool
+	MappingMode        string
+	Mappings           []RegisterValueMapping
 }
 
 func (s *Service) Devices(ctx context.Context, principal auth.Principal, plantID string) ([]Device, error) {
@@ -196,7 +204,7 @@ func (s *Service) DeviceModels(ctx context.Context, principal auth.Principal) ([
 	}
 	rows, err := s.pool.Query(ctx, `
 SELECT dm.id, dm.organization_id, dm.manufacturer, dm.model, dm.device_type, dm.source_type_id,
-       dm.is_active, dm.created_at, dm.updated_at
+       dm.register_profile_id, dm.is_active, dm.created_at, dm.updated_at
 FROM plant.device_model dm
 WHERE EXISTS (
     SELECT 1 FROM auth.user_role ur
@@ -220,14 +228,16 @@ LIMIT 500`, principal.UserID)
 	for rows.Next() {
 		var model DeviceModelOption
 		var id, organizationID pgtype.UUID
+		var registerProfileID pgtype.UUID
 		var sourceTypeID pgtype.Int4
 		var createdAt, updatedAt pgtype.Timestamptz
-		if err := rows.Scan(&id, &organizationID, &model.Manufacturer, &model.Model, &model.DeviceType, &sourceTypeID, &model.IsActive, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(&id, &organizationID, &model.Manufacturer, &model.Model, &model.DeviceType, &sourceTypeID, &registerProfileID, &model.IsActive, &createdAt, &updatedAt); err != nil {
 			return nil, fmt.Errorf("scan device model: %w", err)
 		}
 		model.ID = uuidString(id)
 		model.OrganizationID = uuidString(organizationID)
 		model.SourceTypeID = int32Pointer(sourceTypeID)
+		model.RegisterProfileID = uuidString(registerProfileID)
 		model.CreatedAt = createdAt.Time
 		model.UpdatedAt = updatedAt.Time
 		models = append(models, model)
@@ -255,6 +265,9 @@ func (s *Service) CreateDeviceModel(ctx context.Context, principal auth.Principa
 	q := s.queries.WithTx(tx)
 	if err = s.requireOrganizationPermission(ctx, q, principal, "create", "device_model", organizationID); err != nil {
 		return DeviceModelOption{}, err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO plant.register_profile(id, organization_id, name, manufacturer) VALUES($1,$2,$3,$4)`, id, organizationID, input.Manufacturer+" "+input.Model, input.Manufacturer); err != nil {
+		return DeviceModelOption{}, mapWriteError(err)
 	}
 	model, err := upsertDeviceModelRow(ctx, tx, id, organizationID, input, true)
 	if err != nil {
@@ -330,27 +343,23 @@ func (s *Service) DeviceModelRegisterMetadata(ctx context.Context, principal aut
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.pool.Query(ctx, `
-SELECT id, organization_id, device_model_id, address_key, display_name, unit, data_type,
-       scale, value_offset, decimals, is_enabled, notes,
-       modbus_function_code, modbus_register, modbus_word_order, modbus_data_type, created_at, updated_at
-FROM plant.device_model_register_metadata
-WHERE organization_id=$1 AND device_model_id=$2
-ORDER BY address_key
-LIMIT 1000`, organizationID, modelUUID)
+	var profileID pgtype.UUID
+	if err = s.pool.QueryRow(ctx, `SELECT register_profile_id FROM plant.device_model WHERE organization_id=$1 AND id=$2`, organizationID, modelUUID).Scan(&profileID); err != nil {
+		return nil, fmt.Errorf("load device model register profile: %w", err)
+	}
+	addresses, err := s.ListRegisterProfileAddresses(ctx, principal, uuidString(profileID))
 	if err != nil {
-		return nil, fmt.Errorf("list model register metadata: %w", err)
+		return nil, err
 	}
-	defer rows.Close()
-	items := []DeviceModelRegisterMetadata{}
-	for rows.Next() {
-		item, err := scanDeviceModelRegisterMetadata(rows)
-		if err != nil {
-			return nil, err
-		}
-		items = append(items, item)
+	items := make([]DeviceModelRegisterMetadata, 0, len(addresses))
+	for _, address := range addresses {
+		items = append(items, modelMetadataFromProfileAddress(modelUUID, address))
 	}
-	return items, rows.Err()
+	return items, nil
+}
+
+func modelMetadataFromProfileAddress(modelID pgtype.UUID, address RegisterProfileAddress) DeviceModelRegisterMetadata {
+	return DeviceModelRegisterMetadata{ID: address.ID, OrganizationID: address.OrganizationID, DeviceModelID: uuidString(modelID), AddressKey: address.AddressKey, DisplayName: address.DisplayName, Unit: address.Unit, DataType: address.DataType, Scale: address.Scale, Offset: address.Offset, Decimals: address.Decimals, IsEnabled: address.IsEnabled, Notes: address.Notes, ModbusFunctionCode: address.ModbusFunctionCode, ModbusRegister: address.ModbusRegister, ModbusWordOrder: address.ModbusWordOrder, ModbusDataType: address.ModbusDataType, IsAlarm: address.IsAlarm, MappingMode: address.MappingMode, Mappings: address.Mappings, CreatedAt: address.CreatedAt, UpdatedAt: address.UpdatedAt}
 }
 
 func (s *Service) SetDeviceModelRegisterMetadata(ctx context.Context, principal auth.Principal, modelID string, input UpdateDeviceModelRegisterMetadataInput, sourceIP *netip.Addr) (DeviceModelRegisterMetadata, error) {
@@ -427,7 +436,20 @@ RETURNING id, organization_id, device_model_id, address_key, display_name, unit,
 	if err = tx.Commit(ctx); err != nil {
 		return DeviceModelRegisterMetadata{}, fmt.Errorf("commit model register metadata update: %w", err)
 	}
-	return after, nil
+	var profileID pgtype.UUID
+	if err = s.pool.QueryRow(ctx, `SELECT register_profile_id FROM plant.device_model WHERE organization_id=$1 AND id=$2`, organizationID, modelUUID).Scan(&profileID); err != nil {
+		return DeviceModelRegisterMetadata{}, fmt.Errorf("load device model register profile: %w", err)
+	}
+	profileAddress, err := s.UpsertRegisterProfileAddress(ctx, principal, uuidString(profileID), RegisterProfileAddressInput{
+		AddressKey: input.AddressKey, DisplayName: input.DisplayName, Unit: input.Unit, DataType: input.DataType,
+		Scale: input.Scale, Offset: input.Offset, Decimals: input.Decimals, IsEnabled: input.IsEnabled, Notes: input.Notes,
+		ModbusFunctionCode: input.ModbusFunctionCode, ModbusRegister: input.ModbusRegister, ModbusWordOrder: input.ModbusWordOrder, ModbusDataType: input.ModbusDataType,
+		IsAlarm: input.IsAlarm, MappingMode: input.MappingMode, Mappings: input.Mappings,
+	}, sourceIP)
+	if err != nil {
+		return DeviceModelRegisterMetadata{}, err
+	}
+	return modelMetadataFromProfileAddress(modelUUID, profileAddress), nil
 }
 
 func (s *Service) DeleteDeviceModelRegisterMetadata(ctx context.Context, principal auth.Principal, modelID, addressKey string, sourceIP *netip.Addr) error {
@@ -457,6 +479,9 @@ func (s *Service) DeleteDeviceModelRegisterMetadata(ctx context.Context, princip
 	}
 	if _, err = tx.Exec(ctx, `DELETE FROM plant.device_model_register_metadata WHERE organization_id=$1 AND device_model_id=$2 AND address_key=$3`, organizationID, modelUUID, addressKey); err != nil {
 		return fmt.Errorf("delete model register metadata: %w", err)
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM plant.register_profile_address WHERE organization_id=$1 AND profile_id=(SELECT register_profile_id FROM plant.device_model WHERE organization_id=$1 AND id=$2) AND address_key=$3`, organizationID, modelUUID, addressKey); err != nil {
+		return fmt.Errorf("delete register profile address: %w", err)
 	}
 	correlationID, err := newUUID()
 	if err != nil {
@@ -964,9 +989,9 @@ func upsertDeviceModelRow(ctx context.Context, tx pgx.Tx, id, organizationID pgt
 		sourceType = pgtype.Int4{Int32: *input.SourceTypeID, Valid: true}
 	}
 	row := tx.QueryRow(ctx, `
-INSERT INTO plant.device_model (id, organization_id, manufacturer, model, device_type, source_type_id, is_active)
-VALUES ($1,$2,$3,$4,$5,$6,$7)
-RETURNING id, organization_id, manufacturer, model, device_type, source_type_id, is_active, created_at, updated_at`, id, organizationID, input.Manufacturer, input.Model, input.DeviceType, sourceType, input.IsActive)
+INSERT INTO plant.device_model (id, organization_id, manufacturer, model, device_type, source_type_id, is_active, register_profile_id)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$1)
+RETURNING id, organization_id, manufacturer, model, device_type, source_type_id, register_profile_id, is_active, created_at, updated_at`, id, organizationID, input.Manufacturer, input.Model, input.DeviceType, sourceType, input.IsActive)
 	model, err := scanDeviceModelRow(row)
 	if err != nil && failOnConflict {
 		return DeviceModelOption{}, mapWriteError(err)
@@ -983,7 +1008,7 @@ func updateDeviceModelRow(ctx context.Context, tx pgx.Tx, id pgtype.UUID, input 
 UPDATE plant.device_model
 SET manufacturer=$2, model=$3, device_type=$4, source_type_id=$5, is_active=$6, updated_at=now()
 WHERE id=$1
-RETURNING id, organization_id, manufacturer, model, device_type, source_type_id, is_active, created_at, updated_at`, id, input.Manufacturer, input.Model, input.DeviceType, sourceType, input.IsActive)
+RETURNING id, organization_id, manufacturer, model, device_type, source_type_id, register_profile_id, is_active, created_at, updated_at`, id, input.Manufacturer, input.Model, input.DeviceType, sourceType, input.IsActive)
 	model, err := scanDeviceModelRow(row)
 	if err != nil {
 		return DeviceModelOption{}, mapWriteError(err)
@@ -993,21 +1018,22 @@ RETURNING id, organization_id, manufacturer, model, device_type, source_type_id,
 
 func getDeviceModelRow(ctx context.Context, tx pgx.Tx, id pgtype.UUID) (DeviceModelOption, error) {
 	return scanDeviceModelRow(tx.QueryRow(ctx, `
-SELECT id, organization_id, manufacturer, model, device_type, source_type_id, is_active, created_at, updated_at
+SELECT id, organization_id, manufacturer, model, device_type, source_type_id, register_profile_id, is_active, created_at, updated_at
 FROM plant.device_model WHERE id=$1 FOR UPDATE`, id))
 }
 
 func scanDeviceModelRow(row registerMetadataScanner) (DeviceModelOption, error) {
 	var model DeviceModelOption
-	var id, organizationID pgtype.UUID
+	var id, organizationID, registerProfileID pgtype.UUID
 	var sourceTypeID pgtype.Int4
 	var createdAt, updatedAt pgtype.Timestamptz
-	if err := row.Scan(&id, &organizationID, &model.Manufacturer, &model.Model, &model.DeviceType, &sourceTypeID, &model.IsActive, &createdAt, &updatedAt); err != nil {
+	if err := row.Scan(&id, &organizationID, &model.Manufacturer, &model.Model, &model.DeviceType, &sourceTypeID, &registerProfileID, &model.IsActive, &createdAt, &updatedAt); err != nil {
 		return DeviceModelOption{}, fmt.Errorf("scan device model: %w", err)
 	}
 	model.ID = uuidString(id)
 	model.OrganizationID = uuidString(organizationID)
 	model.SourceTypeID = int32Pointer(sourceTypeID)
+	model.RegisterProfileID = uuidString(registerProfileID)
 	model.CreatedAt = createdAt.Time
 	model.UpdatedAt = updatedAt.Time
 	return model, nil

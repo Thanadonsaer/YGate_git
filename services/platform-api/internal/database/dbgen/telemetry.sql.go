@@ -37,7 +37,7 @@ const listLatestPlantTelemetry = `-- name: ListLatestPlantTelemetry :many
 SELECT latest.telemetry_reading_id AS id, latest.organization_id, latest.plant_id, latest.device_id,
        d.external_id AS device_external_id, d.name AS device_name,
        latest.gateway_id, latest.observed_at, latest.received_at,
-       latest.data_item_map, latest.parameter_count
+       latest.data_item_map, latest.parameter_count, latest.display_item_map
 FROM telemetry.raw_telemetry_latest latest
 JOIN plant.device d ON d.organization_id = latest.organization_id
              AND d.plant_id = latest.plant_id
@@ -65,6 +65,7 @@ type ListLatestPlantTelemetryRow struct {
 	ReceivedAt       pgtype.Timestamptz
 	DataItemMap      []byte
 	ParameterCount   int32
+	DisplayItemMap   []byte
 }
 
 func (q *Queries) ListLatestPlantTelemetry(ctx context.Context, arg ListLatestPlantTelemetryParams) ([]ListLatestPlantTelemetryRow, error) {
@@ -88,6 +89,7 @@ func (q *Queries) ListLatestPlantTelemetry(ctx context.Context, arg ListLatestPl
 			&i.ReceivedAt,
 			&i.DataItemMap,
 			&i.ParameterCount,
+			&i.DisplayItemMap,
 		); err != nil {
 			return nil, err
 		}

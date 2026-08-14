@@ -7,6 +7,7 @@ import { api, errorMessage, assetURL } from "../lib/api";
 import type { AuthMode, SiteSettings, User } from "../lib/types";
 import { LivePulse } from "./live-pulse";
 import { Button } from "./ui/button";
+import { loginStatusFromBody, resendVerificationPayload, type LoginStatusCode } from "../lib/auth-status";
 
 export function AuthScreen({
   mode,
@@ -32,6 +33,7 @@ export function AuthScreen({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState(initialError);
   const [notice, setNotice] = useState("");
+  const [loginStatus, setLoginStatus] = useState<LoginStatusCode | null>(null);
 
   useEffect(() => {
     if (mode !== "verify") return;
@@ -51,6 +53,7 @@ export function AuthScreen({
     setPending(true);
     setError("");
     setNotice("");
+    setLoginStatus(null);
     try {
       if (mode === "forgot") {
         const response = await api("/api/v1/auth/forgot-password", {
@@ -90,10 +93,36 @@ export function AuthScreen({
         body: JSON.stringify({ identifier, password }),
       });
       if (!response.ok) {
+        if (response.status === 403) {
+          const status = loginStatusFromBody(await response.json().catch(() => null));
+          if (status) {
+            setLoginStatus(status.code);
+            setError(status.message);
+            return;
+          }
+        }
         throw new Error(response.status === 401 ? "อีเมล/ชื่อผู้ใช้ หรือรหัสผ่านไม่ถูกต้อง" : "ไม่สามารถเข้าสู่ระบบได้");
       }
       const result = (await response.json()) as { user: User };
       onLogin(result.user);
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function resendVerification() {
+    setPending(true);
+    setError("");
+    setNotice("");
+    try {
+      const response = await api("/api/v1/auth/resend-verification", {
+        method: "POST",
+        body: JSON.stringify(resendVerificationPayload(identifier)),
+      });
+      if (!response.ok) throw new Error("ไม่สามารถส่งอีเมลยืนยันได้");
+      setNotice("หากบัญชีนี้ยังไม่ได้ยืนยัน ระบบจะส่งอีเมลยืนยันให้");
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -134,6 +163,7 @@ export function AuthScreen({
           </Button>
         </form>}
         {mode === "login" && <>
+          {loginStatus === "EMAIL_UNVERIFIED" && <Button variant="text" disabled={pending || !identifier.trim()} onClick={() => void resendVerification()}>ส่งอีเมลยืนยันอีกครั้ง</Button>}
           <div className="flex gap-2 justify-between">
             <Button variant="text" onClick={() => onModeChange("forgot")}>ลืมรหัสผ่าน?</Button>
             <Button variant="text" onClick={() => onModeChange("register")}>สมัครบัญชีใหม่</Button>

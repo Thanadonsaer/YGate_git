@@ -1,6 +1,6 @@
 -- name: GetLoginUser :one
 SELECT id, organization_id, email, display_name, password_hash, status,
-       failed_login_count, locked_until
+       email_verified_at, failed_login_count, locked_until
 FROM auth.app_user
 WHERE email = lower(sqlc.arg(identifier))
    OR username = lower(sqlc.arg(identifier))

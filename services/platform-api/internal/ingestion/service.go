@@ -156,6 +156,18 @@ ON CONFLICT (organization_id, device_model_id, address_key) DO NOTHING`,
 			return fmt.Errorf("auto-create register metadata %q: %w", key, err)
 		}
 		if result.RowsAffected() == 1 {
+			profileAddressID, profileErr := newUUID()
+			if profileErr != nil {
+				return profileErr
+			}
+			if _, profileErr = tx.Exec(ctx, `
+INSERT INTO plant.register_profile_address (
+    id, organization_id, profile_id, address_key, display_name, data_type, notes
+) VALUES ($1,$2,$3,$4,$4,$5,$6)
+ON CONFLICT (organization_id, profile_id, address_key) DO NOTHING`,
+				profileAddressID, client.OrganizationID, modelID, key, dataType, "Auto-created from "+source); profileErr != nil {
+				return fmt.Errorf("auto-create register profile address %q: %w", key, profileErr)
+			}
 			added = append(added, key)
 		}
 	}

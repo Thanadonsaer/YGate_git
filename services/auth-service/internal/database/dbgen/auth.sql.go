@@ -234,7 +234,7 @@ func (q *Queries) GetActiveSession(ctx context.Context, tokenHash []byte) (GetAc
 
 const getLoginUser = `-- name: GetLoginUser :one
 SELECT id, organization_id, email, display_name, password_hash, status,
-       failed_login_count, locked_until
+       email_verified_at, failed_login_count, locked_until
 FROM auth.app_user
 WHERE email = lower($1)
    OR username = lower($1)
@@ -248,6 +248,7 @@ type GetLoginUserRow struct {
 	DisplayName      string
 	PasswordHash     string
 	Status           string
+	EmailVerifiedAt  pgtype.Timestamptz
 	FailedLoginCount int32
 	LockedUntil      pgtype.Timestamptz
 }
@@ -262,6 +263,7 @@ func (q *Queries) GetLoginUser(ctx context.Context, identifier string) (GetLogin
 		&i.DisplayName,
 		&i.PasswordHash,
 		&i.Status,
+		&i.EmailVerifiedAt,
 		&i.FailedLoginCount,
 		&i.LockedUntil,
 	)

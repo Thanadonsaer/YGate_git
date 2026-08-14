@@ -26,6 +26,7 @@ type LatestTelemetry struct {
 	ObservedAt       time.Time          `json:"observedAt"`
 	ReceivedAt       time.Time          `json:"receivedAt"`
 	DataItemMap      map[string]float64 `json:"dataItemMap"`
+	DisplayItemMap   map[string]string  `json:"displayItemMap"`
 	ParameterCount   int32              `json:"parameterCount"`
 }
 
@@ -63,6 +64,7 @@ type telemetryRowFields struct {
 	ReceivedAt       pgtype.Timestamptz
 	DataItemMap      []byte
 	ParameterCount   int32
+	DisplayItemMap   []byte
 }
 
 func (s *Service) LatestTelemetry(ctx context.Context, principal auth.Principal, plantID string) ([]LatestTelemetry, error) {
@@ -109,7 +111,8 @@ func (s *Service) mappedRawTelemetryHistory(ctx context.Context, organizationID,
 SELECT raw.id, raw.organization_id, raw.plant_id, raw.device_id,
        device.external_id, device.name, raw.gateway_id, raw.observed_at, raw.received_at,
        mapped.data_item_map,
-       (SELECT count(*)::integer FROM jsonb_object_keys(mapped.data_item_map))
+       (SELECT count(*)::integer FROM jsonb_object_keys(mapped.data_item_map)),
+       telemetry.display_data_items(raw.organization_id, device.device_model_id, raw.register_address_map)
 FROM telemetry.raw_register_reading raw
 JOIN plant.device device ON device.organization_id=raw.organization_id AND device.plant_id=raw.plant_id AND device.id=raw.device_id
 CROSS JOIN LATERAL (
@@ -126,7 +129,7 @@ ORDER BY raw.observed_at DESC, raw.received_at DESC, raw.id DESC LIMIT $10`, org
 	items := make([]telemetryRowFields, 0, limit)
 	for rows.Next() {
 		var row telemetryRowFields
-		if err := rows.Scan(&row.ID, &row.OrganizationID, &row.PlantID, &row.DeviceID, &row.DeviceExternalID, &row.DeviceName, &row.GatewayID, &row.ObservedAt, &row.ReceivedAt, &row.DataItemMap, &row.ParameterCount); err != nil {
+		if err := rows.Scan(&row.ID, &row.OrganizationID, &row.PlantID, &row.DeviceID, &row.DeviceExternalID, &row.DeviceName, &row.GatewayID, &row.ObservedAt, &row.ReceivedAt, &row.DataItemMap, &row.ParameterCount, &row.DisplayItemMap); err != nil {
 			return nil, fmt.Errorf("scan mapped raw telemetry history: %w", err)
 		}
 		items = append(items, row)
@@ -206,12 +209,18 @@ func telemetryFromRow(row telemetryRowFields) (LatestTelemetry, error) {
 	if err := json.Unmarshal(row.DataItemMap, &values); err != nil {
 		return LatestTelemetry{}, fmt.Errorf("decode telemetry: %w", err)
 	}
+	displayValues := make(map[string]string)
+	if len(row.DisplayItemMap) > 0 && string(row.DisplayItemMap) != "null" {
+		if err := json.Unmarshal(row.DisplayItemMap, &displayValues); err != nil {
+			return LatestTelemetry{}, fmt.Errorf("decode telemetry display values: %w", err)
+		}
+	}
 	return LatestTelemetry{
 		ID: uuidString(row.ID), OrganizationID: uuidString(row.OrganizationID),
 		PlantID: uuidString(row.PlantID), DeviceID: uuidString(row.DeviceID),
 		DeviceExternalID: row.DeviceExternalID, DeviceName: row.DeviceName,
 		GatewayID: row.GatewayID, ObservedAt: row.ObservedAt.Time,
-		ReceivedAt: row.ReceivedAt.Time, DataItemMap: values,
+		ReceivedAt: row.ReceivedAt.Time, DataItemMap: values, DisplayItemMap: displayValues,
 		ParameterCount: row.ParameterCount,
 	}, nil
 }

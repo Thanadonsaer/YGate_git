@@ -51,10 +51,13 @@ type updateRegisterMetadataRequest struct {
 
 type updateModelRegisterMetadataRequest struct {
 	updateRegisterMetadataRequest
-	ModbusFunctionCode *int32 `json:"modbusFunctionCode"`
-	ModbusRegister     *int32 `json:"modbusRegister"`
-	ModbusWordOrder    string `json:"modbusWordOrder"`
-	ModbusDataType     string `json:"modbusDataType"`
+	ModbusFunctionCode *int32                      `json:"modbusFunctionCode"`
+	ModbusRegister     *int32                      `json:"modbusRegister"`
+	ModbusWordOrder    string                      `json:"modbusWordOrder"`
+	ModbusDataType     string                      `json:"modbusDataType"`
+	IsAlarm            bool                        `json:"isAlarm"`
+	MappingMode        string                      `json:"mappingMode"`
+	Mappings           []core.RegisterValueMapping `json:"mappings"`
 }
 
 func listDevicesHandler(service *core.Service) func(http.ResponseWriter, *http.Request, auth.Principal) {
@@ -217,6 +220,7 @@ func updateModelRegisterMetadataHandler(service *core.Service) func(http.Respons
 			},
 			ModbusFunctionCode: request.ModbusFunctionCode, ModbusRegister: request.ModbusRegister,
 			ModbusWordOrder: request.ModbusWordOrder, ModbusDataType: request.ModbusDataType,
+			IsAlarm: request.IsAlarm, MappingMode: request.MappingMode, Mappings: request.Mappings,
 		}, remoteIP(r.RemoteAddr))
 		switch {
 		case errors.Is(err, core.ErrInvalid):

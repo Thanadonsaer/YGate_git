@@ -97,7 +97,7 @@ func (s *Service) UploadPlantImage(ctx context.Context, principal auth.Principal
 	beforePlant := plantFromFields(
 		current.ID, current.OrganizationID, current.OrganizationName, current.Code, current.Name, current.Timezone,
 		current.Latitude, current.Longitude, current.InstalledDcKw, current.InstalledAcKw, PlantLifecycleOperational, textPointer(current.ImageUrl),
-		current.IsActive, current.CreatedAt, current.UpdatedAt,
+		current.IsActive, current.AlarmEmailEnabled, current.AlarmNotifyRoleID, current.CreatedAt, current.UpdatedAt,
 	)
 	imageURL := "/api/v1/plants/" + plantID + "/image/" + filename
 	if _, err = tx.Exec(ctx, "UPDATE plant.plant SET image_url=$1, updated_at=now() WHERE id=$2", imageURL, id); err != nil {
@@ -138,7 +138,7 @@ func (s *Service) DeletePlantImage(ctx context.Context, principal auth.Principal
 	beforePlant := plantFromFields(
 		current.ID, current.OrganizationID, current.OrganizationName, current.Code, current.Name, current.Timezone,
 		current.Latitude, current.Longitude, current.InstalledDcKw, current.InstalledAcKw, PlantLifecycleOperational, textPointer(current.ImageUrl),
-		current.IsActive, current.CreatedAt, current.UpdatedAt,
+		current.IsActive, current.AlarmEmailEnabled, current.AlarmNotifyRoleID, current.CreatedAt, current.UpdatedAt,
 	)
 	if beforePlant.ImageURL == nil {
 		return beforePlant, nil

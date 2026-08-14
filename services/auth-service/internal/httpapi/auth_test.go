@@ -3,6 +3,7 @@ package httpapi
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -60,6 +61,32 @@ func TestLoginUsesGenericCredentialError(t *testing.T) {
 	loginHandler(login, true).ServeHTTP(res, request)
 	if res.Code != http.StatusUnauthorized || !strings.Contains(res.Body.String(), "invalid credentials") {
 		t.Fatalf("status=%d body=%s", res.Code, res.Body.String())
+	}
+}
+
+func TestLoginReturnsActionableAccountStatusAfterCorrectPassword(t *testing.T) {
+	for _, test := range []struct {
+		name, code string
+		err        error
+	}{
+		{name: "email unverified", code: "EMAIL_UNVERIFIED", err: auth.ErrEmailUnverified},
+		{name: "access pending", code: "ACCESS_PENDING", err: auth.ErrAccessPending},
+		{name: "disabled", code: "ACCOUNT_DISABLED", err: auth.ErrAccountDisabled},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			res := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(`{"identifier":"known@example.com","password":"correct"}`))
+			request.Header.Set("Content-Type", "application/json")
+			loginHandler(func(context.Context, auth.LoginInput) (auth.LoginResult, error) {
+				return auth.LoginResult{}, test.err
+			}, true).ServeHTTP(res, request)
+			var body struct {
+				Code string `json:"code"`
+			}
+			if res.Code != http.StatusForbidden || json.Unmarshal(res.Body.Bytes(), &body) != nil || body.Code != test.code {
+				t.Fatalf("status=%d content-type=%q body=%s", res.Code, res.Header().Get("Content-Type"), res.Body.String())
+			}
+		})
 	}
 }
 

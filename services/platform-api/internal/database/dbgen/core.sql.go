@@ -53,48 +53,52 @@ func (q *Queries) CreateAuditEventFull(ctx context.Context, arg CreateAuditEvent
 const createPlant = `-- name: CreatePlant :one
 INSERT INTO plant.plant (
     id, organization_id, code, name, timezone, latitude, longitude,
-    installed_dc_kw, installed_ac_kw, lifecycle_status
+    installed_dc_kw, installed_ac_kw, lifecycle_status, alarm_email_enabled, alarm_notify_role_id
 ) VALUES (
     $1, $2, $3, $4, $5,
     $6::double precision, $7::double precision,
     $8::double precision, $9::double precision,
-    $10
+    $10, $11, $12
 )
 RETURNING id, organization_id, code, name, timezone, latitude, longitude,
           installed_dc_kw,
           installed_ac_kw,
           image_url,
-          lifecycle_status, is_active, created_at, updated_at
+          lifecycle_status, is_active, alarm_email_enabled, alarm_notify_role_id, created_at, updated_at
 `
 
 type CreatePlantParams struct {
-	ID              pgtype.UUID
-	OrganizationID  pgtype.UUID
-	Code            string
-	Name            string
-	Timezone        string
-	Latitude        pgtype.Float8
-	Longitude       pgtype.Float8
-	InstalledDcKw   pgtype.Float8
-	InstalledAcKw   pgtype.Float8
-	LifecycleStatus string
+	ID                pgtype.UUID
+	OrganizationID    pgtype.UUID
+	Code              string
+	Name              string
+	Timezone          string
+	Latitude          pgtype.Float8
+	Longitude         pgtype.Float8
+	InstalledDcKw     pgtype.Float8
+	InstalledAcKw     pgtype.Float8
+	LifecycleStatus   string
+	AlarmEmailEnabled bool
+	AlarmNotifyRoleID pgtype.UUID
 }
 
 type CreatePlantRow struct {
-	ID              pgtype.UUID
-	OrganizationID  pgtype.UUID
-	Code            string
-	Name            string
-	Timezone        string
-	Latitude        pgtype.Float8
-	Longitude       pgtype.Float8
-	InstalledDcKw   pgtype.Numeric
-	InstalledAcKw   pgtype.Numeric
-	ImageUrl        pgtype.Text
-	LifecycleStatus string
-	IsActive        bool
-	CreatedAt       pgtype.Timestamptz
-	UpdatedAt       pgtype.Timestamptz
+	ID                pgtype.UUID
+	OrganizationID    pgtype.UUID
+	Code              string
+	Name              string
+	Timezone          string
+	Latitude          pgtype.Float8
+	Longitude         pgtype.Float8
+	InstalledDcKw     pgtype.Numeric
+	InstalledAcKw     pgtype.Numeric
+	ImageUrl          pgtype.Text
+	LifecycleStatus   string
+	IsActive          bool
+	AlarmEmailEnabled bool
+	AlarmNotifyRoleID pgtype.UUID
+	CreatedAt         pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
 }
 
 func (q *Queries) CreatePlant(ctx context.Context, arg CreatePlantParams) (CreatePlantRow, error) {
@@ -109,6 +113,8 @@ func (q *Queries) CreatePlant(ctx context.Context, arg CreatePlantParams) (Creat
 		arg.InstalledDcKw,
 		arg.InstalledAcKw,
 		arg.LifecycleStatus,
+		arg.AlarmEmailEnabled,
+		arg.AlarmNotifyRoleID,
 	)
 	var i CreatePlantRow
 	err := row.Scan(
@@ -124,6 +130,8 @@ func (q *Queries) CreatePlant(ctx context.Context, arg CreatePlantParams) (Creat
 		&i.ImageUrl,
 		&i.LifecycleStatus,
 		&i.IsActive,
+		&i.AlarmEmailEnabled,
+		&i.AlarmNotifyRoleID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -136,7 +144,7 @@ SELECT p.id, p.organization_id, o.name AS organization_name,
        p.installed_dc_kw,
        p.installed_ac_kw,
        p.image_url,
-       p.lifecycle_status, p.is_active, p.created_at, p.updated_at
+       p.lifecycle_status, p.is_active, p.alarm_email_enabled, p.alarm_notify_role_id, p.created_at, p.updated_at
 FROM plant.plant p
 JOIN organization o ON o.id = p.organization_id
 WHERE p.id = $1
@@ -162,21 +170,23 @@ type GetAuthorizedPlantParams struct {
 }
 
 type GetAuthorizedPlantRow struct {
-	ID               pgtype.UUID
-	OrganizationID   pgtype.UUID
-	OrganizationName string
-	Code             string
-	Name             string
-	Timezone         string
-	Latitude         pgtype.Float8
-	Longitude        pgtype.Float8
-	InstalledDcKw    pgtype.Numeric
-	InstalledAcKw    pgtype.Numeric
-	ImageUrl         pgtype.Text
-	LifecycleStatus  string
-	IsActive         bool
-	CreatedAt        pgtype.Timestamptz
-	UpdatedAt        pgtype.Timestamptz
+	ID                pgtype.UUID
+	OrganizationID    pgtype.UUID
+	OrganizationName  string
+	Code              string
+	Name              string
+	Timezone          string
+	Latitude          pgtype.Float8
+	Longitude         pgtype.Float8
+	InstalledDcKw     pgtype.Numeric
+	InstalledAcKw     pgtype.Numeric
+	ImageUrl          pgtype.Text
+	LifecycleStatus   string
+	IsActive          bool
+	AlarmEmailEnabled bool
+	AlarmNotifyRoleID pgtype.UUID
+	CreatedAt         pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
 }
 
 func (q *Queries) GetAuthorizedPlant(ctx context.Context, arg GetAuthorizedPlantParams) (GetAuthorizedPlantRow, error) {
@@ -196,6 +206,8 @@ func (q *Queries) GetAuthorizedPlant(ctx context.Context, arg GetAuthorizedPlant
 		&i.ImageUrl,
 		&i.LifecycleStatus,
 		&i.IsActive,
+		&i.AlarmEmailEnabled,
+		&i.AlarmNotifyRoleID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -208,7 +220,7 @@ SELECT p.id, p.organization_id, o.name AS organization_name,
        p.installed_dc_kw,
        p.installed_ac_kw,
        p.image_url,
-       p.lifecycle_status, p.is_active, p.created_at, p.updated_at
+       p.lifecycle_status, p.is_active, p.alarm_email_enabled, p.alarm_notify_role_id, p.created_at, p.updated_at
 FROM plant.plant p
 JOIN organization o ON o.id = p.organization_id
 WHERE p.id = $1
@@ -234,21 +246,23 @@ type GetAuthorizedPlantForUpdateParams struct {
 }
 
 type GetAuthorizedPlantForUpdateRow struct {
-	ID               pgtype.UUID
-	OrganizationID   pgtype.UUID
-	OrganizationName string
-	Code             string
-	Name             string
-	Timezone         string
-	Latitude         pgtype.Float8
-	Longitude        pgtype.Float8
-	InstalledDcKw    pgtype.Numeric
-	InstalledAcKw    pgtype.Numeric
-	ImageUrl         pgtype.Text
-	LifecycleStatus  string
-	IsActive         bool
-	CreatedAt        pgtype.Timestamptz
-	UpdatedAt        pgtype.Timestamptz
+	ID                pgtype.UUID
+	OrganizationID    pgtype.UUID
+	OrganizationName  string
+	Code              string
+	Name              string
+	Timezone          string
+	Latitude          pgtype.Float8
+	Longitude         pgtype.Float8
+	InstalledDcKw     pgtype.Numeric
+	InstalledAcKw     pgtype.Numeric
+	ImageUrl          pgtype.Text
+	LifecycleStatus   string
+	IsActive          bool
+	AlarmEmailEnabled bool
+	AlarmNotifyRoleID pgtype.UUID
+	CreatedAt         pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
 }
 
 func (q *Queries) GetAuthorizedPlantForUpdate(ctx context.Context, arg GetAuthorizedPlantForUpdateParams) (GetAuthorizedPlantForUpdateRow, error) {
@@ -268,6 +282,8 @@ func (q *Queries) GetAuthorizedPlantForUpdate(ctx context.Context, arg GetAuthor
 		&i.ImageUrl,
 		&i.LifecycleStatus,
 		&i.IsActive,
+		&i.AlarmEmailEnabled,
+		&i.AlarmNotifyRoleID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -353,7 +369,7 @@ SELECT p.id, p.organization_id, o.name AS organization_name,
        p.installed_dc_kw,
        p.installed_ac_kw,
        p.image_url,
-       p.lifecycle_status, p.is_active, p.created_at, p.updated_at
+       p.lifecycle_status, p.is_active, p.alarm_email_enabled, p.alarm_notify_role_id, p.created_at, p.updated_at
 FROM plant.plant p
 JOIN organization o ON o.id = p.organization_id
 WHERE EXISTS (
@@ -373,21 +389,23 @@ LIMIT 200
 `
 
 type ListAuthorizedPlantsRow struct {
-	ID               pgtype.UUID
-	OrganizationID   pgtype.UUID
-	OrganizationName string
-	Code             string
-	Name             string
-	Timezone         string
-	Latitude         pgtype.Float8
-	Longitude        pgtype.Float8
-	InstalledDcKw    pgtype.Numeric
-	InstalledAcKw    pgtype.Numeric
-	ImageUrl         pgtype.Text
-	LifecycleStatus  string
-	IsActive         bool
-	CreatedAt        pgtype.Timestamptz
-	UpdatedAt        pgtype.Timestamptz
+	ID                pgtype.UUID
+	OrganizationID    pgtype.UUID
+	OrganizationName  string
+	Code              string
+	Name              string
+	Timezone          string
+	Latitude          pgtype.Float8
+	Longitude         pgtype.Float8
+	InstalledDcKw     pgtype.Numeric
+	InstalledAcKw     pgtype.Numeric
+	ImageUrl          pgtype.Text
+	LifecycleStatus   string
+	IsActive          bool
+	AlarmEmailEnabled bool
+	AlarmNotifyRoleID pgtype.UUID
+	CreatedAt         pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
 }
 
 func (q *Queries) ListAuthorizedPlants(ctx context.Context, userID pgtype.UUID) ([]ListAuthorizedPlantsRow, error) {
@@ -413,6 +431,8 @@ func (q *Queries) ListAuthorizedPlants(ctx context.Context, userID pgtype.UUID) 
 			&i.ImageUrl,
 			&i.LifecycleStatus,
 			&i.IsActive,
+			&i.AlarmEmailEnabled,
+			&i.AlarmNotifyRoleID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -434,43 +454,50 @@ SET code = $1, name = $2, timezone = $3,
     installed_dc_kw = $6::double precision,
     installed_ac_kw = $7::double precision,
     lifecycle_status = $8,
-    is_active = $9, updated_at = now()
-WHERE id = $10
+    is_active = $9,
+    alarm_email_enabled = $10,
+    alarm_notify_role_id = $11,
+    updated_at = now()
+WHERE id = $12
 RETURNING id, organization_id, code, name, timezone, latitude, longitude,
           installed_dc_kw,
           installed_ac_kw,
           image_url,
-          lifecycle_status, is_active, created_at, updated_at
+          lifecycle_status, is_active, alarm_email_enabled, alarm_notify_role_id, created_at, updated_at
 `
 
 type UpdatePlantParams struct {
-	Code            string
-	Name            string
-	Timezone        string
-	Latitude        pgtype.Float8
-	Longitude       pgtype.Float8
-	InstalledDcKw   pgtype.Float8
-	InstalledAcKw   pgtype.Float8
-	LifecycleStatus string
-	IsActive        bool
-	ID              pgtype.UUID
+	Code              string
+	Name              string
+	Timezone          string
+	Latitude          pgtype.Float8
+	Longitude         pgtype.Float8
+	InstalledDcKw     pgtype.Float8
+	InstalledAcKw     pgtype.Float8
+	LifecycleStatus   string
+	IsActive          bool
+	AlarmEmailEnabled bool
+	AlarmNotifyRoleID pgtype.UUID
+	ID                pgtype.UUID
 }
 
 type UpdatePlantRow struct {
-	ID              pgtype.UUID
-	OrganizationID  pgtype.UUID
-	Code            string
-	Name            string
-	Timezone        string
-	Latitude        pgtype.Float8
-	Longitude       pgtype.Float8
-	InstalledDcKw   pgtype.Numeric
-	InstalledAcKw   pgtype.Numeric
-	ImageUrl        pgtype.Text
-	LifecycleStatus string
-	IsActive        bool
-	CreatedAt       pgtype.Timestamptz
-	UpdatedAt       pgtype.Timestamptz
+	ID                pgtype.UUID
+	OrganizationID    pgtype.UUID
+	Code              string
+	Name              string
+	Timezone          string
+	Latitude          pgtype.Float8
+	Longitude         pgtype.Float8
+	InstalledDcKw     pgtype.Numeric
+	InstalledAcKw     pgtype.Numeric
+	ImageUrl          pgtype.Text
+	LifecycleStatus   string
+	IsActive          bool
+	AlarmEmailEnabled bool
+	AlarmNotifyRoleID pgtype.UUID
+	CreatedAt         pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
 }
 
 func (q *Queries) UpdatePlant(ctx context.Context, arg UpdatePlantParams) (UpdatePlantRow, error) {
@@ -484,6 +511,8 @@ func (q *Queries) UpdatePlant(ctx context.Context, arg UpdatePlantParams) (Updat
 		arg.InstalledAcKw,
 		arg.LifecycleStatus,
 		arg.IsActive,
+		arg.AlarmEmailEnabled,
+		arg.AlarmNotifyRoleID,
 		arg.ID,
 	)
 	var i UpdatePlantRow
@@ -500,8 +529,30 @@ func (q *Queries) UpdatePlant(ctx context.Context, arg UpdatePlantParams) (Updat
 		&i.ImageUrl,
 		&i.LifecycleStatus,
 		&i.IsActive,
+		&i.AlarmEmailEnabled,
+		&i.AlarmNotifyRoleID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const validateAlarmNotifyRole = `-- name: ValidateAlarmNotifyRole :one
+SELECT EXISTS (
+    SELECT 1 FROM auth.role
+    WHERE id = $1
+      AND (organization_id IS NULL OR organization_id = $2)
+)::boolean
+`
+
+type ValidateAlarmNotifyRoleParams struct {
+	RoleID         pgtype.UUID
+	OrganizationID pgtype.UUID
+}
+
+func (q *Queries) ValidateAlarmNotifyRole(ctx context.Context, arg ValidateAlarmNotifyRoleParams) (bool, error) {
+	row := q.db.QueryRow(ctx, validateAlarmNotifyRole, arg.RoleID, arg.OrganizationID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }

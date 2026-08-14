@@ -1987,6 +1987,118 @@ paths:
           description: Plant is missing or outside the caller's device-create scope
         "409":
           description: Device external ID already exists in the Plant
+  /api/v1/register-profiles:
+    get:
+      operationId: listRegisterProfiles
+      summary: List reusable Register Profiles in the caller's organization
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Register Profiles
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RegisterProfile"
+        "401": {description: Authentication required}
+        "403": {description: Missing Device Model read permission}
+    post:
+      operationId: createRegisterProfile
+      summary: Create a reusable Register Profile
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterProfileRequest"
+      responses:
+        "201":
+          description: Register Profile created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisterProfile"
+        "400": {description: Invalid Register Profile}
+        "401": {description: Authentication required}
+        "403": {description: Missing Device Model create permission}
+        "409": {description: Register Profile already exists}
+  /api/v1/register-profiles/{profileId}/addresses:
+    get:
+      operationId: listRegisterProfileAddresses
+      summary: List addresses and value mappings in a Register Profile
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: profileId
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        "200":
+          description: Profile addresses
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RegisterProfileAddress"
+        "401": {description: Authentication required}
+        "404": {description: Profile not found}
+    put:
+      operationId: upsertRegisterProfileAddress
+      summary: Create or update a Profile address and its value mappings
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - name: profileId
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterProfileAddress"
+      responses:
+        "200": {description: Profile address saved}
+        "400": {description: Invalid address or mapping}
+        "401": {description: Authentication required}
+        "403": {description: Missing Device Model update permission}
+        "404": {description: Profile not found}
+  /api/v1/device-models/{modelId}/register-profile:
+    put:
+      operationId: assignRegisterProfile
+      summary: Assign a reusable Register Profile to a Device Model
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      parameters:
+        - name: modelId
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [profileId]
+              properties:
+                profileId: {type: string, format: uuid}
+      responses:
+        "204": {description: Register Profile assigned}
+        "400": {description: Invalid Profile assignment}
+        "401": {description: Authentication required}
+        "403": {description: Missing Device Model update permission}
+        "404": {description: Device Model or Profile not found}
   /api/v1/device-models:
     get:
       operationId: listDeviceModels
@@ -3388,11 +3500,10 @@ components:
     ResendVerificationRequest:
       type: object
       additionalProperties: false
-      required: [email]
+      required: [identifier]
       properties:
-        email:
+        identifier:
           type: string
-          format: email
           maxLength: 320
 
     LoginRequest:
@@ -3556,7 +3667,7 @@ components:
           type: string
         status:
           type: string
-          enum: [ACTIVE, DISABLED]
+          enum: [ACTIVE, PENDING_ACCESS, DISABLED]
         isActive:
           type: boolean
         failedLoginCount:
@@ -4302,6 +4413,11 @@ components:
           type: [string, "null"]
         isActive:
           type: boolean
+        alarmEmailEnabled:
+          type: boolean
+        alarmNotifyRoleId:
+          type: [string, "null"]
+          format: uuid
         createdAt:
           type: string
           format: date-time
@@ -4343,6 +4459,12 @@ components:
         installedAcKw:
           type: [number, "null"]
           minimum: 0
+        alarmEmailEnabled:
+          type: boolean
+          default: false
+        alarmNotifyRoleId:
+          type: [string, "null"]
+          format: uuid
     UpdatePlantRequest:
       type: object
       additionalProperties: false
@@ -4376,6 +4498,11 @@ components:
           minimum: 0
         isActive:
           type: boolean
+        alarmEmailEnabled:
+          type: boolean
+        alarmNotifyRoleId:
+          type: [string, "null"]
+          format: uuid
     Device:
       type: object
       additionalProperties: false
@@ -4455,7 +4582,7 @@ components:
     DeviceModelOption:
       type: object
       additionalProperties: false
-      required: [id, organizationId, manufacturer, model, deviceType, isActive, createdAt, updatedAt]
+      required: [id, organizationId, manufacturer, model, deviceType, registerProfileId, isActive, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -4471,6 +4598,9 @@ components:
           type: string
         sourceTypeId:
           type: [integer, "null"]
+        registerProfileId:
+          type: string
+          format: uuid
         isActive:
           type: boolean
         createdAt:
@@ -4505,11 +4635,67 @@ components:
           minimum: 0
         isActive:
           type: boolean
-          default: true
+    RegisterProfile:
+      type: object
+      additionalProperties: false
+      required: [id, organizationId, name, manufacturer, description, createdAt, updatedAt]
+      properties:
+        id: {type: string, format: uuid}
+        organizationId: {type: string, format: uuid}
+        name: {type: string}
+        manufacturer: {type: string}
+        description: {type: string}
+        createdAt: {type: string, format: date-time}
+        updatedAt: {type: string, format: date-time}
+    RegisterProfileRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        organizationId: {type: string, format: uuid}
+        name: {type: string, minLength: 1, maxLength: 200}
+        manufacturer: {type: string, maxLength: 200}
+        description: {type: string, maxLength: 500}
+    RegisterProfileAddress:
+      type: object
+      additionalProperties: false
+      required: [id, organizationId, profileId, addressKey, displayName, unit, dataType, scale, offset, decimals, isEnabled, notes, isAlarm, mappingMode, mappings, createdAt, updatedAt]
+      properties:
+        id: {type: string, format: uuid}
+        organizationId: {type: string, format: uuid}
+        profileId: {type: string, format: uuid}
+        addressKey: {type: string}
+        displayName: {type: string}
+        unit: {type: string}
+        dataType: {type: string, enum: [number, boolean, text, enum]}
+        scale: {type: number}
+        offset: {type: number}
+        decimals: {type: integer, minimum: 0, maximum: 9}
+        isEnabled: {type: boolean}
+        notes: {type: string}
+        modbusFunctionCode: {type: [integer, "null"]}
+        modbusRegister: {type: [integer, "null"]}
+        modbusWordOrder: {type: [string, "null"]}
+        modbusDataType: {type: [string, "null"]}
+        isAlarm: {type: boolean}
+        mappingMode: {type: string, enum: [EXACT, BITMASK]}
+        mappings:
+          type: array
+          items:
+            type: object
+            required: [displayValue]
+            properties:
+              matchValue: {type: [integer, "null"]}
+              bitIndex: {type: [integer, "null"], minimum: 0, maximum: 63}
+              displayValue: {type: string}
+              alarmState: {type: [string, "null"]}
+              severity: {type: [string, "null"]}
+        createdAt: {type: string, format: date-time}
+        updatedAt: {type: string, format: date-time}
     LatestTelemetry:
       type: object
       additionalProperties: false
-      required: [id, organizationId, plantId, deviceId, deviceExternalId, deviceName, gatewayId, observedAt, receivedAt, dataItemMap, parameterCount]
+      required: [id, organizationId, plantId, deviceId, deviceExternalId, deviceName, gatewayId, observedAt, receivedAt, dataItemMap, displayItemMap, parameterCount]
       properties:
         id:
           type: string
@@ -4539,6 +4725,10 @@ components:
           type: object
           additionalProperties:
             type: number
+        displayItemMap:
+          type: object
+          additionalProperties:
+            type: string
         parameterCount:
           type: integer
           minimum: 0
@@ -4872,7 +5062,7 @@ components:
     AlarmEvent:
       type: object
       additionalProperties: false
-      required: [id, organizationId, plantId, deviceId, alarmRuleId, severity, conditionSnapshot, breachedAt]
+      required: [id, organizationId, plantId, deviceId, alarmRuleId, sourceType, severity, conditionSnapshot, breachedAt]
       properties:
         id:
           type: integer
@@ -4889,6 +5079,14 @@ components:
         alarmRuleId:
           type: string
           format: uuid
+        sourceType:
+          type: string
+          enum: [RULE, REGISTER]
+        registerMappingSourceId:
+          type: [string, "null"]
+          format: uuid
+        registerSnapshot:
+          $ref: "#/components/schemas/RegisterAlarmSnapshot"
         severity:
           type: string
           enum: [warning, major, critical]
@@ -4910,6 +5108,18 @@ components:
           format: date-time
         acknowledgedNote:
           type: [string, "null"]
+    RegisterAlarmSnapshot:
+      type: object
+      additionalProperties: false
+      required: [mappingId, addressKey, rawValue, numericValue, displayValue, severity]
+      properties:
+        mappingId: {type: string, format: uuid}
+        addressKey: {type: string}
+        rawValue: {type: number}
+        numericValue: {type: number}
+        displayValue: {type: string}
+        alarmState: {type: string}
+        severity: {type: string, enum: [warning, major, critical]}
     AcknowledgeAlarmEventRequest:
       type: object
       additionalProperties: false

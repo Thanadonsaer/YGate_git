@@ -36,6 +36,10 @@ type alarmBreach struct {
 	conditions                       []alarmConditionSnapshot
 	notifyRoleID, plantID            pgtype.UUID
 	plantCode, plantName, deviceName string
+	sourceType                       string
+	registerAddress, registerDisplay string
+	registerRaw, registerNumeric     float64
+	plantEmailEnabled                bool
 }
 
 // evaluateAlarms runs inside the same transaction as the telemetry insert
@@ -49,6 +53,10 @@ type alarmBreach struct {
 // clears any open event for that rule. Returns only the breaches that newly
 // opened an event, i.e. the ones worth notifying about.
 func evaluateAlarms(ctx context.Context, tx pgx.Tx, organizationID, plantID, deviceID pgtype.UUID, plantCode, plantName, deviceName string, dataItemMap map[string]float64, observedAt time.Time) ([]alarmBreach, error) {
+	var plantEmailEnabled bool
+	if err := tx.QueryRow(ctx, `SELECT alarm_email_enabled FROM plant.plant WHERE organization_id=$1 AND id=$2`, organizationID, plantID).Scan(&plantEmailEnabled); err != nil {
+		return nil, fmt.Errorf("load plant alarm email setting: %w", err)
+	}
 	// lastBreachedAt rides along on this query rather than costing a second
 	// round trip per rule -- alarm_event_rule_recent_idx makes it one index
 	// descent. It feeds the Alarm Delay check below.
@@ -162,7 +170,7 @@ RETURNING id`,
 			if err == nil && r.notifyRoleID.Valid {
 				breaches = append(breaches, alarmBreach{
 					ruleLabel: r.label, severity: r.severity, conditions: snapshots, notifyRoleID: r.notifyRoleID, plantID: plantID,
-					plantCode: plantCode, plantName: plantName, deviceName: deviceName,
+					plantCode: plantCode, plantName: plantName, deviceName: deviceName, sourceType: "RULE", plantEmailEnabled: plantEmailEnabled,
 				})
 			}
 			continue
@@ -189,6 +197,12 @@ func (s *Service) notifyAlarmBreaches(organizationID pgtype.UUID, breaches []ala
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	for _, b := range breaches {
+		if !b.plantEmailEnabled {
+			continue
+		}
+		if !b.notifyRoleID.Valid {
+			continue
+		}
 		recipients, err := s.alarmNotifyRecipients(ctx, organizationID, b.plantID, b.notifyRoleID)
 		if err != nil {
 			log.Printf("alarm notify: resolve recipients: %v", err)
@@ -203,12 +217,21 @@ func (s *Service) notifyAlarmBreaches(organizationID pgtype.UUID, breaches []ala
 			{Key: "Device", Value: b.deviceName},
 			{Key: "Severity", Value: strings.ToUpper(b.severity)},
 		}
-		for _, c := range b.conditions {
-			label := c.PointKey
-			if c.Breached {
-				label += " ⚠"
+		if b.sourceType == "REGISTER" {
+			rows = append(rows,
+				notify.EmailRow{Key: "Register", Value: b.registerAddress},
+				notify.EmailRow{Key: "Raw value", Value: fmt.Sprintf("%v", b.registerRaw)},
+				notify.EmailRow{Key: "Numeric value", Value: fmt.Sprintf("%v", b.registerNumeric)},
+				notify.EmailRow{Key: "Decoded value", Value: b.registerDisplay},
+			)
+		} else {
+			for _, c := range b.conditions {
+				label := c.PointKey
+				if c.Breached {
+					label += " ⚠"
+				}
+				rows = append(rows, notify.EmailRow{Key: label, Value: fmt.Sprintf("%v (threshold %s)", c.Value, thresholdText(c.MinValue, c.MaxValue))})
 			}
-			rows = append(rows, notify.EmailRow{Key: label, Value: fmt.Sprintf("%v (threshold %s)", c.Value, thresholdText(c.MinValue, c.MaxValue))})
 		}
 		html, renderErr := notify.RenderEmail(notify.EmailContent{
 			Title: fmt.Sprintf("Alarm rule %q breached", b.ruleLabel),

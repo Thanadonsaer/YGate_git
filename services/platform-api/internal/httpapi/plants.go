@@ -10,27 +10,31 @@ import (
 )
 
 type createPlantRequest struct {
-	OrganizationID string   `json:"organizationId"`
-	Code           string   `json:"code"`
-	Name           string   `json:"name"`
-	Timezone       string   `json:"timezone"`
-	Latitude       *float64 `json:"latitude"`
-	Longitude      *float64 `json:"longitude"`
-	InstalledDcKW  *float64 `json:"installedDcKw"`
-	InstalledAcKW  *float64 `json:"installedAcKw"`
-	LifecycleStatus string  `json:"lifecycleStatus"`
+	OrganizationID    string   `json:"organizationId"`
+	Code              string   `json:"code"`
+	Name              string   `json:"name"`
+	Timezone          string   `json:"timezone"`
+	Latitude          *float64 `json:"latitude"`
+	Longitude         *float64 `json:"longitude"`
+	InstalledDcKW     *float64 `json:"installedDcKw"`
+	InstalledAcKW     *float64 `json:"installedAcKw"`
+	LifecycleStatus   string   `json:"lifecycleStatus"`
+	AlarmEmailEnabled *bool    `json:"alarmEmailEnabled"`
+	AlarmNotifyRoleID *string  `json:"alarmNotifyRoleId"`
 }
 
 type updatePlantRequest struct {
-	Code          string   `json:"code"`
-	Name          string   `json:"name"`
-	Timezone      string   `json:"timezone"`
-	Latitude      *float64 `json:"latitude"`
-	Longitude     *float64 `json:"longitude"`
-	InstalledDcKW *float64 `json:"installedDcKw"`
-	InstalledAcKW *float64 `json:"installedAcKw"`
-	LifecycleStatus string `json:"lifecycleStatus"`
-	IsActive      *bool    `json:"isActive"`
+	Code              string   `json:"code"`
+	Name              string   `json:"name"`
+	Timezone          string   `json:"timezone"`
+	Latitude          *float64 `json:"latitude"`
+	Longitude         *float64 `json:"longitude"`
+	InstalledDcKW     *float64 `json:"installedDcKw"`
+	InstalledAcKW     *float64 `json:"installedAcKw"`
+	LifecycleStatus   string   `json:"lifecycleStatus"`
+	IsActive          *bool    `json:"isActive"`
+	AlarmEmailEnabled *bool    `json:"alarmEmailEnabled"`
+	AlarmNotifyRoleID *string  `json:"alarmNotifyRoleId"`
 }
 
 func listPlantsHandler(service *core.Service) func(http.ResponseWriter, *http.Request, auth.Principal) {
@@ -75,6 +79,7 @@ func createPlantHandler(service *core.Service) func(http.ResponseWriter, *http.R
 			OrganizationID: request.OrganizationID, Code: request.Code, Name: request.Name, Timezone: request.Timezone,
 			Latitude: request.Latitude, Longitude: request.Longitude,
 			InstalledDcKW: request.InstalledDcKW, InstalledAcKW: request.InstalledAcKW, LifecycleStatus: request.LifecycleStatus,
+			AlarmEmailEnabled: request.AlarmEmailEnabled, AlarmNotifyRoleID: request.AlarmNotifyRoleID,
 		}, remoteIP(r.RemoteAddr))
 		if writePlantError(w, err) {
 			return
@@ -97,6 +102,7 @@ func updatePlantHandler(service *core.Service) func(http.ResponseWriter, *http.R
 			Code: request.Code, Name: request.Name, Timezone: request.Timezone,
 			Latitude: request.Latitude, Longitude: request.Longitude,
 			InstalledDcKW: request.InstalledDcKW, InstalledAcKW: request.InstalledAcKW, LifecycleStatus: request.LifecycleStatus, IsActive: *request.IsActive,
+			AlarmEmailEnabled: request.AlarmEmailEnabled, AlarmNotifyRoleID: request.AlarmNotifyRoleID,
 		}, remoteIP(r.RemoteAddr))
 		if writePlantError(w, err) {
 			return

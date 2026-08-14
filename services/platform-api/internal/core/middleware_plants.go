@@ -30,7 +30,7 @@ func (s *Service) MiddlewarePlants(ctx context.Context, principal auth.Principal
 	}
 	rows, err := s.pool.Query(ctx, `
 SELECT p.id, p.organization_id, o.name, p.code, p.name, p.timezone, p.latitude, p.longitude,
-       p.installed_dc_kw, p.installed_ac_kw, p.image_url, p.is_active, p.created_at, p.updated_at
+       p.installed_dc_kw, p.installed_ac_kw, p.image_url, p.is_active, p.alarm_email_enabled, p.alarm_notify_role_id, p.created_at, p.updated_at
 FROM middleware_gateway.middleware_plant mp
 JOIN plant.plant p ON p.id = mp.plant_id
 JOIN organization o ON o.id = p.organization_id
@@ -47,12 +47,13 @@ ORDER BY p.code`, id)
 		var latitude, longitude pgtype.Float8
 		var installedDcKW, installedAcKW pgtype.Numeric
 		var imageURL *string
-		var isActive bool
+		var isActive, alarmEmailEnabled bool
+		var alarmNotifyRoleID pgtype.UUID
 		var createdAt, updatedAt pgtype.Timestamptz
-		if err := rows.Scan(&plantID, &organizationID, &organizationName, &code, &name, &timezone, &latitude, &longitude, &installedDcKW, &installedAcKW, &imageURL, &isActive, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(&plantID, &organizationID, &organizationName, &code, &name, &timezone, &latitude, &longitude, &installedDcKW, &installedAcKW, &imageURL, &isActive, &alarmEmailEnabled, &alarmNotifyRoleID, &createdAt, &updatedAt); err != nil {
 			return nil, fmt.Errorf("scan middleware plant: %w", err)
 		}
-		plants = append(plants, plantFromFields(plantID, organizationID, organizationName, code, name, timezone, latitude, longitude, installedDcKW, installedAcKW, PlantLifecycleOperational, imageURL, isActive, createdAt, updatedAt))
+		plants = append(plants, plantFromFields(plantID, organizationID, organizationName, code, name, timezone, latitude, longitude, installedDcKW, installedAcKW, PlantLifecycleOperational, imageURL, isActive, alarmEmailEnabled, alarmNotifyRoleID, createdAt, updatedAt))
 	}
 	return plants, rows.Err()
 }

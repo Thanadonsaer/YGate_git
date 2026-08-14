@@ -28,7 +28,7 @@ export type ManagedUser = {
   email: string;
   username?: string;
   displayName: string;
-  status: string;
+  status: "ACTIVE" | "PENDING_ACCESS" | "DISABLED";
   isActive: boolean;
   failedLoginCount: number;
   emailVerifiedAt?: string | null;
@@ -122,6 +122,8 @@ export type Plant = {
   lifecycleStatus: "IN_CONSTRUCTION" | "OPERATIONAL" | "OFFLINE" | "RETIRED";
   imageUrl?: string | null;
   isActive: boolean;
+  alarmEmailEnabled: boolean;
+  alarmNotifyRoleId?: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -241,6 +243,7 @@ export type DeviceModelOption = {
   model: string;
   deviceType: string;
   sourceTypeId?: number | null;
+  registerProfileId: string;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -263,8 +266,29 @@ export type DeviceModelRegisterMetadata = {
   modbusRegister?: number | null;
   modbusWordOrder?: string | null;
   modbusDataType?: string | null;
+  isAlarm?: boolean;
+  mappingMode?: "EXACT" | "BITMASK";
+  mappings?: RegisterValueMapping[];
   createdAt: string;
   updatedAt: string;
+};
+
+export type RegisterProfile = {
+  id: string;
+  organizationId: string;
+  name: string;
+  manufacturer: string;
+  description: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type RegisterValueMapping = {
+  matchValue?: number | null;
+  bitIndex?: number | null;
+  displayValue: string;
+  alarmState?: string | null;
+  severity?: string | null;
 };
 
 export type LatestTelemetry = {
@@ -275,6 +299,7 @@ export type LatestTelemetry = {
   observedAt: string;
   receivedAt: string;
   dataItemMap: Record<string, number>;
+  displayItemMap: Record<string, string>;
   parameterCount: number;
 };
 
@@ -324,12 +349,25 @@ export type AlarmEventCondition = {
   logic?: ConditionLogic;
 };
 
+export type RegisterAlarmSnapshot = {
+  mappingId: string;
+  addressKey: string;
+  rawValue: number;
+  numericValue: number;
+  displayValue: string;
+  alarmState?: string;
+  severity: string;
+};
+
 export type AlarmEvent = {
   id: number;
   organizationId: string;
   plantId: string;
   deviceId: string;
   alarmRuleId: string;
+  sourceType: "RULE" | "REGISTER";
+  registerMappingSourceId?: string | null;
+  registerSnapshot?: RegisterAlarmSnapshot | null;
   severity: "warning" | "major" | "critical";
   conditionSnapshot: AlarmEventCondition[];
   breachedAt: string;

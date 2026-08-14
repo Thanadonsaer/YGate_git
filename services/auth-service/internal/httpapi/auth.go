@@ -56,6 +56,15 @@ func loginHandler(login LoginFunc, cookieSecure bool) http.HandlerFunc {
 		case errors.Is(err, auth.ErrInvalidCredentials):
 			http.Error(w, "invalid credentials", http.StatusUnauthorized)
 			return
+		case errors.Is(err, auth.ErrEmailUnverified):
+			writeJSON(w, http.StatusForbidden, map[string]string{"code": "EMAIL_UNVERIFIED", "message": "Please verify your email before signing in."})
+			return
+		case errors.Is(err, auth.ErrAccessPending):
+			writeJSON(w, http.StatusForbidden, map[string]string{"code": "ACCESS_PENDING", "message": "Your account is waiting for administrator approval."})
+			return
+		case errors.Is(err, auth.ErrAccountDisabled):
+			writeJSON(w, http.StatusForbidden, map[string]string{"code": "ACCOUNT_DISABLED", "message": "Your account has been disabled by an administrator."})
+			return
 		case errors.Is(err, auth.ErrRateLimited):
 			w.Header().Set("Retry-After", "900")
 			http.Error(w, "too many login attempts", http.StatusTooManyRequests)
@@ -301,12 +310,12 @@ func verifyEmailHandler(service *auth.Service) http.HandlerFunc {
 func resendVerificationHandler(service *auth.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
-			Email string `json:"email"`
+			Identifier string `json:"identifier"`
 		}
 		if !decodeJSON(w, r, &request, 8<<10) {
 			return
 		}
-		if err := service.ResendVerification(r.Context(), request.Email); err != nil {
+		if err := service.ResendVerification(r.Context(), request.Identifier, remoteIP(r.RemoteAddr)); err != nil {
 			log.Printf("resend verification failed: %v", err)
 		}
 		w.WriteHeader(http.StatusAccepted)

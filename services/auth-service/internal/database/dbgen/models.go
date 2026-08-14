@@ -30,17 +30,18 @@ type AlarmAlarmEvent struct {
 }
 
 type AlarmAlarmRule struct {
-	ID             pgtype.UUID
-	OrganizationID pgtype.UUID
-	PlantID        pgtype.UUID
-	DeviceID       pgtype.UUID
-	Label          string
-	Severity       string
-	IsActive       bool
-	CreatedAt      pgtype.Timestamptz
-	UpdatedAt      pgtype.Timestamptz
-	NotifyRoleID   pgtype.UUID
-	ConditionLogic string
+	ID                pgtype.UUID
+	OrganizationID    pgtype.UUID
+	PlantID           pgtype.UUID
+	DeviceID          pgtype.UUID
+	Label             string
+	Severity          string
+	IsActive          bool
+	CreatedAt         pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
+	NotifyRoleID      pgtype.UUID
+	ConditionLogic    string
+	AlarmDelaySeconds int32
 }
 
 type AlarmAlarmRuleCondition struct {
@@ -50,6 +51,24 @@ type AlarmAlarmRuleCondition struct {
 	MinValue    pgtype.Float8
 	MaxValue    pgtype.Float8
 	Position    int32
+	Logic       string
+}
+
+type AlarmEventLogbook struct {
+	ID             pgtype.UUID
+	OrganizationID pgtype.UUID
+	PlantID        pgtype.UUID
+	DeviceID       pgtype.UUID
+	EventType      string
+	Category       string
+	Title          string
+	StartsAt       pgtype.Timestamptz
+	EndsAt         pgtype.Timestamptz
+	Note           string
+	Source         string
+	CreatedBy      pgtype.UUID
+	CreatedAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
 }
 
 type AuditLog struct {
@@ -119,6 +138,7 @@ type AuthMiddlewareClient struct {
 	SoftwareVersion      pgtype.Text
 	PollIntervalSeconds  int32
 	ApiPollingEnabled    bool
+	IdleHeartbeatSeconds int32
 }
 
 type AuthPasswordRecoveryAttempt struct {
@@ -349,7 +369,8 @@ type PlantPlant struct {
 	CreatedAt      pgtype.Timestamptz
 	UpdatedAt      pgtype.Timestamptz
 	// Relative API path for the Plant primary image
-	ImageUrl pgtype.Text
+	ImageUrl        pgtype.Text
+	LifecycleStatus string
 }
 
 type ScadaScadaScreen struct {
@@ -402,6 +423,153 @@ type TelemetryRawRegisterReading struct {
 	ParameterCount     int32
 }
 
+type TelemetryRawRegisterReading202606 struct {
+	ID                 pgtype.UUID
+	OrganizationID     pgtype.UUID
+	PlantID            pgtype.UUID
+	DeviceID           pgtype.UUID
+	MiddlewareClientID pgtype.UUID
+	IngestBatchID      pgtype.UUID
+	GatewayID          string
+	ExternalKey        string
+	ObservedAt         pgtype.Timestamptz
+	ReceivedAt         pgtype.Timestamptz
+	RegisterAddressMap []byte
+	ParameterCount     int32
+}
+
+type TelemetryRawRegisterReading202607 struct {
+	ID                 pgtype.UUID
+	OrganizationID     pgtype.UUID
+	PlantID            pgtype.UUID
+	DeviceID           pgtype.UUID
+	MiddlewareClientID pgtype.UUID
+	IngestBatchID      pgtype.UUID
+	GatewayID          string
+	ExternalKey        string
+	ObservedAt         pgtype.Timestamptz
+	ReceivedAt         pgtype.Timestamptz
+	RegisterAddressMap []byte
+	ParameterCount     int32
+}
+
+type TelemetryRawRegisterReading202608 struct {
+	ID                 pgtype.UUID
+	OrganizationID     pgtype.UUID
+	PlantID            pgtype.UUID
+	DeviceID           pgtype.UUID
+	MiddlewareClientID pgtype.UUID
+	IngestBatchID      pgtype.UUID
+	GatewayID          string
+	ExternalKey        string
+	ObservedAt         pgtype.Timestamptz
+	ReceivedAt         pgtype.Timestamptz
+	RegisterAddressMap []byte
+	ParameterCount     int32
+}
+
+type TelemetryRawRegisterReading202609 struct {
+	ID                 pgtype.UUID
+	OrganizationID     pgtype.UUID
+	PlantID            pgtype.UUID
+	DeviceID           pgtype.UUID
+	MiddlewareClientID pgtype.UUID
+	IngestBatchID      pgtype.UUID
+	GatewayID          string
+	ExternalKey        string
+	ObservedAt         pgtype.Timestamptz
+	ReceivedAt         pgtype.Timestamptz
+	RegisterAddressMap []byte
+	ParameterCount     int32
+}
+
+type TelemetryRawRegisterReading202610 struct {
+	ID                 pgtype.UUID
+	OrganizationID     pgtype.UUID
+	PlantID            pgtype.UUID
+	DeviceID           pgtype.UUID
+	MiddlewareClientID pgtype.UUID
+	IngestBatchID      pgtype.UUID
+	GatewayID          string
+	ExternalKey        string
+	ObservedAt         pgtype.Timestamptz
+	ReceivedAt         pgtype.Timestamptz
+	RegisterAddressMap []byte
+	ParameterCount     int32
+}
+
+type TelemetryRawRegisterReading202611 struct {
+	ID                 pgtype.UUID
+	OrganizationID     pgtype.UUID
+	PlantID            pgtype.UUID
+	DeviceID           pgtype.UUID
+	MiddlewareClientID pgtype.UUID
+	IngestBatchID      pgtype.UUID
+	GatewayID          string
+	ExternalKey        string
+	ObservedAt         pgtype.Timestamptz
+	ReceivedAt         pgtype.Timestamptz
+	RegisterAddressMap []byte
+	ParameterCount     int32
+}
+
+type TelemetryRawRegisterReading202702 struct {
+	ID                 pgtype.UUID
+	OrganizationID     pgtype.UUID
+	PlantID            pgtype.UUID
+	DeviceID           pgtype.UUID
+	MiddlewareClientID pgtype.UUID
+	IngestBatchID      pgtype.UUID
+	GatewayID          string
+	ExternalKey        string
+	ObservedAt         pgtype.Timestamptz
+	ReceivedAt         pgtype.Timestamptz
+	RegisterAddressMap []byte
+	ParameterCount     int32
+}
+
+type TelemetryRawRegisterReadingDefault struct {
+	ID                 pgtype.UUID
+	OrganizationID     pgtype.UUID
+	PlantID            pgtype.UUID
+	DeviceID           pgtype.UUID
+	MiddlewareClientID pgtype.UUID
+	IngestBatchID      pgtype.UUID
+	GatewayID          string
+	ExternalKey        string
+	ObservedAt         pgtype.Timestamptz
+	ReceivedAt         pgtype.Timestamptz
+	RegisterAddressMap []byte
+	ParameterCount     int32
+}
+
+type TelemetryRawRegisterReadingLatest struct {
+	ID                 pgtype.UUID
+	OrganizationID     pgtype.UUID
+	PlantID            pgtype.UUID
+	DeviceID           pgtype.UUID
+	MiddlewareClientID pgtype.UUID
+	IngestBatchID      pgtype.UUID
+	GatewayID          string
+	ExternalKey        string
+	ObservedAt         pgtype.Timestamptz
+	ReceivedAt         pgtype.Timestamptz
+	RegisterAddressMap []byte
+	ParameterCount     int32
+}
+
+type TelemetryRawTelemetryLatest struct {
+	TelemetryReadingID pgtype.UUID
+	OrganizationID     pgtype.UUID
+	PlantID            pgtype.UUID
+	DeviceID           pgtype.UUID
+	GatewayID          string
+	ObservedAt         pgtype.Timestamptz
+	ReceivedAt         pgtype.Timestamptz
+	DataItemMap        []byte
+	ParameterCount     int32
+}
+
 type TelemetryTelemetryIngestBatch struct {
 	ID                   pgtype.UUID
 	OrganizationID       pgtype.UUID
@@ -420,20 +588,112 @@ type TelemetryTelemetryIngestBatch struct {
 	ProcessedAt          pgtype.Timestamptz
 }
 
-type TelemetryTelemetryLatest struct {
+type TelemetryTelemetryReading202606 struct {
+	ID                 pgtype.UUID
 	OrganizationID     pgtype.UUID
 	PlantID            pgtype.UUID
 	DeviceID           pgtype.UUID
-	TelemetryReadingID pgtype.UUID
+	MiddlewareClientID pgtype.UUID
+	IngestBatchID      pgtype.UUID
 	GatewayID          string
+	ExternalKey        string
 	ObservedAt         pgtype.Timestamptz
 	ReceivedAt         pgtype.Timestamptz
 	DataItemMap        []byte
 	ParameterCount     int32
-	UpdatedAt          pgtype.Timestamptz
 }
 
-type TelemetryTelemetryReading struct {
+type TelemetryTelemetryReading202607 struct {
+	ID                 pgtype.UUID
+	OrganizationID     pgtype.UUID
+	PlantID            pgtype.UUID
+	DeviceID           pgtype.UUID
+	MiddlewareClientID pgtype.UUID
+	IngestBatchID      pgtype.UUID
+	GatewayID          string
+	ExternalKey        string
+	ObservedAt         pgtype.Timestamptz
+	ReceivedAt         pgtype.Timestamptz
+	DataItemMap        []byte
+	ParameterCount     int32
+}
+
+type TelemetryTelemetryReading202608 struct {
+	ID                 pgtype.UUID
+	OrganizationID     pgtype.UUID
+	PlantID            pgtype.UUID
+	DeviceID           pgtype.UUID
+	MiddlewareClientID pgtype.UUID
+	IngestBatchID      pgtype.UUID
+	GatewayID          string
+	ExternalKey        string
+	ObservedAt         pgtype.Timestamptz
+	ReceivedAt         pgtype.Timestamptz
+	DataItemMap        []byte
+	ParameterCount     int32
+}
+
+type TelemetryTelemetryReading202609 struct {
+	ID                 pgtype.UUID
+	OrganizationID     pgtype.UUID
+	PlantID            pgtype.UUID
+	DeviceID           pgtype.UUID
+	MiddlewareClientID pgtype.UUID
+	IngestBatchID      pgtype.UUID
+	GatewayID          string
+	ExternalKey        string
+	ObservedAt         pgtype.Timestamptz
+	ReceivedAt         pgtype.Timestamptz
+	DataItemMap        []byte
+	ParameterCount     int32
+}
+
+type TelemetryTelemetryReading202610 struct {
+	ID                 pgtype.UUID
+	OrganizationID     pgtype.UUID
+	PlantID            pgtype.UUID
+	DeviceID           pgtype.UUID
+	MiddlewareClientID pgtype.UUID
+	IngestBatchID      pgtype.UUID
+	GatewayID          string
+	ExternalKey        string
+	ObservedAt         pgtype.Timestamptz
+	ReceivedAt         pgtype.Timestamptz
+	DataItemMap        []byte
+	ParameterCount     int32
+}
+
+type TelemetryTelemetryReading202611 struct {
+	ID                 pgtype.UUID
+	OrganizationID     pgtype.UUID
+	PlantID            pgtype.UUID
+	DeviceID           pgtype.UUID
+	MiddlewareClientID pgtype.UUID
+	IngestBatchID      pgtype.UUID
+	GatewayID          string
+	ExternalKey        string
+	ObservedAt         pgtype.Timestamptz
+	ReceivedAt         pgtype.Timestamptz
+	DataItemMap        []byte
+	ParameterCount     int32
+}
+
+type TelemetryTelemetryReading202702 struct {
+	ID                 pgtype.UUID
+	OrganizationID     pgtype.UUID
+	PlantID            pgtype.UUID
+	DeviceID           pgtype.UUID
+	MiddlewareClientID pgtype.UUID
+	IngestBatchID      pgtype.UUID
+	GatewayID          string
+	ExternalKey        string
+	ObservedAt         pgtype.Timestamptz
+	ReceivedAt         pgtype.Timestamptz
+	DataItemMap        []byte
+	ParameterCount     int32
+}
+
+type TelemetryTelemetryReadingDefault struct {
 	ID                 pgtype.UUID
 	OrganizationID     pgtype.UUID
 	PlantID            pgtype.UUID

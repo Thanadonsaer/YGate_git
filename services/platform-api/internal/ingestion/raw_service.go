@@ -306,9 +306,19 @@ func ingestRawReading(ctx context.Context, tx pgx.Tx, q *dbgen.Queries, client C
 		return outcome, nil, fmt.Errorf("evaluate alarms: %w", err)
 	}
 	outcome.breaches = append(outcome.breaches, breaches...)
+	registerBreaches, err := evaluateRegisterAlarms(ctx, tx, client.OrganizationID, plant.ID, device.ID, device.DeviceModelID, plant.Code, plant.Name, device.Name, addressMap, mustJSON(dataItemMap), reading.ObservedAt)
+	if err != nil {
+		return outcome, nil, fmt.Errorf("evaluate register alarms: %w", err)
+	}
+	outcome.breaches = append(outcome.breaches, registerBreaches...)
 
 	outcome.accepted++
 	return outcome, nil, nil
+}
+
+func mustJSON(value map[string]float64) []byte {
+	encoded, _ := json.Marshal(value)
+	return encoded
 }
 
 // mappedDataItems applies Register Metadata to one reading's raw register map

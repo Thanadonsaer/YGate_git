@@ -19,3 +19,13 @@ func TestTelemetryHistoryCursorRoundTrip(t *testing.T) {
 		t.Fatal("invalid cursor must fail")
 	}
 }
+
+func TestTelemetryFromRowPreservesNumericAndDisplayValues(t *testing.T) {
+	reading, err := telemetryFromRow(telemetryRowFields{
+		DataItemMap: []byte(`{"30070":145}`), DisplayItemMap: []byte(`{"30070":"Model A"}`),
+		ParameterCount: 1,
+	})
+	if err != nil || reading.DataItemMap["30070"] != 145 || reading.DisplayItemMap["30070"] != "Model A" {
+		t.Fatalf("reading=%+v err=%v", reading, err)
+	}
+}

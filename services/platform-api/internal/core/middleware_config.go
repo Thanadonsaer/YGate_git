@@ -847,9 +847,13 @@ FROM plant.device_model WHERE id = ANY($1)`, modelIDs)
 	}
 
 	registerRows, err := tx.Query(ctx, `
-SELECT id, device_model_id, address_key, display_name, modbus_function_code, modbus_register, modbus_word_order, modbus_data_type, scale, value_offset
-FROM plant.device_model_register_metadata
-WHERE device_model_id = ANY($1) AND modbus_function_code IS NOT NULL`, modelIDs)
+SELECT address.id, model.id, address.address_key, address.display_name,
+       address.modbus_function_code, address.modbus_register, address.modbus_word_order,
+       address.modbus_data_type, address.scale, address.value_offset
+FROM plant.device_model model
+JOIN plant.register_profile_address address
+  ON address.organization_id=model.organization_id AND address.profile_id=model.register_profile_id
+WHERE model.id = ANY($1) AND address.modbus_function_code IS NOT NULL`, modelIDs)
 	if err != nil {
 		return snapshot, fmt.Errorf("load model registers: %w", err)
 	}

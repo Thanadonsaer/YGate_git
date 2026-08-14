@@ -33,7 +33,7 @@ SELECT p.id, p.organization_id, o.name AS organization_name,
        p.installed_dc_kw,
        p.installed_ac_kw,
        p.image_url,
-       p.lifecycle_status, p.is_active, p.created_at, p.updated_at
+       p.lifecycle_status, p.is_active, p.alarm_email_enabled, p.alarm_notify_role_id, p.created_at, p.updated_at
 FROM plant.plant p
 JOIN organization o ON o.id = p.organization_id
 WHERE EXISTS (
@@ -57,7 +57,7 @@ SELECT p.id, p.organization_id, o.name AS organization_name,
        p.installed_dc_kw,
        p.installed_ac_kw,
        p.image_url,
-       p.lifecycle_status, p.is_active, p.created_at, p.updated_at
+       p.lifecycle_status, p.is_active, p.alarm_email_enabled, p.alarm_notify_role_id, p.created_at, p.updated_at
 FROM plant.plant p
 JOIN organization o ON o.id = p.organization_id
 WHERE p.id = sqlc.arg(plant_id)
@@ -81,7 +81,7 @@ SELECT p.id, p.organization_id, o.name AS organization_name,
        p.installed_dc_kw,
        p.installed_ac_kw,
        p.image_url,
-       p.lifecycle_status, p.is_active, p.created_at, p.updated_at
+       p.lifecycle_status, p.is_active, p.alarm_email_enabled, p.alarm_notify_role_id, p.created_at, p.updated_at
 FROM plant.plant p
 JOIN organization o ON o.id = p.organization_id
 WHERE p.id = sqlc.arg(plant_id)
@@ -103,18 +103,18 @@ FOR UPDATE OF p;
 -- name: CreatePlant :one
 INSERT INTO plant.plant (
     id, organization_id, code, name, timezone, latitude, longitude,
-    installed_dc_kw, installed_ac_kw, lifecycle_status
+    installed_dc_kw, installed_ac_kw, lifecycle_status, alarm_email_enabled, alarm_notify_role_id
 ) VALUES (
     sqlc.arg(id), sqlc.arg(organization_id), sqlc.arg(code), sqlc.arg(name), sqlc.arg(timezone),
     sqlc.narg(latitude)::double precision, sqlc.narg(longitude)::double precision,
     sqlc.narg(installed_dc_kw)::double precision, sqlc.narg(installed_ac_kw)::double precision,
-    sqlc.arg(lifecycle_status)
+    sqlc.arg(lifecycle_status), sqlc.arg(alarm_email_enabled), sqlc.narg(alarm_notify_role_id)
 )
 RETURNING id, organization_id, code, name, timezone, latitude, longitude,
           installed_dc_kw,
           installed_ac_kw,
           image_url,
-          lifecycle_status, is_active, created_at, updated_at;
+          lifecycle_status, is_active, alarm_email_enabled, alarm_notify_role_id, created_at, updated_at;
 
 -- name: UpdatePlant :one
 UPDATE plant.plant
@@ -124,13 +124,23 @@ SET code = sqlc.arg(code), name = sqlc.arg(name), timezone = sqlc.arg(timezone),
     installed_dc_kw = sqlc.narg(installed_dc_kw)::double precision,
     installed_ac_kw = sqlc.narg(installed_ac_kw)::double precision,
     lifecycle_status = sqlc.arg(lifecycle_status),
-    is_active = sqlc.arg(is_active), updated_at = now()
+    is_active = sqlc.arg(is_active),
+    alarm_email_enabled = sqlc.arg(alarm_email_enabled),
+    alarm_notify_role_id = sqlc.narg(alarm_notify_role_id),
+    updated_at = now()
 WHERE id = sqlc.arg(id)
 RETURNING id, organization_id, code, name, timezone, latitude, longitude,
           installed_dc_kw,
           installed_ac_kw,
           image_url,
-          lifecycle_status, is_active, created_at, updated_at;
+          lifecycle_status, is_active, alarm_email_enabled, alarm_notify_role_id, created_at, updated_at;
+
+-- name: ValidateAlarmNotifyRole :one
+SELECT EXISTS (
+    SELECT 1 FROM auth.role
+    WHERE id = sqlc.arg(role_id)
+      AND (organization_id IS NULL OR organization_id = sqlc.arg(organization_id))
+)::boolean;
 
 -- name: CreateAuditEventFull :exec
 INSERT INTO audit_log (

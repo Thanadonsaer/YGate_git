@@ -74,19 +74,32 @@ type AlarmEventCondition struct {
 	Breached bool     `json:"breached"`
 }
 
+type RegisterAlarmSnapshot struct {
+	MappingID    string  `json:"mappingId"`
+	AddressKey   string  `json:"addressKey"`
+	RawValue     float64 `json:"rawValue"`
+	NumericValue float64 `json:"numericValue"`
+	DisplayValue string  `json:"displayValue"`
+	AlarmState   string  `json:"alarmState,omitempty"`
+	Severity     string  `json:"severity"`
+}
+
 type AlarmEvent struct {
-	ID                int64                 `json:"id"`
-	OrganizationID    string                `json:"organizationId"`
-	PlantID           string                `json:"plantId"`
-	DeviceID          string                `json:"deviceId"`
-	AlarmRuleID       string                `json:"alarmRuleId"`
-	Severity          string                `json:"severity"`
-	ConditionSnapshot []AlarmEventCondition `json:"conditionSnapshot"`
-	BreachedAt        time.Time             `json:"breachedAt"`
-	ClearedAt         *time.Time            `json:"clearedAt"`
-	AcknowledgedBy    *string               `json:"acknowledgedBy"`
-	AcknowledgedAt    *time.Time            `json:"acknowledgedAt"`
-	AcknowledgedNote  *string               `json:"acknowledgedNote"`
+	ID                      int64                  `json:"id"`
+	OrganizationID          string                 `json:"organizationId"`
+	PlantID                 string                 `json:"plantId"`
+	DeviceID                string                 `json:"deviceId"`
+	AlarmRuleID             string                 `json:"alarmRuleId"`
+	SourceType              string                 `json:"sourceType"`
+	RegisterMappingSourceID *string                `json:"registerMappingSourceId,omitempty"`
+	RegisterSnapshot        *RegisterAlarmSnapshot `json:"registerSnapshot,omitempty"`
+	Severity                string                 `json:"severity"`
+	ConditionSnapshot       []AlarmEventCondition  `json:"conditionSnapshot"`
+	BreachedAt              time.Time              `json:"breachedAt"`
+	ClearedAt               *time.Time             `json:"clearedAt"`
+	AcknowledgedBy          *string                `json:"acknowledgedBy"`
+	AcknowledgedAt          *time.Time             `json:"acknowledgedAt"`
+	AcknowledgedNote        *string                `json:"acknowledgedNote"`
 }
 
 type ConditionInput struct {
@@ -327,7 +340,7 @@ func (s *Service) ListAlarmEvents(ctx context.Context, principal auth.Principal,
 		return nil, err
 	}
 	rows, err := s.pool.Query(ctx, `
-SELECT id, organization_id, plant_id, device_id, alarm_rule_id, severity, condition_snapshot,
+SELECT id, organization_id, plant_id, device_id, alarm_rule_id, source_type, register_mapping_source_id, register_snapshot, severity, condition_snapshot,
        breached_at, cleared_at, acknowledged_by, acknowledged_at, acknowledged_note
 FROM alarm.alarm_event
 WHERE organization_id=$1 AND plant_id=$2
@@ -356,7 +369,7 @@ func (s *Service) AlarmEventsSince(ctx context.Context, principal auth.Principal
 		return nil, err
 	}
 	rows, err := s.pool.Query(ctx, `
-SELECT id, organization_id, plant_id, device_id, alarm_rule_id, severity, condition_snapshot,
+SELECT id, organization_id, plant_id, device_id, alarm_rule_id, source_type, register_mapping_source_id, register_snapshot, severity, condition_snapshot,
        breached_at, cleared_at, acknowledged_by, acknowledged_at, acknowledged_note
 FROM alarm.alarm_event
 WHERE organization_id=$1 AND plant_id=$2 AND id > $3
@@ -416,7 +429,7 @@ func (s *Service) AcknowledgeAlarmEvent(ctx context.Context, principal auth.Prin
 	q := s.queries.WithTx(tx)
 	var organizationID pgtype.UUID
 	current, err := scanAlarmEvent(tx.QueryRow(ctx, `
-SELECT id, organization_id, plant_id, device_id, alarm_rule_id, severity, condition_snapshot,
+SELECT id, organization_id, plant_id, device_id, alarm_rule_id, source_type, register_mapping_source_id, register_snapshot, severity, condition_snapshot,
        breached_at, cleared_at, acknowledged_by, acknowledged_at, acknowledged_note
 FROM alarm.alarm_event WHERE id=$1 AND plant_id=$2 FOR UPDATE`, id, plantUUID))
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -438,7 +451,7 @@ FROM alarm.alarm_event WHERE id=$1 AND plant_id=$2 FOR UPDATE`, id, plantUUID))
 	event, err := scanAlarmEvent(tx.QueryRow(ctx, `
 UPDATE alarm.alarm_event SET acknowledged_by=$2, acknowledged_at=now(), acknowledged_note=$3
 WHERE id=$1
-RETURNING id, organization_id, plant_id, device_id, alarm_rule_id, severity, condition_snapshot,
+RETURNING id, organization_id, plant_id, device_id, alarm_rule_id, source_type, register_mapping_source_id, register_snapshot, severity, condition_snapshot,
           breached_at, cleared_at, acknowledged_by, acknowledged_at, acknowledged_note`,
 		id, principal.UserID, note))
 	if err != nil {
@@ -718,12 +731,13 @@ func scanAlarmRule(row auditScanner) (AlarmRule, error) {
 
 func scanAlarmEvent(row auditScanner) (AlarmEvent, error) {
 	var event AlarmEvent
-	var organizationID, plantID, deviceID, alarmRuleID, acknowledgedBy pgtype.UUID
+	var organizationID, plantID, deviceID, alarmRuleID, registerMappingSourceID, acknowledgedBy pgtype.UUID
+	var sourceType pgtype.Text
 	var breachedAt pgtype.Timestamptz
 	var clearedAt, acknowledgedAt pgtype.Timestamptz
 	var acknowledgedNote pgtype.Text
-	var conditionSnapshot []byte
-	if err := row.Scan(&event.ID, &organizationID, &plantID, &deviceID, &alarmRuleID, &event.Severity, &conditionSnapshot,
+	var conditionSnapshot, registerSnapshot []byte
+	if err := row.Scan(&event.ID, &organizationID, &plantID, &deviceID, &alarmRuleID, &sourceType, &registerMappingSourceID, &registerSnapshot, &event.Severity, &conditionSnapshot,
 		&breachedAt, &clearedAt, &acknowledgedBy, &acknowledgedAt, &acknowledgedNote); err != nil {
 		return AlarmEvent{}, fmt.Errorf("scan alarm event: %w", err)
 	}
@@ -731,10 +745,18 @@ func scanAlarmEvent(row auditScanner) (AlarmEvent, error) {
 	event.PlantID = uuidString(plantID)
 	event.DeviceID = uuidString(deviceID)
 	event.AlarmRuleID = uuidString(alarmRuleID)
+	event.SourceType = sourceType.String
+	event.RegisterMappingSourceID = orgPointer(registerMappingSourceID)
 	event.ConditionSnapshot = []AlarmEventCondition{}
 	if len(conditionSnapshot) > 0 {
 		if err := json.Unmarshal(conditionSnapshot, &event.ConditionSnapshot); err != nil {
 			return AlarmEvent{}, fmt.Errorf("decode alarm event condition snapshot: %w", err)
+		}
+	}
+	if len(registerSnapshot) > 0 {
+		event.RegisterSnapshot = &RegisterAlarmSnapshot{}
+		if err := json.Unmarshal(registerSnapshot, event.RegisterSnapshot); err != nil {
+			return AlarmEvent{}, fmt.Errorf("decode register alarm snapshot: %w", err)
 		}
 	}
 	event.BreachedAt = breachedAt.Time

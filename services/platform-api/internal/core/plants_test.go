@@ -74,7 +74,7 @@ func TestPlantFromFieldsIncludesImageURL(t *testing.T) {
 	plant := plantFromFields(
 		pgtype.UUID{Valid: true}, pgtype.UUID{Valid: true}, "Org", "P-1", "Plant", "UTC",
 		pgtype.Float8{}, pgtype.Float8{}, pgtype.Numeric{}, pgtype.Numeric{}, PlantLifecycleOperational, &imageURL,
-		true, pgtype.Timestamptz{Time: time.Unix(0, 0), Valid: true}, pgtype.Timestamptz{Time: time.Unix(0, 0), Valid: true},
+		true, false, pgtype.UUID{}, pgtype.Timestamptz{Time: time.Unix(0, 0), Valid: true}, pgtype.Timestamptz{Time: time.Unix(0, 0), Valid: true},
 	)
 	if plant.ImageURL == nil || *plant.ImageURL != imageURL {
 		t.Fatalf("ImageURL = %#v, want %q", plant.ImageURL, imageURL)

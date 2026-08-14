@@ -19,6 +19,9 @@ import (
 
 var (
 	ErrInvalidCredentials     = errors.New("invalid credentials")
+	ErrEmailUnverified        = errors.New("email verification required")
+	ErrAccessPending          = errors.New("access approval pending")
+	ErrAccountDisabled        = errors.New("account disabled")
 	ErrRateLimited            = errors.New("too many login attempts")
 	ErrUnauthenticated        = errors.New("authentication required")
 	ErrInvalidCurrentPassword = errors.New("current password is invalid")
@@ -102,14 +105,36 @@ func (s *Service) Login(ctx context.Context, input LoginInput) (LoginResult, err
 	if err != nil {
 		return LoginResult{}, fmt.Errorf("load login user: %w", err)
 	}
-	if user.Status != "ACTIVE" || user.LockedUntil.Valid && user.LockedUntil.Time.After(time.Now()) {
-		return LoginResult{}, s.recordFailure(ctx, &user, identifier, input, false)
+	if user.LockedUntil.Valid && user.LockedUntil.Time.After(time.Now()) {
+		if err := s.recordFailure(ctx, &user, identifier, input, false); err != nil {
+			return LoginResult{}, err
+		}
+		return LoginResult{}, ErrInvalidCredentials
 	}
 	if !VerifyPassword(user.PasswordHash, input.Password) {
 		return LoginResult{}, s.recordFailure(ctx, &user, identifier, input, true)
 	}
+	if err := classifyLoginStatus(user.Status, user.EmailVerifiedAt); err != nil {
+		return LoginResult{}, err
+	}
 
 	return s.recordSuccess(ctx, user, input)
+}
+
+func classifyLoginStatus(status string, verifiedAt pgtype.Timestamptz) error {
+	if !verifiedAt.Valid {
+		return ErrEmailUnverified
+	}
+	switch status {
+	case "PENDING_ACCESS":
+		return ErrAccessPending
+	case "DISABLED":
+		return ErrAccountDisabled
+	case "ACTIVE":
+		return nil
+	default:
+		return ErrAccountDisabled
+	}
 }
 
 func (s *Service) recordFailure(ctx context.Context, user *dbgen.GetLoginUserRow, identifier string, input LoginInput, increment bool) error {

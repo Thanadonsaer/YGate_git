@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"ygate/auth-service/internal/database/dbgen"
 )
 
 var (
@@ -65,7 +66,7 @@ func (s *Service) Register(ctx context.Context, input RegisterInput, sourceIP *n
 	}
 	defer tx.Rollback(ctx)
 	var organizationID *string
-	if _, err = tx.Exec(ctx, `INSERT INTO auth.app_user(id, organization_id, email, username, display_name, password_hash, status, email_verified_at) VALUES($1,NULL,$2,NULLIF($3,''),$4,$5,'DISABLED',NULL)`, userID, email, username, displayName, passwordHash); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO auth.app_user(id, organization_id, email, username, display_name, password_hash, status, email_verified_at) VALUES($1,NULL,$2,NULLIF($3,''),$4,$5,'PENDING_ACCESS',NULL)`, userID, email, username, displayName, passwordHash); err != nil {
 		if isUniqueViolation(err) {
 			return ErrRegistrationConflict
 		}
@@ -116,14 +117,36 @@ func (s *Service) VerifyEmail(ctx context.Context, token string) error {
 	return nil
 }
 
-func (s *Service) ResendVerification(ctx context.Context, email string) error {
+func (s *Service) ResendVerification(ctx context.Context, identifier string, sourceIP *netip.Addr) error {
 	if s.verificationNotifier == nil {
 		return ErrRegistrationUnavailable
 	}
-	email = strings.ToLower(strings.TrimSpace(email))
+	identifier = normalizeVerificationIdentifier(identifier)
+	if identifier == "" {
+		return nil
+	}
+	attempts, err := s.queries.CountRecentPasswordRecoveryAttempts(ctx, dbgen.CountRecentPasswordRecoveryAttemptsParams{
+		Operation: "VERIFY", Identifier: identifier, SourceIp: sourceIP,
+	})
+	if err != nil {
+		return fmt.Errorf("count verification attempts: %w", err)
+	}
+	if attempts >= maxRecentFailures {
+		return ErrRateLimited
+	}
+	if err = s.queries.RecordPasswordRecoveryAttempt(ctx, dbgen.RecordPasswordRecoveryAttemptParams{
+		Operation: "VERIFY", Identifier: identifier, SourceIp: sourceIP, Success: false,
+	}); err != nil {
+		return fmt.Errorf("record verification attempt: %w", err)
+	}
+
 	var userID pgtype.UUID
 	var verified *time.Time
-	if err := s.pool.QueryRow(ctx, "SELECT id, email_verified_at FROM auth.app_user WHERE email=$1", email).Scan(&userID, &verified); errors.Is(err, pgx.ErrNoRows) {
+	var email string
+	var organizationID pgtype.UUID
+	if err := s.pool.QueryRow(ctx, `SELECT id, email, organization_id, email_verified_at
+		FROM auth.app_user
+		WHERE (email=$1 OR username=$1) AND status='PENDING_ACCESS'`, identifier).Scan(&userID, &email, &organizationID, &verified); errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	} else if err != nil {
 		return fmt.Errorf("load verification user: %w", err)
@@ -139,10 +162,6 @@ func (s *Service) ResendVerification(ctx context.Context, email string) error {
 	if err != nil {
 		return err
 	}
-	var organizationID pgtype.UUID
-	if err = s.pool.QueryRow(ctx, "SELECT organization_id FROM auth.app_user WHERE id=$1", userID).Scan(&organizationID); err != nil {
-		return fmt.Errorf("load verification organization: %w", err)
-	}
 	if _, err = s.pool.Exec(ctx, "UPDATE auth.email_verification_token SET used_at=COALESCE(used_at,now()) WHERE user_id=$1 AND used_at IS NULL", userID); err != nil {
 		return fmt.Errorf("invalidate verification tokens: %w", err)
 	}
@@ -150,6 +169,10 @@ func (s *Service) ResendVerification(ctx context.Context, email string) error {
 		return fmt.Errorf("create verification token: %w", err)
 	}
 	return s.verificationNotifier(ctx, email, token)
+}
+
+func normalizeVerificationIdentifier(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
 }
 
 func validEmail(value string) bool {

@@ -7,3 +7,9 @@ func TestRegistrationDoesNotRequireOrganization(t *testing.T) {
 		t.Fatal("registration without organization should be valid")
 	}
 }
+
+func TestNormalizeVerificationIdentifier(t *testing.T) {
+	if got := normalizeVerificationIdentifier("  User@Example.COM "); got != "user@example.com" {
+		t.Fatalf("normalizeVerificationIdentifier() = %q", got)
+	}
+}

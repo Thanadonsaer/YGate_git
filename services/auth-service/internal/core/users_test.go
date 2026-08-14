@@ -31,6 +31,15 @@ func TestValidateUserInputRejectsBadValues(t *testing.T) {
 	}
 }
 
+func TestOptionalOrganizationIDForAuditAllowsUnassignedUser(t *testing.T) {
+	if got, err := optionalOrganizationIDForAudit(""); err != nil || got.Valid {
+		t.Fatalf("unassigned organization = %#v, err=%v", got, err)
+	}
+	if got, err := optionalOrganizationIDForAudit("10000000-0000-4000-8000-000000000001"); err != nil || !got.Valid {
+		t.Fatalf("assigned organization = %#v, err=%v", got, err)
+	}
+}
+
 func TestValidateUserProfileDoesNotRequirePassword(t *testing.T) {
 	email, username, displayName, err := validateUserProfile(" USER@EXAMPLE.COM ", " operator ", " Operator ")
 	if err != nil || email != "user@example.com" || username != "operator" || displayName != "Operator" {

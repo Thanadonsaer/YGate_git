@@ -9,13 +9,14 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from ".
 import { toast } from "../../components/ui/sonner";
 import { iconButtonClass, inputClass, labelClass, primaryButtonClass, secondaryButtonClass } from "../../components/ui";
 import { api, errorMessage, csrfToken, downloadBlob } from "../../lib/api";
-import { MIDDLEWARE_DATA_TYPES, type DeviceModelOption, type DeviceModelRegisterMetadata } from "../../lib/types";
+import { MIDDLEWARE_DATA_TYPES, type DeviceModelOption, type DeviceModelRegisterMetadata, type RegisterProfile, type RegisterValueMapping } from "../../lib/types";
 import { usePlatformSession } from "../../components/platform-shell";
 import { can } from "../../lib/permissions";
 
 export function RegisterMetadataPage() {
   const { user } = usePlatformSession();
   const [models, setModels] = useState<DeviceModelOption[]>([]);
+  const [profiles, setProfiles] = useState<RegisterProfile[]>([]);
   const [selectedModelId, setSelectedModelId] = useState("");
   const [items, setItems] = useState<DeviceModelRegisterMetadata[]>([]);
   const [modelDialog, setModelDialog] = useState<DeviceModelOption | "create" | null>(null);
@@ -39,6 +40,11 @@ export function RegisterMetadataPage() {
     }
   }, []);
 
+  const loadProfiles = useCallback(async () => {
+    const response = await api("/api/v1/register-profiles");
+    if (response.ok) setProfiles((await response.json()) as RegisterProfile[]);
+  }, []);
+
   const loadItems = useCallback(async (modelId: string) => {
     if (!modelId) {
       setItems([]);
@@ -58,6 +64,7 @@ export function RegisterMetadataPage() {
   }, []);
 
   useEffect(() => { void loadModels(); }, [loadModels]);
+  useEffect(() => { void loadProfiles(); }, [loadProfiles]);
   useEffect(() => { void loadItems(selectedModelId); }, [loadItems, selectedModelId]);
 
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -137,6 +144,22 @@ export function RegisterMetadataPage() {
     }
   }
 
+  async function assignProfile(profileId: string) {
+    if (!selectedModel || profileId === selectedModel.registerProfileId) return;
+    const response = await api(`/api/v1/device-models/${encodeURIComponent(selectedModel.id)}/register-profile`, {
+      method: "PUT",
+      headers: { "X-CSRF-Token": csrfToken() },
+      body: JSON.stringify({ profileId }),
+    });
+    if (!response.ok) {
+      setError(response.status === 403 ? "บัญชีนี้ไม่มีสิทธิ์เปลี่ยน Register Profile" : "ไม่สามารถเปลี่ยน Register Profile ได้");
+      return;
+    }
+    setModels((current) => current.map((model) => model.id === selectedModel.id ? { ...model, registerProfileId: profileId } : model));
+    await loadItems(selectedModel.id);
+    toast.success("เปลี่ยน Register Profile แล้ว");
+  }
+
   async function hardDeleteModel(model: DeviceModelOption) {
     const expected = "DELETE";
     if (window.prompt(`คำสั่งนี้จะลบ Model, Device ที่ใช้ Model นี้, Metadata และ normalized telemetry ถาวร\nพิมพ์ ${expected}`) !== expected) return;
@@ -211,6 +234,12 @@ export function RegisterMetadataPage() {
             <span>Brand <strong className="text-ink">{selectedModel.manufacturer}</strong></span>
             <span>ชนิด <strong className="text-ink">{selectedModel.deviceType}</strong></span>
             <span>Source Type <strong className="text-ink">{selectedModel.sourceTypeId ?? "-"}</strong></span>
+            <label className="flex items-center gap-2">Register Profile
+              <Select value={selectedModel.registerProfileId} onValueChange={(value) => void assignProfile(value)} disabled={!can(user, "device_model", "update")}>
+                <SelectTrigger className="h-8 min-w-56"><SelectValue placeholder="เลือก Profile" /></SelectTrigger>
+                <SelectContent>{profiles.map((profile) => <SelectItem key={profile.id} value={profile.id}>{profile.name} {profile.manufacturer ? `· ${profile.manufacturer}` : ""}</SelectItem>)}</SelectContent>
+              </Select>
+            </label>
           </div>
           <div className="flex flex-wrap gap-2">
             {can(user, "device_model", "update") && <Button variant="bare" className={secondaryButtonClass} type="button" onClick={() => setModelDialog(selectedModel)}><Pencil size={16} /> แก้ไข Model</Button>}
@@ -386,6 +415,9 @@ function AddressMetadataDialog({ model, item, onClose, onSaved }: { model: Devic
   const [modbusRegister, setModbusRegister] = useState(item?.modbusRegister == null ? "" : String(item.modbusRegister));
   const [modbusWordOrder, setModbusWordOrder] = useState(item?.modbusWordOrder ?? "");
   const [modbusDataType, setModbusDataType] = useState(item?.modbusDataType ?? "");
+  const [isAlarm, setIsAlarm] = useState(item?.isAlarm ?? false);
+  const [mappingMode, setMappingMode] = useState<"EXACT" | "BITMASK">(item?.mappingMode ?? "EXACT");
+  const [mappings, setMappings] = useState<Array<RegisterValueMapping & { matchValueText: string; bitIndexText: string }>>(() => (item?.mappings ?? []).map((mapping) => ({ ...mapping, matchValueText: mapping.matchValue == null ? "" : String(mapping.matchValue), bitIndexText: mapping.bitIndex == null ? "" : String(mapping.bitIndex) })));
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
 
@@ -402,6 +434,14 @@ function AddressMetadataDialog({ model, item, onClose, onSaved }: { model: Devic
           modbusFunctionCode: modbusFunctionCode === "" ? null : Number(modbusFunctionCode),
           modbusRegister: modbusRegister === "" ? null : Number(modbusRegister),
           modbusWordOrder, modbusDataType,
+          isAlarm, mappingMode,
+          mappings: mappings.map((mapping) => ({
+            displayValue: mapping.displayValue,
+            matchValue: mappingMode === "EXACT" && mapping.matchValueText !== "" ? Number(mapping.matchValueText) : null,
+            bitIndex: mappingMode === "BITMASK" && mapping.bitIndexText !== "" ? Number(mapping.bitIndexText) : null,
+            alarmState: isAlarm ? (mapping.alarmState || null) : null,
+            severity: isAlarm ? (mapping.severity || null) : null,
+          })),
         }),
       });
       if (!response.ok) throw new Error(response.status === 404 ? "ไม่พบ Device Model" : "Address Metadata ไม่ถูกต้องหรือไม่สามารถบันทึกได้");
@@ -482,6 +522,25 @@ function AddressMetadataDialog({ model, item, onClose, onSaved }: { model: Devic
             <label className={labelClass}>Offset<TextInput className={inputClass} type="number" step="any" value={offset} onChange={(event) => setOffset(event.target.value)} required /></label>
             <label className={labelClass}>Decimals<TextInput className={inputClass} type="number" min="0" max="9" value={decimals} onChange={(event) => setDecimals(event.target.value)} required /></label>
             <label className="flex items-center gap-2 self-end text-sm font-bold text-slate-800"><Checkbox checked={isEnabled} onChange={setIsEnabled} /> เปิดใช้งาน</label>
+
+            <div className="sm:col-span-2 rounded-md border border-line bg-canvas/50 p-3">
+              <div className="flex items-center justify-between gap-3">
+                <label className="flex items-center gap-2 text-sm font-bold text-slate-800"><Checkbox checked={isAlarm} onChange={setIsAlarm} /> Address นี้เป็น Alarm</label>
+                <Select value={mappingMode} onValueChange={(value) => setMappingMode(value as "EXACT" | "BITMASK")}>
+                  <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="EXACT">Exact value</SelectItem><SelectItem value="BITMASK" disabled={!isAlarm}>Bitmask</SelectItem></SelectContent>
+                </Select>
+              </div>
+              <div className="mt-3 space-y-2">
+                {mappings.map((mapping, index) => <div key={index} className="grid gap-2 sm:grid-cols-[90px_90px_minmax(0,1fr)_auto]">
+                  <TextInput className={inputClass} type="number" placeholder={mappingMode === "EXACT" ? "Value" : "Bit"} value={mappingMode === "EXACT" ? mapping.matchValueText : mapping.bitIndexText} onChange={(event) => setMappings((current) => current.map((entry, row) => row === index ? { ...entry, ...(mappingMode === "EXACT" ? { matchValueText: event.target.value } : { bitIndexText: event.target.value }) } : entry))} />
+                  {isAlarm ? <Select value={mapping.severity ?? "warning"} onValueChange={(value) => setMappings((current) => current.map((entry, row) => row === index ? { ...entry, severity: value } : entry))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="info">Info</SelectItem><SelectItem value="warning">Warning</SelectItem><SelectItem value="critical">Critical</SelectItem></SelectContent></Select> : <span />}
+                  <TextInput className={inputClass} placeholder="Display value เช่น Model A" value={mapping.displayValue} onChange={(event) => setMappings((current) => current.map((entry, row) => row === index ? { ...entry, displayValue: event.target.value } : entry))} />
+                  <Button variant="icon" type="button" danger onClick={() => setMappings((current) => current.filter((_, row) => row !== index))} aria-label="ลบ mapping"><Trash2 size={16} /></Button>
+                </div>)}
+                <Button variant="bare" type="button" className={secondaryButtonClass} onClick={() => setMappings((current) => [...current, { matchValueText: "", bitIndexText: "", displayValue: "", severity: isAlarm ? "warning" : null }])}><Plus size={15} /> เพิ่ม Mapping</Button>
+              </div>
+            </div>
 
             <label className={`${labelClass} sm:col-span-2`}>Notes<TextArea className={`${inputClass} min-h-24 py-2`} value={notes} onChange={(event) => setNotes(event.target.value)} maxLength={500} /></label>
             {error && <FormMessage className="sm:col-span-2">{error}</FormMessage>}

@@ -446,7 +446,7 @@ func (s *Service) HardDeleteUser(ctx context.Context, principal auth.Principal, 
 			return ErrUserInvalid
 		}
 	}
-	organizationID, err := parseUUID(before.OrganizationID)
+	organizationID, err := optionalOrganizationIDForAudit(before.OrganizationID)
 	if err != nil {
 		return ErrUserNotFound
 	}

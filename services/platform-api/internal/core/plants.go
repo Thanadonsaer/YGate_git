@@ -81,47 +81,53 @@ func (s *Service) WithPublicBaseURL(url string) *Service {
 }
 
 type Plant struct {
-	ID               string    `json:"id"`
-	OrganizationID   string    `json:"organizationId"`
-	OrganizationName string    `json:"organizationName"`
-	Code             string    `json:"code"`
-	Name             string    `json:"name"`
-	Timezone         string    `json:"timezone"`
-	Latitude         *float64  `json:"latitude"`
-	Longitude        *float64  `json:"longitude"`
-	InstalledDcKW    *float64  `json:"installedDcKw"`
-	InstalledAcKW    *float64  `json:"installedAcKw"`
-	LifecycleStatus  string    `json:"lifecycleStatus"`
-	ImageURL         *string   `json:"imageUrl,omitempty"`
-	IsActive         bool      `json:"isActive"`
-	CreatedAt        time.Time `json:"createdAt"`
-	UpdatedAt        time.Time `json:"updatedAt"`
+	ID                string    `json:"id"`
+	OrganizationID    string    `json:"organizationId"`
+	OrganizationName  string    `json:"organizationName"`
+	Code              string    `json:"code"`
+	Name              string    `json:"name"`
+	Timezone          string    `json:"timezone"`
+	Latitude          *float64  `json:"latitude"`
+	Longitude         *float64  `json:"longitude"`
+	InstalledDcKW     *float64  `json:"installedDcKw"`
+	InstalledAcKW     *float64  `json:"installedAcKw"`
+	LifecycleStatus   string    `json:"lifecycleStatus"`
+	ImageURL          *string   `json:"imageUrl,omitempty"`
+	IsActive          bool      `json:"isActive"`
+	AlarmEmailEnabled bool      `json:"alarmEmailEnabled"`
+	AlarmNotifyRoleID *string   `json:"alarmNotifyRoleId"`
+	CreatedAt         time.Time `json:"createdAt"`
+	UpdatedAt         time.Time `json:"updatedAt"`
 }
 
 type CreatePlantInput struct {
-	OrganizationID  string
-	Code            string
-	Name            string
-	Timezone        string
-	Latitude        *float64
-	Longitude       *float64
-	InstalledDcKW   *float64
-	InstalledAcKW   *float64
-	LifecycleStatus string
-	ImageURL        *string `json:"imageUrl,omitempty"`
+	OrganizationID    string
+	Code              string
+	Name              string
+	Timezone          string
+	Latitude          *float64
+	Longitude         *float64
+	InstalledDcKW     *float64
+	InstalledAcKW     *float64
+	LifecycleStatus   string
+	ImageURL          *string `json:"imageUrl,omitempty"`
+	AlarmEmailEnabled *bool
+	AlarmNotifyRoleID *string
 }
 
 type UpdatePlantInput struct {
-	Code            string
-	Name            string
-	Timezone        string
-	Latitude        *float64
-	Longitude       *float64
-	InstalledDcKW   *float64
-	InstalledAcKW   *float64
-	LifecycleStatus string
-	ImageURL        *string `json:"imageUrl,omitempty"`
-	IsActive        bool
+	Code              string
+	Name              string
+	Timezone          string
+	Latitude          *float64
+	Longitude         *float64
+	InstalledDcKW     *float64
+	InstalledAcKW     *float64
+	LifecycleStatus   string
+	ImageURL          *string `json:"imageUrl,omitempty"`
+	IsActive          bool
+	AlarmEmailEnabled *bool
+	AlarmNotifyRoleID *string
 }
 
 const (
@@ -159,7 +165,7 @@ func (s *Service) Plants(ctx context.Context, principal auth.Principal) ([]Plant
 		plants = append(plants, plantFromFields(
 			row.ID, row.OrganizationID, row.OrganizationName, row.Code, row.Name, row.Timezone,
 			row.Latitude, row.Longitude, row.InstalledDcKw, row.InstalledAcKw, row.LifecycleStatus, textPointer(row.ImageUrl),
-			row.IsActive, row.CreatedAt, row.UpdatedAt,
+			row.IsActive, row.AlarmEmailEnabled, row.AlarmNotifyRoleID, row.CreatedAt, row.UpdatedAt,
 		))
 	}
 	return plants, nil
@@ -182,7 +188,7 @@ func (s *Service) Plant(ctx context.Context, principal auth.Principal, plantID s
 	return plantFromFields(
 		row.ID, row.OrganizationID, row.OrganizationName, row.Code, row.Name, row.Timezone,
 		row.Latitude, row.Longitude, row.InstalledDcKw, row.InstalledAcKw, row.LifecycleStatus, textPointer(row.ImageUrl),
-		row.IsActive, row.CreatedAt, row.UpdatedAt,
+		row.IsActive, row.AlarmEmailEnabled, row.AlarmNotifyRoleID, row.CreatedAt, row.UpdatedAt,
 	), nil
 }
 
@@ -200,6 +206,11 @@ func (s *Service) CreatePlant(ctx context.Context, principal auth.Principal, inp
 		input.LifecycleStatus = PlantLifecycleOperational
 	}
 	if err != nil || validatePlantLifecycle(input.LifecycleStatus) != nil || !organizationID.Valid {
+		return Plant{}, ErrInvalid
+	}
+	alarmEmailEnabled := input.AlarmEmailEnabled != nil && *input.AlarmEmailEnabled
+	alarmNotifyRoleID, err := optionalRoleUUID(input.AlarmNotifyRoleID)
+	if err != nil {
 		return Plant{}, ErrInvalid
 	}
 	id, err := newUUID()
@@ -225,10 +236,20 @@ func (s *Service) CreatePlant(ctx context.Context, principal auth.Principal, inp
 	if !allowed {
 		return Plant{}, ErrForbidden
 	}
+	if alarmNotifyRoleID.Valid {
+		validRole, roleErr := q.ValidateAlarmNotifyRole(ctx, dbgen.ValidateAlarmNotifyRoleParams{RoleID: alarmNotifyRoleID, OrganizationID: organizationID})
+		if roleErr != nil {
+			return Plant{}, fmt.Errorf("validate alarm notify role: %w", roleErr)
+		}
+		if !validRole {
+			return Plant{}, ErrInvalid
+		}
+	}
 	row, err := q.CreatePlant(ctx, dbgen.CreatePlantParams{
 		ID: id, OrganizationID: organizationID, Code: input.Code, Name: input.Name, Timezone: input.Timezone,
 		Latitude: nullableFloat(input.Latitude), Longitude: nullableFloat(input.Longitude),
 		InstalledDcKw: nullableFloat(input.InstalledDcKW), InstalledAcKw: nullableFloat(input.InstalledAcKW), LifecycleStatus: input.LifecycleStatus,
+		AlarmEmailEnabled: alarmEmailEnabled, AlarmNotifyRoleID: alarmNotifyRoleID,
 	})
 	if err != nil {
 		return Plant{}, mapWriteError(err)
@@ -243,7 +264,7 @@ func (s *Service) CreatePlant(ctx context.Context, principal auth.Principal, inp
 	plant := plantFromFields(
 		row.ID, row.OrganizationID, organizationName, row.Code, row.Name, row.Timezone,
 		row.Latitude, row.Longitude, row.InstalledDcKw, row.InstalledAcKw, row.LifecycleStatus, textPointer(row.ImageUrl),
-		row.IsActive, row.CreatedAt, row.UpdatedAt,
+		row.IsActive, row.AlarmEmailEnabled, row.AlarmNotifyRoleID, row.CreatedAt, row.UpdatedAt,
 	)
 	after, _ := json.Marshal(plant)
 	if err = q.CreateAuditEventFull(ctx, dbgen.CreateAuditEventFullParams{
@@ -287,12 +308,33 @@ func (s *Service) UpdatePlant(ctx context.Context, principal auth.Principal, pla
 	beforePlant := plantFromFields(
 		current.ID, current.OrganizationID, current.OrganizationName, current.Code, current.Name, current.Timezone,
 		current.Latitude, current.Longitude, current.InstalledDcKw, current.InstalledAcKw, current.LifecycleStatus, textPointer(current.ImageUrl),
-		current.IsActive, current.CreatedAt, current.UpdatedAt,
+		current.IsActive, current.AlarmEmailEnabled, current.AlarmNotifyRoleID, current.CreatedAt, current.UpdatedAt,
 	)
+	alarmEmailEnabled := current.AlarmEmailEnabled
+	if input.AlarmEmailEnabled != nil {
+		alarmEmailEnabled = *input.AlarmEmailEnabled
+	}
+	alarmNotifyRoleID := current.AlarmNotifyRoleID
+	if input.AlarmNotifyRoleID != nil {
+		alarmNotifyRoleID, err = optionalRoleUUID(input.AlarmNotifyRoleID)
+		if err != nil {
+			return Plant{}, ErrInvalid
+		}
+	}
+	if alarmNotifyRoleID.Valid {
+		validRole, roleErr := q.ValidateAlarmNotifyRole(ctx, dbgen.ValidateAlarmNotifyRoleParams{RoleID: alarmNotifyRoleID, OrganizationID: current.OrganizationID})
+		if roleErr != nil {
+			return Plant{}, fmt.Errorf("validate alarm notify role: %w", roleErr)
+		}
+		if !validRole {
+			return Plant{}, ErrInvalid
+		}
+	}
 	row, err := q.UpdatePlant(ctx, dbgen.UpdatePlantParams{
 		ID: id, Code: input.Code, Name: input.Name, Timezone: input.Timezone,
 		Latitude: nullableFloat(input.Latitude), Longitude: nullableFloat(input.Longitude),
 		InstalledDcKw: nullableFloat(input.InstalledDcKW), InstalledAcKw: nullableFloat(input.InstalledAcKW), LifecycleStatus: input.LifecycleStatus, IsActive: input.IsActive,
+		AlarmEmailEnabled: alarmEmailEnabled, AlarmNotifyRoleID: alarmNotifyRoleID,
 	})
 	if err != nil {
 		return Plant{}, mapWriteError(err)
@@ -300,7 +342,7 @@ func (s *Service) UpdatePlant(ctx context.Context, principal auth.Principal, pla
 	plant := plantFromFields(
 		row.ID, row.OrganizationID, current.OrganizationName, row.Code, row.Name, row.Timezone,
 		row.Latitude, row.Longitude, row.InstalledDcKw, row.InstalledAcKw, row.LifecycleStatus, textPointer(row.ImageUrl),
-		row.IsActive, row.CreatedAt, row.UpdatedAt,
+		row.IsActive, row.AlarmEmailEnabled, row.AlarmNotifyRoleID, row.CreatedAt, row.UpdatedAt,
 	)
 	before, _ := json.Marshal(beforePlant)
 	after, _ := json.Marshal(plant)
@@ -370,14 +412,29 @@ func numericPointer(value pgtype.Numeric) *float64 {
 func plantFromFields(
 	id, organizationID pgtype.UUID, organizationName, code, name, timezone string,
 	latitude, longitude pgtype.Float8, installedDcKW, installedAcKW pgtype.Numeric, lifecycleStatus string, imageURL *string,
-	isActive bool, createdAt, updatedAt pgtype.Timestamptz,
+	isActive, alarmEmailEnabled bool, alarmNotifyRoleID pgtype.UUID, createdAt, updatedAt pgtype.Timestamptz,
 ) Plant {
 	return Plant{
 		ID: uuidString(id), OrganizationID: uuidString(organizationID), OrganizationName: organizationName,
 		Code: code, Name: name, Timezone: timezone, Latitude: floatPointer(latitude), Longitude: floatPointer(longitude), LifecycleStatus: lifecycleStatus,
 		InstalledDcKW: numericPointer(installedDcKW), InstalledAcKW: numericPointer(installedAcKW), ImageURL: imageURL,
-		IsActive: isActive, CreatedAt: createdAt.Time, UpdatedAt: updatedAt.Time,
+		IsActive: isActive, AlarmEmailEnabled: alarmEmailEnabled, AlarmNotifyRoleID: textPointerFromUUID(alarmNotifyRoleID), CreatedAt: createdAt.Time, UpdatedAt: updatedAt.Time,
 	}
+}
+
+func textPointerFromUUID(value pgtype.UUID) *string {
+	if !value.Valid {
+		return nil
+	}
+	copy := uuidString(value)
+	return &copy
+}
+
+func optionalRoleUUID(value *string) (pgtype.UUID, error) {
+	if value == nil || strings.TrimSpace(*value) == "" {
+		return pgtype.UUID{}, nil
+	}
+	return parseUUID(*value)
 }
 
 func mapWriteError(err error) error {
