@@ -10,6 +10,7 @@ import {
   Panel,
   Position,
   ReactFlow,
+  type ReactFlowInstance,
   addEdge,
   applyEdgeChanges,
   applyNodeChanges,
@@ -35,7 +36,6 @@ import {
   BellRing,
   CircleGauge,
   Clock3,
-  Copy,
   Eye,
   FilePlus2,
   Fullscreen,
@@ -62,7 +62,7 @@ import {
   Workflow,
   Zap,
 } from "lucide-react";
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { FormMessage, StatusTag, TextInput } from "../../components/ui/form";
 import { api, errorMessage, csrfToken, formatDate } from "../../lib/api";
 import { sameSelection } from "../../lib/selection";
@@ -93,6 +93,8 @@ import { can } from "../../lib/permissions";
 type RuntimeScadaNodeData = ScadaNodeData & {
   latest?: LatestTelemetry;
   latestByDevice?: Record<string, LatestTelemetry>;
+  catalogs?: Record<string, Record<string, PointMeta>>;
+  builderMode?: boolean;
   // Canvas-only, stripped in emit() before persisting -- powers double-click-to-edit-in-place.
   editing?: boolean;
   onEditCommit?: (patch: Partial<ScadaNodeData>) => void;
@@ -108,6 +110,7 @@ const nodeTypes = {
   label: LabelNode,
   shape: ShapeNode,
   section: SectionNode,
+  group: GroupNode,
   led: LedNode,
   clock: ClockNode,
   image: ImageNode,
@@ -118,7 +121,6 @@ const nodeTypes = {
 } satisfies NodeTypes;
 
 const paletteEntries: Array<{ type: ScadaNodeType; title: string; description: string; icon: typeof Zap; requiresDevice?: boolean }> = [
-  { type: "equipment", title: "Equipment", description: "Solar, inverter, meter, grid", icon: Zap },
   { type: "metric", title: "Live value", description: "Text, gauge, progress, tank", icon: CircleGauge, requiresDevice: true },
   { type: "led", title: "LED status", description: "สถานะ on/off จากค่าล่าสุด", icon: Radio, requiresDevice: true },
   { type: "table", title: "Data table", description: "แสดงค่าหลาย point", icon: Table2, requiresDevice: true },
@@ -128,7 +130,7 @@ const paletteEntries: Array<{ type: ScadaNodeType; title: string; description: s
   { type: "ticker", title: "Text ticker", description: "ข้อความประกาศบนจอ", icon: TextQuote },
   { type: "shape", title: "Shape", description: "Rectangle, circle, diamond", icon: Shapes },
   { type: "section", title: "Section", description: "กรอบจัดกลุ่มอุปกรณ์", icon: SquareDashed },
-  { type: "image", title: "Image", description: "รูปจาก HTTPS หรือ managed path", icon: ImageIcon },
+  { type: "image", title: "Image", description: "เลือกไฟล์หรือลากรูปลง canvas", icon: ImageIcon },
   { type: "clock", title: "Plant clock", description: "เวลาและ timezone ที่ระบุ", icon: Clock3 },
 ];
 
@@ -390,7 +392,7 @@ export function ScadaPage() {
     </div>
     {error && <FormMessage>{error}</FormMessage>}
     {saveState === "conflict" && <div className="scada-conflict"><strong>Draft มีการแก้ไขจากที่อื่น</strong><span>โหลดเวอร์ชันล่าสุดก่อนแก้ต่อเพื่อป้องกันข้อมูลหาย</span><Button variant="secondary" compact onClick={() => void loadScreen(screen.id)}><RefreshCw size={16} /> โหลดใหม่</Button></div>}
-    {activeDesign ? <ScadaCanvas key={`${screen.id}-${canvasEpoch}-${mode}`} design={activeDesign} editable={editable} devices={devices} latestByDevice={latestByDevice} catalogs={catalogs} versions={versions} canPublish={screen.canPublish} onDesignChange={markDesign} onRollback={rollback} /> : <div className="table-state">ยังไม่มี Published version</div>}
+    {activeDesign ? <ScadaCanvas key={`${screen.id}-${canvasEpoch}-${mode}`} screenId={screen.id} design={activeDesign} editable={editable} devices={devices} latestByDevice={latestByDevice} catalogs={catalogs} versions={versions} canPublish={screen.canPublish} onDesignChange={markDesign} onRollback={rollback} /> : <div className="table-state">ยังไม่มี Published version</div>}
   </div>;
 }
 
@@ -431,16 +433,19 @@ function ScadaLibrary({ plants, screens, loading, error, createOpen, createPlant
   </div>;
 }
 
-export function ScadaCanvas({ design, editable, devices, latestByDevice, catalogs = {}, versions, canPublish, onDesignChange, onRollback, hideInspector, showMinimap = true, locked = false }: {
-  design: ScadaDesign; editable: boolean; devices: Device[]; latestByDevice: Record<string, LatestTelemetry>; catalogs?: Record<string, Record<string, PointMeta>>; versions: ScadaScreenVersion[]; canPublish: boolean; onDesignChange: (design: ScadaDesign) => void; onRollback: (version: ScadaScreenVersion) => Promise<void>; hideInspector?: boolean; showMinimap?: boolean; locked?: boolean;
+export function ScadaCanvas({ screenId, design, editable, devices, latestByDevice, catalogs = {}, versions, canPublish, onDesignChange, onRollback, hideInspector, showMinimap = true, locked = false }: {
+  screenId?: string; design: ScadaDesign; editable: boolean; devices: Device[]; latestByDevice: Record<string, LatestTelemetry>; catalogs?: Record<string, Record<string, PointMeta>>; versions: ScadaScreenVersion[]; canPublish: boolean; onDesignChange: (design: ScadaDesign) => void; onRollback: (version: ScadaScreenVersion) => Promise<void>; hideInspector?: boolean; showMinimap?: boolean; locked?: boolean;
 }) {
-  const [nodes, setNodes] = useState<FlowNode[]>(() => design.nodes.map((node) => ({ ...node, zIndex: node.type === "section" ? -1 : 0, style: node.width && node.height ? { width: node.width, height: node.height } : undefined })));
+  const [nodes, setNodes] = useState<FlowNode[]>(() => design.nodes.map((node) => ({ ...node, zIndex: node.zIndex ?? (node.type === "section" || node.type === "group" ? -1 : 0), extent: node.parentId ? "parent" as const : undefined, style: node.width && node.height ? { width: node.width, height: node.height } : undefined })));
   const [edges, setEdges] = useState<FlowEdge[]>(() => design.edges.map((edge) => ({ ...edge, animated: false })));
   const [viewport, setViewport] = useState<Viewport>(design.viewport);
   const [selectedIDs, setSelectedIDs] = useState<string[]>([]);
   const [editingID, setEditingID] = useState("");
   const [historyTick, setHistoryTick] = useState(0);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [imageError, setImageError] = useState("");
   const stageRef = useRef<HTMLDivElement>(null);
+  const flowRef = useRef<ReactFlowInstance<FlowNode, FlowEdge> | null>(null);
   // ponytail: full ScadaDesign snapshots per undo step, capped at 50 -- fine at builder scale (a
   // few hundred nodes/edges), a diff-based history would only earn its keep past that.
   const historyRef = useRef<{ past: { nodes: FlowNode[]; edges: FlowEdge[] }[]; future: { nodes: FlowNode[]; edges: FlowEdge[] }[] }>({ past: [], future: [] });
@@ -448,6 +453,10 @@ export function ScadaCanvas({ design, editable, devices, latestByDevice, catalog
   const pasteCountRef = useRef(0);
   const selectedID = selectedIDs.length === 1 ? selectedIDs[0] : "";
   const selected = nodes.find((node) => node.id === selectedID);
+  const selectedNodes = nodes.filter((node) => selectedIDs.includes(node.id));
+  const selectionLocked = selectedNodes.length > 0 && selectedNodes.every((node) => node.data.locked);
+  const selectionProtected = selectedNodes.some((node) => node.data.locked || inheritedFlag(node, "locked"));
+  const canUngroup = selectedNodes.some((node) => node.type === "group");
 
   function emit(nextNodes: FlowNode[], nextEdges: FlowEdge[], nextViewport = viewport) {
     onDesignChange({
@@ -456,7 +465,7 @@ export function ScadaCanvas({ design, editable, devices, latestByDevice, catalog
         const { latest: _latest, latestByDevice: _latestByDevice, editing: _editing, onEditCommit: _onEditCommit, onEditCancel: _onEditCancel, ...data } = node.data;
         const width = node.measured?.width ?? node.width;
         const height = node.measured?.height ?? node.height;
-        return { id: node.id, type: node.type as ScadaNodeType, position: node.position, data, ...(width ? { width } : {}), ...(height ? { height } : {}) };
+        return { id: node.id, type: node.type as ScadaNodeType, position: node.position, data, ...(width ? { width } : {}), ...(height ? { height } : {}), ...(node.parentId ? { parentId: node.parentId } : {}), ...(node.zIndex ? { zIndex: node.zIndex } : {}) };
       }),
       edges: nextEdges.map((edge) => ({ id: edge.id, source: edge.source, target: edge.target, type: edge.type === "default" ? "default" : "smoothstep" })),
       viewport: nextViewport,
@@ -497,8 +506,9 @@ export function ScadaCanvas({ design, editable, devices, latestByDevice, catalog
 
   function nodesChanged(changes: NodeChange<FlowNode>[]) {
     if (!editable) return;
-    if (changes.some((change) => change.type === "remove")) pushHistory();
-    const next = applyNodeChanges(changes, nodes);
+    const allowed = changes.filter((change) => change.type !== "remove" || !nodes.some((node) => node.id === change.id && (node.data.locked || inheritedFlag(node, "locked"))));
+    if (allowed.some((change) => change.type === "remove")) pushHistory();
+    const next = applyNodeChanges(allowed, nodes);
     setNodes(next);
     emit(next, edges);
   }
@@ -526,13 +536,15 @@ export function ScadaCanvas({ design, editable, devices, latestByDevice, catalog
     pushHistory();
     const id = `${type}-${crypto.randomUUID()}`;
     const firstPointKey = devices[0] ? Object.keys(latestByDevice[devices[0].id]?.dataItemMap || {}).sort()[0] : undefined;
-    const binding = devices[0] ? { deviceId: devices[0].id, pointKey: firstPointKey || "", unit: "", decimals: 1 } : undefined;
+    const firstMeta = devices[0] && firstPointKey ? pointMeta(catalogs[devices[0].id] || {}, firstPointKey) : undefined;
+    const binding = devices[0] ? { deviceId: devices[0].id, pointKey: firstPointKey || "", unit: firstMeta?.unit || "", decimals: firstMeta?.decimals ?? 2 } : undefined;
     const defaults: Record<ScadaNodeType, ScadaNodeData> = {
       equipment: { label: "Inverter", equipmentKind: "inverter" },
       metric: { label: "Active power", binding, displayType: "text", minValue: 0, maxValue: 100 },
-      label: { label: "Section label" },
+      label: { label: "Section label", textColor: "#0f172a", fontSize: 18, fontWeight: "bold" },
       shape: { label: "Shape", shapeKind: "rectangle" },
       section: { label: "Equipment group" },
+      group: { label: "Group", borderEnabled: true, borderColor: "#64748b", borderStyle: "dashed" },
       led: { label: "Running", binding, onValue: 1 },
       clock: { label: "Plant time", timezone: "Asia/Bangkok" },
       image: { label: "Reference image", imageUrl: "" },
@@ -542,7 +554,7 @@ export function ScadaCanvas({ design, editable, devices, latestByDevice, catalog
       "device-summary": { label: "Device parameters", deviceId: devices[0]?.id },
     };
     const dimensions: { width?: number; height?: number } = type === "section" ? { width: 360, height: 220 } : type === "image" ? { width: 260, height: 160 } : type === "device-summary" ? { width: 300, height: 240 } : type === "table" || type === "alarms" ? { width: 280, height: 180 } : type === "shape" ? { width: 140, height: 90 } : {};
-    const nextNode: FlowNode = { id, type, position: { x: 100 + nodes.length * 28, y: 100 + nodes.length * 24 }, data: defaults[type], zIndex: type === "section" ? -1 : 0, ...dimensions, ...(dimensions.width && dimensions.height ? { style: dimensions } : {}) };
+    const nextNode: FlowNode = { id, type, position: { x: 100 + nodes.length * 28, y: 100 + nodes.length * 24 }, data: defaults[type], zIndex: type === "section" || type === "group" ? -1 : 0, ...dimensions, ...(dimensions.width && dimensions.height ? { style: dimensions } : {}) };
     const next = [...nodes, nextNode];
     setNodes(next);
     setSelectedIDs([id]);
@@ -555,19 +567,48 @@ export function ScadaCanvas({ design, editable, devices, latestByDevice, catalog
     emit(next, edges);
   }
 
-  function removeSelected() {
-    if (!selectedID) return;
+  function updateSelection(patch: Partial<ScadaNodeData>) {
+    if (!selectedIDs.length) return;
     pushHistory();
-    const nextNodes = nodes.filter((node) => node.id !== selectedID);
-    const nextEdges = edges.filter((edge) => edge.source !== selectedID && edge.target !== selectedID);
-    setNodes(nextNodes); setEdges(nextEdges); setSelectedIDs([]); emit(nextNodes, nextEdges);
+    const next = nodes.map((node) => selectedIDs.includes(node.id) ? { ...node, data: { ...node.data, ...patch } } : node);
+    setNodes(next);
+    emit(next, edges);
+  }
+
+  function selectOnly(id: string) {
+    setNodes((current) => current.map((node) => ({ ...node, selected: node.id === id })));
+    setSelectedIDs([id]);
+  }
+
+  function inheritedFlag(node: FlowNode, flag: "locked" | "hidden") {
+    let current = node;
+    const visited = new Set<string>();
+    while (current.parentId && !visited.has(current.parentId)) {
+      visited.add(current.parentId);
+      const parent = nodes.find((item) => item.id === current.parentId);
+      if (!parent) break;
+      if (parent.data[flag]) return true;
+      current = parent;
+    }
+    return false;
+  }
+
+  function selectionWithDescendants(ids: string[]) {
+    const included = new Set(ids);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const node of nodes) if (node.parentId && included.has(node.parentId) && !included.has(node.id)) { included.add(node.id); changed = true; }
+    }
+    return included;
   }
 
   function removeSelection() {
-    if (!editable || selectedIDs.length === 0) return;
+    if (!editable || selectedIDs.length === 0 || selectionProtected) return;
     pushHistory();
-    const nextNodes = nodes.filter((node) => !selectedIDs.includes(node.id));
-    const nextEdges = edges.filter((edge) => !selectedIDs.includes(edge.source) && !selectedIDs.includes(edge.target));
+    const removed = selectionWithDescendants(selectedIDs);
+    const nextNodes = nodes.filter((node) => !removed.has(node.id));
+    const nextEdges = edges.filter((edge) => !removed.has(edge.source) && !removed.has(edge.target));
     setNodes(nextNodes); setEdges(nextEdges); setSelectedIDs([]); emit(nextNodes, nextEdges);
   }
 
@@ -594,22 +635,34 @@ export function ScadaCanvas({ design, editable, devices, latestByDevice, catalog
   }
 
   function cloneNodes(source: FlowNode[], offset: number): FlowNode[] {
-    return source.map((node) => ({ ...node, id: `${node.type}-${crypto.randomUUID()}`, position: { x: node.position.x + offset, y: node.position.y + offset }, selected: true }));
+    const idMap = new Map(source.map((node) => [node.id, `${node.type}-${crypto.randomUUID()}`]));
+    return source.map((node) => ({
+      ...node,
+      id: idMap.get(node.id)!,
+      parentId: node.parentId ? idMap.get(node.parentId) || node.parentId : undefined,
+      position: node.parentId && idMap.has(node.parentId) ? node.position : { x: node.position.x + offset, y: node.position.y + offset },
+      selected: !node.parentId || !idMap.has(node.parentId),
+    }));
+  }
+
+  function copyableSelection() {
+    const included = selectionWithDescendants(selectedIDs);
+    return nodes.filter((node) => included.has(node.id));
   }
 
   function duplicateSelection() {
     if (!editable || selectedIDs.length === 0) return;
     pushHistory();
-    const copies = cloneNodes(nodes.filter((node) => selectedIDs.includes(node.id)), 24);
+    const copies = cloneNodes(copyableSelection(), 24);
     const next = [...nodes.map((node) => ({ ...node, selected: false })), ...copies];
     setNodes(next);
-    setSelectedIDs(copies.map((node) => node.id));
+    setSelectedIDs(copies.filter((node) => node.selected).map((node) => node.id));
     emit(next, edges);
   }
 
   function copySelection() {
     if (selectedIDs.length === 0) return;
-    clipboardRef.current = nodes.filter((node) => selectedIDs.includes(node.id));
+    clipboardRef.current = copyableSelection();
     pasteCountRef.current = 0;
   }
 
@@ -620,8 +673,110 @@ export function ScadaCanvas({ design, editable, devices, latestByDevice, catalog
     const copies = cloneNodes(clipboardRef.current, 24 * pasteCountRef.current);
     const next = [...nodes.map((node) => ({ ...node, selected: false })), ...copies];
     setNodes(next);
-    setSelectedIDs(copies.map((node) => node.id));
+    setSelectedIDs(copies.filter((node) => node.selected).map((node) => node.id));
     emit(next, edges);
+  }
+
+  function pasteToReplace() {
+    if (!editable || selectedIDs.length !== clipboardRef.current.length || !selectedIDs.length) return;
+    pushHistory();
+    const sources = clipboardRef.current;
+    const next = nodes.map((node) => {
+      const index = selectedIDs.indexOf(node.id);
+      if (index < 0) return node;
+      const source = sources[index];
+      return { ...node, type: source.type, data: { ...source.data }, width: source.width, height: source.height, style: source.style };
+    });
+    setNodes(next);
+    emit(next, edges);
+  }
+
+  function localBounds(targets: FlowNode[]) {
+    const x = Math.min(...targets.map((node) => node.position.x));
+    const y = Math.min(...targets.map((node) => node.position.y));
+    const right = Math.max(...targets.map((node) => node.position.x + (node.measured?.width ?? node.width ?? 160)));
+    const bottom = Math.max(...targets.map((node) => node.position.y + (node.measured?.height ?? node.height ?? 80)));
+    return { x, y, width: right - x, height: bottom - y };
+  }
+
+  function wrapSelection(type: "group" | "section") {
+    const targets = nodes.filter((node) => selectedIDs.includes(node.id));
+    if (!editable || targets.length < 2 || targets.some((node) => node.parentId !== targets[0].parentId)) return;
+    pushHistory();
+    const padding = type === "section" ? 32 : 12;
+    const bounds = localBounds(targets);
+    const id = `${type}-${crypto.randomUUID()}`;
+    const container: FlowNode = {
+      id, type, parentId: targets[0].parentId, extent: targets[0].parentId ? "parent" : undefined,
+      position: { x: bounds.x - padding, y: bounds.y - padding }, width: bounds.width + padding * 2, height: bounds.height + padding * 2,
+      style: { width: bounds.width + padding * 2, height: bounds.height + padding * 2 }, zIndex: Math.min(...targets.map((node) => node.zIndex ?? 0)) - 1,
+      data: type === "section"
+        ? { label: "New section", backgroundColor: "#ffffff", borderColor: "#94a3b8", borderStyle: "solid", borderEnabled: true }
+        : { label: "Group", borderColor: "#64748b", borderStyle: "dashed", borderEnabled: true },
+      selected: true,
+    };
+    const next = nodes.map((node) => selectedIDs.includes(node.id) ? {
+      ...node, parentId: id, extent: "parent" as const, position: { x: node.position.x - bounds.x + padding, y: node.position.y - bounds.y + padding }, selected: false,
+    } : node);
+    const parentIndex = container.parentId ? next.findIndex((node) => node.id === container.parentId) : -1;
+    next.splice(parentIndex + 1, 0, container);
+    setNodes(next); setSelectedIDs([id]); emit(next, edges);
+  }
+
+  function ungroupSelection() {
+    const containers = nodes.filter((node) => selectedIDs.includes(node.id) && node.type === "group");
+    if (!editable || containers.length === 0) return;
+    pushHistory();
+    const ids = new Set(containers.map((node) => node.id));
+    const byID = new Map(containers.map((node) => [node.id, node]));
+    const revealed: string[] = [];
+    const next = nodes.filter((node) => !ids.has(node.id)).map((node) => {
+      if (!node.parentId || !ids.has(node.parentId)) return node;
+      const parent = byID.get(node.parentId)!;
+      revealed.push(node.id);
+      return { ...node, parentId: parent.parentId, extent: parent.parentId ? "parent" as const : undefined, position: { x: parent.position.x + node.position.x, y: parent.position.y + node.position.y }, selected: true };
+    });
+    setNodes(next); setSelectedIDs(revealed); emit(next, edges);
+  }
+
+  function changeLayerOrder(front: boolean) {
+    if (!selectedIDs.length) return;
+    pushHistory();
+    const zValues = nodes.map((node) => node.zIndex ?? 0);
+    const nextZ = (front ? Math.max(...zValues, 0) + 1 : Math.min(...zValues, 0) - 1);
+    const next = nodes.map((node) => selectedIDs.includes(node.id) ? { ...node, zIndex: nextZ } : node);
+    setNodes(next); emit(next, edges);
+  }
+
+  function unlockAll() {
+    pushHistory();
+    const next = nodes.map((node) => node.data.locked ? { ...node, data: { ...node.data, locked: false } } : node);
+    setNodes(next); emit(next, edges);
+  }
+
+  function renameSelection() {
+    if (!selected) return;
+    const label = window.prompt("Rename object", selected.data.label)?.trim();
+    if (label) updateSelected({ ...selected.data, label: label.slice(0, 100) });
+  }
+
+  async function uploadImage(file: File, targetID?: string, position?: { x: number; y: number }) {
+    if (!screenId || !file.type.startsWith("image/")) return;
+    if (file.size > 2 * 1024 * 1024) { setImageError("รูปต้องมีขนาดไม่เกิน 2 MB"); return; }
+    setImageError("");
+    const form = new FormData(); form.append("image", file);
+    const response = await api(`/api/v1/scada/screens/${encodeURIComponent(screenId)}/images`, { method: "POST", headers: { "X-CSRF-Token": csrfToken() }, body: form });
+    if (!response.ok) { setImageError("อัปโหลดรูปไม่สำเร็จ รองรับ PNG, JPEG และ WebP ไม่เกิน 2 MB"); return; }
+    const { url } = await response.json() as { url: string };
+    pushHistory();
+    if (targetID) {
+      const next = nodes.map((node) => node.id === targetID ? { ...node, data: { ...node.data, imageUrl: url, label: file.name.slice(0, 100) } } : node);
+      setNodes(next); emit(next, edges); return;
+    }
+    const id = `image-${crypto.randomUUID()}`;
+    const node: FlowNode = { id, type: "image", position: position || { x: 120, y: 120 }, width: 260, height: 160, style: { width: 260, height: 160 }, data: { label: file.name.slice(0, 100), imageUrl: url } };
+    const next = [...nodes.map((item) => ({ ...item, selected: false })), { ...node, selected: true }];
+    setNodes(next); setSelectedIDs([id]); emit(next, edges);
   }
 
   function commitEdit(id: string, patch: Partial<ScadaNodeData>) {
@@ -653,6 +808,14 @@ export function ScadaCanvas({ design, editable, devices, latestByDevice, catalog
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [editable, nodes, edges, selectedIDs]);
 
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(null);
+    window.addEventListener("click", close);
+    window.addEventListener("blur", close);
+    return () => { window.removeEventListener("click", close); window.removeEventListener("blur", close); };
+  }, [contextMenu]);
+
   return <div className={editable ? "scada-workbench editing scada-dark" : hideInspector ? "scada-workbench solo scada-dark" : "scada-workbench viewing scada-dark"}>
     {editable && <aside className="scada-palette"><header><Grid2X2 size={17} /><div><strong>Node palette</strong><small>เพิ่มองค์ประกอบลง fixed canvas</small></div></header>{paletteEntries.map(({ type, title, description, icon: Icon, requiresDevice }) => <Button variant="bare" key={type} onClick={() => addNode(type)} disabled={requiresDevice && devices.length === 0} title={requiresDevice && devices.length === 0 ? "Plant นี้ยังไม่มี Device" : undefined}><Icon size={18} /><span><strong>{title}</strong><small>{description}</small></span></Button>)}<div className="palette-note"><Workflow size={16} /><p>ใช้ Edge ของ React Flow สำหรับเส้นและลูกศรระหว่าง Node</p></div></aside>}
     <section className="scada-stage-shell" ref={stageRef}>
@@ -664,32 +827,51 @@ export function ScadaCanvas({ design, editable, devices, latestByDevice, catalog
           <Button variant="icon" onClick={() => void stageRef.current?.requestFullscreen()} title="เต็มจอ" aria-label="แสดง SCADA เต็มจอ"><Fullscreen size={17} /></Button>
         </div>
       </div>
-      <div className="scada-stage">
-        <ReactFlow<FlowNode, FlowEdge> nodes={nodes.map((node) => ({ ...node, data: { ...node.data, latest: latestByDevice[node.data.binding?.deviceId || ""], latestByDevice, editing: node.id === editingID, onEditCommit: (patch: Partial<ScadaNodeData>) => commitEdit(node.id, patch), onEditCancel: () => setEditingID("") } }))} edges={edges} nodeTypes={nodeTypes} onNodesChange={nodesChanged} onEdgesChange={edgesChanged} onConnect={connect} onNodeDragStart={() => { if (editable) pushHistory(); }} onSelectionChange={({ nodes: selectedNodes }) => setSelectedIDs((current) => { const next = selectedNodes.map((node) => node.id); return sameSelection(current, next) ? current : next; })} onNodeDoubleClick={(_, node) => { if (editable && (node.type === "label" || node.type === "section" || node.type === "ticker")) setEditingID(node.id); }} onMoveEnd={(_, next) => { setViewport(next); if (editable) emit(nodes, edges, next); }} defaultViewport={viewport} nodesDraggable={editable} nodesConnectable={editable} elementsSelectable={editable} deleteKeyCode={editable ? ["Backspace", "Delete"] : null} panOnDrag={!locked} panOnScroll={!locked} zoomOnScroll={!locked} zoomOnPinch={!locked} zoomOnDoubleClick={!locked} snapToGrid snapGrid={[20, 20]} fitView minZoom={0.1} maxZoom={4} attributionPosition="bottom-left">
+      <div className="scada-stage" onDragOver={(event) => { if (editable && Array.from(event.dataTransfer.items).some((item) => item.type.startsWith("image/"))) { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; } }} onDrop={(event) => { const file = event.dataTransfer.files[0]; if (!editable || !file?.type.startsWith("image/")) return; event.preventDefault(); const position = flowRef.current?.screenToFlowPosition({ x: event.clientX, y: event.clientY }); void uploadImage(file, undefined, position); }}>
+        <ReactFlow<FlowNode, FlowEdge> nodes={nodes.map((node) => ({ ...node, style: { ...node.style, ...nodeVisualVars(node.data), opacity: editable && (node.data.hidden || inheritedFlag(node, "hidden")) ? .35 : 1 }, draggable: editable && !locked && !node.data.locked && !inheritedFlag(node, "locked"), hidden: !editable && (node.data.hidden || inheritedFlag(node, "hidden")), data: { ...node.data, latest: latestByDevice[node.data.binding?.deviceId || ""], latestByDevice, catalogs, builderMode: editable, editing: node.id === editingID, onEditCommit: (patch: Partial<ScadaNodeData>) => commitEdit(node.id, patch), onEditCancel: () => setEditingID("") } }))} edges={edges} nodeTypes={nodeTypes} onInit={(instance) => { flowRef.current = instance; }} onNodesChange={nodesChanged} onEdgesChange={edgesChanged} onConnect={connect} onNodeDragStart={() => { if (editable) pushHistory(); }} onSelectionChange={({ nodes: selectedNodes }) => setSelectedIDs((current) => { const next = selectedNodes.map((node) => node.id); return sameSelection(current, next) ? current : next; })} onNodeClick={(event, node) => { const parent = node.parentId ? nodes.find((item) => item.id === node.parentId && item.type === "group") : undefined; if (editable && parent && !event.altKey) selectOnly(parent.id); }} onNodeContextMenu={(event, node) => { if (!editable) return; event.preventDefault(); const parent = node.parentId ? nodes.find((item) => item.id === node.parentId && item.type === "group") : undefined; const targetID = parent?.id || node.id; if (!selectedIDs.includes(targetID)) selectOnly(targetID); setContextMenu({ x: Math.max(8, Math.min(event.clientX, window.innerWidth - 226)), y: Math.max(8, Math.min(event.clientY, window.innerHeight - 410)) }); }} onPaneClick={() => setContextMenu(null)} onNodeDoubleClick={(_, node) => { if (editable && (node.type === "label" || node.type === "section" || node.type === "group" || node.type === "ticker")) setEditingID(node.id); }} onMoveEnd={(_, next) => { setViewport(next); if (editable) emit(nodes, edges, next); }} defaultViewport={viewport} nodesDraggable={editable} nodesConnectable={editable} elementsSelectable={editable} deleteKeyCode={editable ? ["Backspace", "Delete"] : null} panOnDrag={!locked} panOnScroll={!locked} zoomOnScroll={!locked} zoomOnPinch={!locked} zoomOnDoubleClick={!locked} snapToGrid snapGrid={[20, 20]} fitView minZoom={0.1} maxZoom={4} attributionPosition="bottom-left">
           <Background variant={BackgroundVariant.Lines} gap={20} size={1} color="var(--line)" />
           {showMinimap && <MiniMap pannable zoomable nodeColor={(node) => node.type === "metric" ? "var(--action)" : node.type === "equipment" ? "var(--warning)" : "var(--muted)"} />}
           {!locked && <Controls showInteractive={false} />}
-          {editable && selectedIDs.length >= 2 && (
+          {editable && selectedIDs.length > 0 && (
             <Panel position="top-center">
-              <div className="flex items-center gap-1 rounded-[var(--radius-sm)] border border-line bg-surface p-1 shadow-[var(--shadow-lg)]">
-                <Button variant="icon" compact onClick={() => alignSelection("left")} title="ชิดซ้าย" aria-label="จัดชิดซ้าย"><AlignHorizontalJustifyStart size={16} /></Button>
+              <div className="scada-selection-toolbar">
+                {selectedIDs.length >= 2 && <><Button variant="icon" compact onClick={() => alignSelection("left")} title="ชิดซ้าย" aria-label="จัดชิดซ้าย"><AlignHorizontalJustifyStart size={16} /></Button>
                 <Button variant="icon" compact onClick={() => alignSelection("center-h")} title="กึ่งกลางแนวนอน" aria-label="จัดกึ่งกลางแนวนอน"><AlignHorizontalJustifyCenter size={16} /></Button>
                 <Button variant="icon" compact onClick={() => alignSelection("right")} title="ชิดขวา" aria-label="จัดชิดขวา"><AlignHorizontalJustifyEnd size={16} /></Button>
                 <span className="mx-1 h-5 w-px bg-line" />
                 <Button variant="icon" compact onClick={() => alignSelection("top")} title="ชิดบน" aria-label="จัดชิดบน"><AlignVerticalJustifyStart size={16} /></Button>
                 <Button variant="icon" compact onClick={() => alignSelection("middle-v")} title="กึ่งกลางแนวตั้ง" aria-label="จัดกึ่งกลางแนวตั้ง"><AlignVerticalJustifyCenter size={16} /></Button>
                 <Button variant="icon" compact onClick={() => alignSelection("bottom")} title="ชิดล่าง" aria-label="จัดชิดล่าง"><AlignVerticalJustifyEnd size={16} /></Button>
-                <span className="mx-1 h-5 w-px bg-line" />
-                <Button variant="icon" compact onClick={duplicateSelection} title="ทำซ้ำ (Ctrl+D)" aria-label="ทำซ้ำ Node ที่เลือก"><Copy size={16} /></Button>
-                <Button variant="icon" compact danger onClick={removeSelection} title="ลบ (Backspace)" aria-label="ลบ Node ที่เลือก"><Trash2 size={16} /></Button>
+                <span className="mx-1 h-5 w-px bg-line" /></>}
+                <label title="Background color">Fill <input type="color" value={selected?.data.backgroundColor || "#ffffff"} onChange={(event) => updateSelection({ backgroundColor: event.target.value })} /></label>
+                <label title="Border color">Stroke <input type="color" value={selected?.data.borderColor || "#94a3b8"} onChange={(event) => updateSelection({ borderColor: event.target.value })} /></label>
+                <select aria-label="ชนิดเส้นขอบ" value={selected?.data.borderStyle || "solid"} onChange={(event) => updateSelection({ borderStyle: event.target.value as ScadaNodeData["borderStyle"] })}><option value="solid">Solid</option><option value="dashed">Dashed</option><option value="dotted">Dotted</option></select>
+                <Button variant="text" compact onClick={() => updateSelection({ borderEnabled: !(selected?.data.borderEnabled ?? true) })}>{selected?.data.borderEnabled === false ? "Border off" : "Border on"}</Button>
+                <Button variant="text" compact onClick={renameSelection}>Rename</Button>
+                <Button variant="text" compact onClick={() => updateSelection({ hidden: !selected?.data.hidden })}>{selected?.data.hidden ? "Unhide" : "Hide"}</Button>
+                <Button variant="text" compact onClick={() => updateSelection({ locked: !selectionLocked })}>{selectionLocked ? "Unlock" : "Lock"}</Button>
                 <span className="px-1.5 text-xs font-bold text-ink-soft">{selectedIDs.length} รายการ</span>
               </div>
             </Panel>
           )}
         </ReactFlow>
       </div>
+      {imageError && <div className="scada-upload-error">{imageError}</div>}
     </section>
-    {editable && <ScadaInspector selected={selected} devices={devices} latestByDevice={latestByDevice} catalogs={catalogs} versions={versions} canPublish={canPublish} onUpdate={updateSelected} onRemove={removeSelected} onRollback={onRollback} />}
+    {contextMenu && <div className="scada-context-menu" style={{ left: contextMenu.x, top: contextMenu.y }} onClick={(event) => event.stopPropagation()} role="menu">
+      <button onClick={() => { copySelection(); setContextMenu(null); }}>Copy</button>
+      <button disabled={!clipboardRef.current.length} onClick={() => { pasteClipboard(); setContextMenu(null); }}>Paste</button>
+      <button disabled={!clipboardRef.current.length || selectedIDs.length !== clipboardRef.current.length} onClick={() => { pasteToReplace(); setContextMenu(null); }}>Paste to replace</button>
+      <span />
+      <button disabled={selectionProtected} onClick={() => { removeSelection(); setContextMenu(null); }}>Delete</button>
+      <button onClick={() => { changeLayerOrder(true); setContextMenu(null); }}>Bring to front</button>
+      <button onClick={() => { changeLayerOrder(false); setContextMenu(null); }}>Send to back</button>
+      <button onClick={() => { updateSelection({ locked: !selectionLocked }); setContextMenu(null); }}>{selectionLocked ? "Unlock" : "Lock"}</button>
+      <button onClick={() => { unlockAll(); setContextMenu(null); }}>Unlock all objects</button>
+      {selectedIDs.length >= 2 && !canUngroup && <><span /><button onClick={() => { wrapSelection("group"); setContextMenu(null); }}>Group</button><button onClick={() => { wrapSelection("section"); setContextMenu(null); }}>Wrap in new section</button></>}
+      {canUngroup && <><span /><button onClick={() => { ungroupSelection(); setContextMenu(null); }}>Ungroup</button></>}
+    </div>}
+    {editable && <ScadaInspector selected={selected} devices={devices} latestByDevice={latestByDevice} catalogs={catalogs} versions={versions} canPublish={canPublish} onUpdate={updateSelected} onImageUpload={(file) => selected && uploadImage(file, selected.id)} onRollback={onRollback} />}
     {!editable && !hideInspector && <aside className="scada-inspector viewer-info"><header><History size={17} /><div><strong>Published history</strong><small>เวอร์ชัน immutable</small></div></header><VersionHistory versions={versions} canPublish={canPublish} onRollback={onRollback} /></aside>}
   </div>;
 }
@@ -703,9 +885,9 @@ function SaveState({ state }: { state: "saved" | "dirty" | "saving" | "conflict"
   return <span className={`save-state ${state}`}>{state === "saving" ? <LoaderCircle className="spin" size={14} /> : state === "saved" ? <Save size={14} /> : <Activity size={14} />}{labels[state]}</span>;
 }
 
-function ScadaInspector({ selected, devices, latestByDevice, catalogs, versions, canPublish, onUpdate, onRemove, onRollback }: {
+function ScadaInspector({ selected, devices, latestByDevice, catalogs, versions, canPublish, onUpdate, onImageUpload, onRollback }: {
   selected?: FlowNode; devices: Device[]; latestByDevice: Record<string, LatestTelemetry>; catalogs: Record<string, Record<string, PointMeta>>; versions: ScadaScreenVersion[]; canPublish: boolean;
-  onUpdate: (data: ScadaNodeData) => void; onRemove: () => void; onRollback: (version: ScadaScreenVersion) => Promise<void>;
+  onUpdate: (data: ScadaNodeData) => void; onImageUpload: (file: File) => void | Promise<void>; onRollback: (version: ScadaScreenVersion) => Promise<void>;
 }) {
   if (!selected) return <aside className="scada-inspector"><header><History size={17} /><div><strong>Published history</strong><small>เลือก Node เพื่อแก้ไขคุณสมบัติ</small></div></header><VersionHistory versions={versions} canPublish={canPublish} onRollback={onRollback} /></aside>;
   const data = selected.data;
@@ -715,7 +897,7 @@ function ScadaInspector({ selected, devices, latestByDevice, catalogs, versions,
   const deviceOnly = selected.type === "device-summary";
   return <aside className="scada-inspector">
     <header><Pencil size={17} /><div><strong>Node properties</strong><Tooltip><TooltipTrigger asChild><small className="cursor-help underline decoration-dotted">{selected.type} · {selected.id.slice(0, 12)}</small></TooltipTrigger><TooltipContent>Node type: {selected.type}<br />Full ID: {selected.id}</TooltipContent></Tooltip></div></header>
-    <label>Label<TextInput value={data.label} maxLength={100} onChange={(event) => update({ label: event.target.value })} /></label>
+    <label>Label<TextInput value={selected.type === "metric" && data.binding ? pointMeta(catalogs[data.binding.deviceId] || {}, data.binding.pointKey).displayName : data.label} maxLength={100} disabled={selected.type === "metric"} onChange={(event) => update({ label: event.target.value })} /></label>
     {selected.type === "equipment" && <label>Equipment type<Select value={data.equipmentKind || "inverter"} onValueChange={(value) => update({ equipmentKind: value as ScadaNodeData["equipmentKind"] })}><SelectTrigger aria-label="Equipment type"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="solar-panel">Solar panel</SelectItem><SelectItem value="inverter">Inverter</SelectItem><SelectItem value="meter">Meter</SelectItem><SelectItem value="grid">Grid</SelectItem></SelectContent></Select></label>}
     {bound && <BindingEditor binding={data.binding} devices={devices} latestByDevice={latestByDevice} catalogs={catalogs} onChange={(binding) => update({ binding })} />}
     {deviceOnly && <label>Device<Select value={data.deviceId || ""} onValueChange={(value) => update({ deviceId: value })}><SelectTrigger aria-label="Device"><SelectValue /></SelectTrigger><SelectContent>{devices.map((device) => <SelectItem key={device.id} value={device.id}>{device.name}</SelectItem>)}</SelectContent></Select></label>}
@@ -723,28 +905,29 @@ function ScadaInspector({ selected, devices, latestByDevice, catalogs, versions,
     {selected.type === "led" && <NumberField label="On when value equals" value={data.onValue} onChange={(onValue) => update({ onValue })} />}
     {selected.type === "shape" && <label>Shape<Select value={data.shapeKind || "rectangle"} onValueChange={(value) => update({ shapeKind: value as ScadaNodeData["shapeKind"] })}><SelectTrigger aria-label="Shape"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="rectangle">Rectangle</SelectItem><SelectItem value="circle">Circle</SelectItem><SelectItem value="triangle">Triangle</SelectItem><SelectItem value="diamond">Diamond</SelectItem><SelectItem value="hexagon">Hexagon</SelectItem></SelectContent></Select></label>}
     {selected.type === "clock" && <label>Timezone<Select value={data.timezone || "Asia/Bangkok"} onValueChange={(value) => update({ timezone: value })}><SelectTrigger aria-label="Timezone"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Asia/Bangkok">Asia/Bangkok</SelectItem><SelectItem value="UTC">UTC</SelectItem><SelectItem value="Asia/Singapore">Asia/Singapore</SelectItem><SelectItem value="Asia/Tokyo">Asia/Tokyo</SelectItem></SelectContent></Select></label>}
-    {selected.type === "image" && <label>Image URL<TextInput value={data.imageUrl || ""} maxLength={2048} placeholder="https://… or /images/…" onChange={(event) => update({ imageUrl: event.target.value })} /></label>}
+    {selected.type === "image" && <><label>Image URL<TextInput value={data.imageUrl || ""} maxLength={2048} placeholder="https://… or /images/…" onChange={(event) => update({ imageUrl: event.target.value })} /></label><label className="scada-image-picker">Upload from computer<input className="nodrag" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => { const file = event.target.files?.[0]; if (file) void onImageUpload(file); event.currentTarget.value = ""; }} /><small>PNG, JPEG หรือ WebP ไม่เกิน 2 MB</small></label></>}
     {selected.type === "ticker" && <label>Message<TextInput value={data.text || ""} maxLength={200} onChange={(event) => update({ text: event.target.value })} /></label>}
+    {selected.type === "label" && <><div className="inspector-grid"><label>Text color<input className="scada-color-input" type="color" value={data.textColor || "#0f172a"} onChange={(event) => update({ textColor: event.target.value })} /></label><NumberField label="Font size" value={data.fontSize ?? 18} min={8} max={144} onChange={(fontSize) => update({ fontSize })} /></div><label>Weight<Select value={data.fontWeight || "bold"} onValueChange={(value) => update({ fontWeight: value as ScadaNodeData["fontWeight"] })}><SelectTrigger aria-label="Text weight"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="normal">Normal</SelectItem><SelectItem value="bold">Bold</SelectItem></SelectContent></Select></label></>}
     {listed && <DataItemsEditor items={data.items || []} devices={devices} latestByDevice={latestByDevice} catalogs={catalogs} alarms={selected.type === "alarms"} onChange={(items) => update({ items })} />}
-    <Button variant="secondary" danger onClick={onRemove}><Trash2 size={16} /> ลบ Node</Button>
   </aside>;
 }
 
-function NumberField({ label, value, onChange }: { label: string; value?: number; onChange: (value?: number) => void }) {
-  return <label>{label}<TextInput type="number" value={value == null ? "" : String(value)} onChange={(event) => onChange(event.target.value === "" ? undefined : Number(event.target.value))} /></label>;
+function NumberField({ label, value, min, max, onChange }: { label: string; value?: number; min?: number; max?: number; onChange: (value?: number) => void }) {
+  return <label>{label}<TextInput type="number" min={min} max={max} value={value == null ? "" : String(value)} onChange={(event) => onChange(event.target.value === "" ? undefined : Number(event.target.value))} /></label>;
 }
 
 function BindingEditor({ binding, devices, latestByDevice, catalogs, onChange }: { binding?: ScadaNodeData["binding"]; devices: Device[]; latestByDevice: Record<string, LatestTelemetry>; catalogs: Record<string, Record<string, PointMeta>>; onChange: (binding: NonNullable<ScadaNodeData["binding"]>) => void }) {
   const current = binding || { deviceId: devices[0]?.id || "", pointKey: "", unit: "kW", decimals: 1 };
   const options = bindingPointOptions(current.deviceId, latestByDevice, catalogs, current.pointKey);
   function changeDevice(deviceId: string) {
-    onChange({ ...current, deviceId, pointKey: bindingPointOptions(deviceId, latestByDevice, catalogs)[0]?.value || "" });
+    const first = bindingPointOptions(deviceId, latestByDevice, catalogs)[0];
+    onChange({ ...current, deviceId, pointKey: first?.value || "", unit: first?.unit || "", decimals: first?.decimals ?? 2 });
   }
   // Picking a parameter carries its engineering unit across, so the Unit field
   // stops being something to remember and retype for every node.
   function changePoint(pointKey: string) {
-    const unit = options.find((option) => option.value === pointKey)?.unit;
-    onChange({ ...current, pointKey, unit: unit || current.unit });
+    const meta = options.find((option) => option.value === pointKey);
+    onChange({ ...current, pointKey, unit: meta?.unit || "", decimals: meta?.decimals ?? 2 });
   }
   return <div className="binding-editor">
     <label>Device<Select value={current.deviceId} onValueChange={changeDevice}><SelectTrigger aria-label="Device"><SelectValue /></SelectTrigger><SelectContent>{devices.map((device) => <SelectItem key={device.id} value={device.id}>{device.name}</SelectItem>)}</SelectContent></Select></label>
@@ -752,7 +935,7 @@ function BindingEditor({ binding, devices, latestByDevice, catalogs, onChange }:
       <SelectTrigger aria-label="Parameter"><SelectValue placeholder={options.length === 0 ? "ยังไม่มีข้อมูล" : "-- เลือก parameter --"} /></SelectTrigger>
       <SelectContent>{options.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}{option.tag ? ` · ${option.tag}` : ""}</SelectItem>)}</SelectContent>
     </Select></label>
-    <div className="inspector-grid"><label>Unit<TextInput value={current.unit} maxLength={20} onChange={(event) => onChange({ ...current, unit: event.target.value })} /></label><label>Decimals<TextInput type="number" min={0} max={6} value={String(current.decimals)} onChange={(event) => onChange({ ...current, decimals: Number(event.target.value) })} /></label></div>
+    <div className="inspector-grid"><label>Unit<TextInput value={pointMeta(catalogs[current.deviceId] || {}, current.pointKey).unit || current.unit} readOnly /></label><label>Decimals<TextInput type="number" value={String(pointMeta(catalogs[current.deviceId] || {}, current.pointKey).decimals ?? current.decimals)} readOnly /></label></div>
   </div>;
 }
 
@@ -779,7 +962,7 @@ function bindingPointOptions(
   return keys
     .map((key) => {
       const meta = pointMeta(catalog, key);
-      return { value: key, label: meta.displayName, tag: meta.tag === key ? "" : meta.tag, unit: meta.unit };
+      return { value: key, label: meta.displayName, tag: meta.tag === key ? "" : meta.tag, unit: meta.unit, decimals: meta.decimals };
     })
     .sort((a, b) => a.label.localeCompare(b.label));
 }
@@ -787,7 +970,8 @@ function bindingPointOptions(
 function DataItemsEditor({ items, devices, latestByDevice, catalogs, alarms, onChange }: { items: ScadaDataItem[]; devices: Device[]; latestByDevice: Record<string, LatestTelemetry>; catalogs: Record<string, Record<string, PointMeta>>; alarms: boolean; onChange: (items: ScadaDataItem[]) => void }) {
   const fallbackDeviceId = devices[0]?.id || "";
   const fallbackPointKey = Object.keys(latestByDevice[fallbackDeviceId]?.dataItemMap || {}).sort()[0] || "";
-  const fallback = { deviceId: fallbackDeviceId, pointKey: fallbackPointKey, unit: "kW", decimals: 1 };
+  const fallbackMeta = pointMeta(catalogs[fallbackDeviceId] || {}, fallbackPointKey);
+  const fallback = { deviceId: fallbackDeviceId, pointKey: fallbackPointKey, unit: fallbackMeta.unit, decimals: fallbackMeta.decimals };
   const patch = (index: number, next: Partial<ScadaDataItem>) => onChange(items.map((item, itemIndex) => itemIndex === index ? { ...item, ...next } : item));
   return <section className="scada-item-editor"><div className="item-editor-heading"><strong>{alarms ? "Alarm points" : "Table rows"}</strong><Button type="button" variant="icon" disabled={items.length >= 20 || devices.length === 0} onClick={() => onChange([...items, { label: `Point ${items.length + 1}`, binding: fallback }])} title="เพิ่ม point" aria-label="เพิ่ม point">+</Button></div>{items.map((item, index) => <div className="scada-item-row" key={`${index}-${item.binding.deviceId}`}><label>Label<TextInput value={item.label} maxLength={100} onChange={(event) => patch(index, { label: event.target.value })} /></label><BindingEditor binding={item.binding} devices={devices} latestByDevice={latestByDevice} catalogs={catalogs} onChange={(binding) => patch(index, { binding })} />{alarms && <div className="inspector-grid"><NumberField label="Low alarm" value={item.minAlarm} onChange={(minAlarm) => patch(index, { minAlarm })} /><NumberField label="High alarm" value={item.maxAlarm} onChange={(maxAlarm) => patch(index, { maxAlarm })} /></div>}<Button type="button" variant="text" danger disabled={items.length <= 1} onClick={() => onChange(items.filter((_, itemIndex) => itemIndex !== index))}>ลบแถว</Button></div>)}</section>;
 }
@@ -796,6 +980,17 @@ function DataItemsEditor({ items, devices, latestByDevice, catalogs, alarms, onC
 // JS hover-tracking state -- the class also carries the existing selected-state modifier.
 function nodeClass(kind: string, selected?: boolean) {
   return `scada-node ${kind} group${selected ? " selected" : ""}`;
+}
+
+function nodeVisualVars(data: ScadaNodeData): CSSProperties {
+  return {
+    "--node-background": data.backgroundColor || "var(--scada-surface)",
+    "--node-border-color": data.borderEnabled === false ? "transparent" : data.borderColor || "var(--scada-line)",
+    "--node-border-style": data.borderStyle || "solid",
+    "--node-text-color": data.textColor || "var(--scada-ink)",
+    "--node-font-size": data.fontSize ? `${data.fontSize}px` : undefined,
+    "--node-font-weight": data.fontWeight || undefined,
+  } as CSSProperties;
 }
 
 // Shared double-click-to-edit input for Label/Section/Ticker nodes. "nodrag nopan" are React
@@ -828,8 +1023,9 @@ function EquipmentNode({ data, selected }: NodeProps<FlowNode>) {
 
 function MetricNode({ data, selected }: NodeProps<FlowNode>) {
   const reading = readBinding(data, data.binding);
+  const meta = data.binding ? pointMeta(data.catalogs?.[data.binding.deviceId] || {}, data.binding.pointKey) : undefined;
   const min = data.minValue ?? 0; const max = data.maxValue ?? 100; const value = reading.value ?? min;
-  return <div className={nodeClass("metric", selected)}><NodeHandles selected={selected} /><small>{data.label}</small>{(data.displayType === "gauge" || data.displayType === "progress") && <MetricBar percent={((value - min) / Math.max(1, max - min)) * 100} />}{data.displayType === "tank" && <div className="metric-tank" aria-hidden="true"><span style={{ height: `${Math.max(0, Math.min(100, ((value - min) / Math.max(1, max - min)) * 100))}%` }} /></div>}<strong>{reading.missing ? "—" : reading.formatted} <em>{data.binding?.unit}</em></strong><Quality reading={reading} /></div>;
+  return <div className={nodeClass("metric", selected)}><NodeHandles selected={selected} /><small>{meta?.displayName || data.label}</small>{(data.displayType === "gauge" || data.displayType === "progress") && <MetricBar percent={((value - min) / Math.max(1, max - min)) * 100} />}{data.displayType === "tank" && <div className="metric-tank" aria-hidden="true"><span style={{ height: `${Math.max(0, Math.min(100, ((value - min) / Math.max(1, max - min)) * 100))}%` }} /></div>}<strong>{reading.missing ? "—" : reading.formatted} <em>{meta?.unit ?? data.binding?.unit}</em></strong><Quality reading={reading} /></div>;
 }
 
 // Gauge/progress metric fill. PrimeReact ProgressBar sets the width inline, so
@@ -865,6 +1061,15 @@ function SectionNode({ data, selected }: NodeProps<FlowNode>) {
     {data.editing
       ? <InlineTextEdit className={`${inlineEditClass} max-w-[80%]`} value={data.label} onCommit={(value) => data.onEditCommit?.({ label: value || data.label })} onCancel={() => data.onEditCancel?.()} />
       : <strong>{data.label}</strong>}
+  </div>;
+}
+
+function GroupNode({ data, selected }: NodeProps<FlowNode>) {
+  return <div className={nodeClass("object-group", selected)}>
+    <NodeResizer minWidth={80} minHeight={60} isVisible={selected} />
+    {data.editing
+      ? <InlineTextEdit className={`${inlineEditClass} max-w-[70%]`} value={data.label} onCommit={(value) => data.onEditCommit?.({ label: value || data.label })} onCancel={() => data.onEditCancel?.()} />
+      : selected ? <small>{data.label}</small> : null}
   </div>;
 }
 
@@ -930,7 +1135,9 @@ function readBinding(data: RuntimeScadaNodeData, binding?: ScadaNodeData["bindin
   const latest = binding ? data.latestByDevice?.[binding.deviceId] || data.latest : undefined;
   const value = binding ? latest?.dataItemMap[binding.pointKey] : undefined;
   const missing = value == null || !Number.isFinite(value);
-  return { value, missing, formatted: missing ? "—" : value.toFixed(binding?.decimals ?? 1), observedAt: latest?.observedAt };
+  const meta = binding ? pointMeta(data.catalogs?.[binding.deviceId] || {}, binding.pointKey) : undefined;
+  const display = binding ? latest?.displayItemMap?.[binding.pointKey] : undefined;
+  return { value, missing, formatted: missing ? "—" : display || value.toLocaleString(undefined, { minimumFractionDigits: meta?.decimals ?? binding?.decimals ?? 1, maximumFractionDigits: meta?.decimals ?? binding?.decimals ?? 1 }), observedAt: latest?.observedAt };
 }
 
 function Quality({ reading }: { reading: BindingReading }) {

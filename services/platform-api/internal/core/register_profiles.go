@@ -46,6 +46,7 @@ type RegisterProfileAddress struct {
 	ModbusDataType     *string                `json:"modbusDataType"`
 	IsAlarm            bool                   `json:"isAlarm"`
 	MappingMode        string                 `json:"mappingMode"`
+	BitInterpretation  string                 `json:"bitInterpretation"`
 	Mappings           []RegisterValueMapping `json:"mappings"`
 	CreatedAt          time.Time              `json:"createdAt"`
 	UpdatedAt          time.Time              `json:"updatedAt"`
@@ -74,6 +75,7 @@ type RegisterProfileAddressInput struct {
 	ModbusDataType     string
 	IsAlarm            bool
 	MappingMode        string
+	BitInterpretation  string
 	Mappings           []RegisterValueMapping
 }
 
@@ -100,10 +102,13 @@ func validateRegisterProfileAddress(input *RegisterProfileAddressInput) error {
 	if input.MappingMode == "" {
 		input.MappingMode = "EXACT"
 	}
+	if input.BitInterpretation == "" {
+		input.BitInterpretation = "INDEPENDENT_FLAGS"
+	}
 	if input.AddressKey == "" || len(input.AddressKey) > 200 || len(input.DisplayName) > 200 || len(input.Unit) > 40 || len(input.Notes) > 500 || input.Decimals < 0 || input.Decimals > 9 || math.IsNaN(input.Scale) || math.IsInf(input.Scale, 0) || math.IsNaN(input.Offset) || math.IsInf(input.Offset, 0) {
 		return ErrInvalid
 	}
-	if input.MappingMode != "EXACT" && input.MappingMode != "BITMASK" || input.MappingMode == "BITMASK" && !input.IsAlarm {
+	if input.MappingMode != "EXACT" && input.MappingMode != "BITMASK" || input.MappingMode == "BITMASK" && input.BitInterpretation != "ONE_HOT" && input.BitInterpretation != "INDEPENDENT_FLAGS" {
 		return ErrInvalid
 	}
 	if input.DataType != "number" && input.DataType != "boolean" && input.DataType != "text" && input.DataType != "enum" {
@@ -220,7 +225,7 @@ func (s *Service) ListRegisterProfileAddresses(ctx context.Context, principal au
 	if err = s.requireOrganizationPermission(ctx, s.queries, principal, "read", "device_model", organizationID); err != nil {
 		return nil, err
 	}
-	rows, err := s.pool.Query(ctx, `SELECT id, organization_id, profile_id, address_key, display_name, unit, data_type, scale, value_offset, decimals, is_enabled, notes, modbus_function_code, modbus_register, modbus_word_order, modbus_data_type, is_alarm, mapping_mode, created_at, updated_at FROM plant.register_profile_address WHERE organization_id=$1 AND profile_id=$2 ORDER BY address_key`, organizationID, id)
+	rows, err := s.pool.Query(ctx, `SELECT id, organization_id, profile_id, address_key, display_name, unit, data_type, scale, value_offset, decimals, is_enabled, notes, modbus_function_code, modbus_register, modbus_word_order, modbus_data_type, is_alarm, mapping_mode, bit_interpretation, created_at, updated_at FROM plant.register_profile_address WHERE organization_id=$1 AND profile_id=$2 ORDER BY address_key`, organizationID, id)
 	if err != nil {
 		return nil, err
 	}
@@ -333,21 +338,21 @@ func (s *Service) UpsertRegisterProfileAddress(ctx context.Context, principal au
 INSERT INTO plant.register_profile_address (
  id, organization_id, profile_id, address_key, display_name, unit, data_type,
  scale, value_offset, decimals, is_enabled, notes, modbus_function_code,
- modbus_register, modbus_word_order, modbus_data_type, is_alarm, mapping_mode
-) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+ modbus_register, modbus_word_order, modbus_data_type, is_alarm, mapping_mode, bit_interpretation
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
 ON CONFLICT (organization_id, profile_id, address_key) DO UPDATE SET
  display_name=EXCLUDED.display_name, unit=EXCLUDED.unit, data_type=EXCLUDED.data_type,
  scale=EXCLUDED.scale, value_offset=EXCLUDED.value_offset, decimals=EXCLUDED.decimals,
  is_enabled=EXCLUDED.is_enabled, notes=EXCLUDED.notes,
  modbus_function_code=EXCLUDED.modbus_function_code, modbus_register=EXCLUDED.modbus_register,
  modbus_word_order=EXCLUDED.modbus_word_order, modbus_data_type=EXCLUDED.modbus_data_type,
- is_alarm=EXCLUDED.is_alarm, mapping_mode=EXCLUDED.mapping_mode, updated_at=now()
+ is_alarm=EXCLUDED.is_alarm, mapping_mode=EXCLUDED.mapping_mode, bit_interpretation=EXCLUDED.bit_interpretation, updated_at=now()
 RETURNING id, organization_id, profile_id, address_key, display_name, unit, data_type,
  scale, value_offset, decimals, is_enabled, notes, modbus_function_code, modbus_register,
- modbus_word_order, modbus_data_type, is_alarm, mapping_mode, created_at, updated_at`,
+ modbus_word_order, modbus_data_type, is_alarm, mapping_mode, bit_interpretation, created_at, updated_at`,
 		id, organizationID, profile, input.AddressKey, input.DisplayName, input.Unit, input.DataType,
 		input.Scale, input.Offset, input.Decimals, input.IsEnabled, input.Notes,
-		nullableInt32(input.ModbusFunctionCode), nullableInt32(input.ModbusRegister), nullableText(input.ModbusWordOrder), nullableText(input.ModbusDataType), input.IsAlarm, input.MappingMode))
+		nullableInt32(input.ModbusFunctionCode), nullableInt32(input.ModbusRegister), nullableText(input.ModbusWordOrder), nullableText(input.ModbusDataType), input.IsAlarm, input.MappingMode, input.BitInterpretation))
 	if err != nil {
 		return RegisterProfileAddress{}, mapWriteError(err)
 	}
@@ -405,7 +410,7 @@ func scanRegisterProfileAddress(row registerMetadataScanner) (RegisterProfileAdd
 	var functionCode, register pgtype.Int4
 	var wordOrder, dataType pgtype.Text
 	var createdAt, updatedAt pgtype.Timestamptz
-	if err := row.Scan(&id, &organizationID, &profileID, &address.AddressKey, &address.DisplayName, &address.Unit, &address.DataType, &address.Scale, &address.Offset, &address.Decimals, &address.IsEnabled, &address.Notes, &functionCode, &register, &wordOrder, &dataType, &address.IsAlarm, &address.MappingMode, &createdAt, &updatedAt); err != nil {
+	if err := row.Scan(&id, &organizationID, &profileID, &address.AddressKey, &address.DisplayName, &address.Unit, &address.DataType, &address.Scale, &address.Offset, &address.Decimals, &address.IsEnabled, &address.Notes, &functionCode, &register, &wordOrder, &dataType, &address.IsAlarm, &address.MappingMode, &address.BitInterpretation, &createdAt, &updatedAt); err != nil {
 		return RegisterProfileAddress{}, err
 	}
 	address.ID, address.OrganizationID, address.ProfileID = uuidString(id), uuidString(organizationID), uuidString(profileID)

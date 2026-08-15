@@ -143,6 +143,8 @@ func New(version string, ready func(context.Context) error, pool *pgxpool.Pool, 
 		mux.HandleFunc("GET /api/v1/scada/screens/{screenId}/versions", authenticated(pool, sessionIdleTimeout, false, listScadaVersionsHandler(registryService)))
 		mux.HandleFunc("POST /api/v1/scada/screens/{screenId}/publish", authenticated(pool, sessionIdleTimeout, true, publishScadaScreenHandler(registryService)))
 		mux.HandleFunc("POST /api/v1/scada/screens/{screenId}/rollback", authenticated(pool, sessionIdleTimeout, true, rollbackScadaScreenHandler(registryService)))
+		mux.HandleFunc("POST /api/v1/scada/screens/{screenId}/images", authenticated(pool, sessionIdleTimeout, true, uploadScadaImageHandler(registryService)))
+		mux.HandleFunc("GET /api/v1/scada/screens/{screenId}/images/{filename}", authenticated(pool, sessionIdleTimeout, false, serveScadaImageHandler(registryService)))
 		mux.HandleFunc("GET /api/v1/dashboard/layout", authenticated(pool, sessionIdleTimeout, false, dashboardLayoutHandler(registryService)))
 		mux.HandleFunc("PUT /api/v1/dashboard/layout", authenticated(pool, sessionIdleTimeout, true, updateDashboardLayoutHandler(registryService)))
 		mux.HandleFunc("GET /api/v1/dashboard/layout/published", authenticated(pool, sessionIdleTimeout, false, publishedDashboardLayoutHandler(registryService)))

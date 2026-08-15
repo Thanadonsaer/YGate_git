@@ -255,14 +255,14 @@ export function PlatformShell({ children }: { children: ReactNode }) {
         )}
 
         <section className="workspace">
-          {/* <header className="topbar">
+          <header className="topbar">
             <Button variant="bare" className="menu-button" onClick={() => setNavOpen(true)} title="เปิดเมนู" aria-label="เปิดเมนู"><Menu size={20} /></Button>
             <div><p>Solar operations</p><h1>{titles[pathname] ?? "YGATE"}</h1></div>
             <div className={`live-chip ${liveState}`}>
               <LivePulse state={liveState} />
               <span>{liveState === "connected" ? "Live" : liveState === "connecting" ? "Connecting" : "Offline"}</span>
             </div>
-          </header> */}
+          </header>
           {children}
         </section>
       </main>

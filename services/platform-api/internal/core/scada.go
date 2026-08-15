@@ -8,6 +8,7 @@ import (
 	"math"
 	"net/netip"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -29,6 +30,7 @@ var (
 	ErrScadaNotFound        = errors.New("scada screen not found")
 	ErrScadaConflict        = errors.New("scada screen already exists")
 	ErrScadaVersionConflict = errors.New("scada screen version conflict")
+	scadaHexColorPattern    = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 )
 
 type ScadaPosition struct {
@@ -57,19 +59,28 @@ type ScadaDataItem struct {
 }
 
 type ScadaNodeData struct {
-	Label         string                 `json:"label"`
-	EquipmentKind string                 `json:"equipmentKind,omitempty"`
-	Binding       *ScadaTelemetryBinding `json:"binding,omitempty"`
-	DeviceID      string                 `json:"deviceId,omitempty"`
-	DisplayType   string                 `json:"displayType,omitempty"`
-	ShapeKind     string                 `json:"shapeKind,omitempty"`
-	MinValue      *float64               `json:"minValue,omitempty"`
-	MaxValue      *float64               `json:"maxValue,omitempty"`
-	OnValue       *float64               `json:"onValue,omitempty"`
-	ImageURL      string                 `json:"imageUrl,omitempty"`
-	Text          string                 `json:"text,omitempty"`
-	Timezone      string                 `json:"timezone,omitempty"`
-	Items         []ScadaDataItem        `json:"items,omitempty"`
+	Label           string                 `json:"label"`
+	EquipmentKind   string                 `json:"equipmentKind,omitempty"`
+	Binding         *ScadaTelemetryBinding `json:"binding,omitempty"`
+	DeviceID        string                 `json:"deviceId,omitempty"`
+	DisplayType     string                 `json:"displayType,omitempty"`
+	ShapeKind       string                 `json:"shapeKind,omitempty"`
+	MinValue        *float64               `json:"minValue,omitempty"`
+	MaxValue        *float64               `json:"maxValue,omitempty"`
+	OnValue         *float64               `json:"onValue,omitempty"`
+	ImageURL        string                 `json:"imageUrl,omitempty"`
+	Text            string                 `json:"text,omitempty"`
+	Timezone        string                 `json:"timezone,omitempty"`
+	Items           []ScadaDataItem        `json:"items,omitempty"`
+	BackgroundColor string                 `json:"backgroundColor,omitempty"`
+	BorderColor     string                 `json:"borderColor,omitempty"`
+	BorderStyle     string                 `json:"borderStyle,omitempty"`
+	BorderEnabled   *bool                  `json:"borderEnabled,omitempty"`
+	TextColor       string                 `json:"textColor,omitempty"`
+	FontSize        *float64               `json:"fontSize,omitempty"`
+	FontWeight      string                 `json:"fontWeight,omitempty"`
+	Hidden          bool                   `json:"hidden,omitempty"`
+	Locked          bool                   `json:"locked,omitempty"`
 }
 
 type ScadaNode struct {
@@ -79,6 +90,8 @@ type ScadaNode struct {
 	Data     ScadaNodeData `json:"data"`
 	Width    float64       `json:"width,omitempty"`
 	Height   float64       `json:"height,omitempty"`
+	ParentID string        `json:"parentId,omitempty"`
+	ZIndex   int           `json:"zIndex,omitempty"`
 }
 
 type ScadaEdge struct {
@@ -171,7 +184,7 @@ func ValidateScadaDesign(design ScadaDesign) error {
 	}
 	nodes := make(map[string]bool, len(design.Nodes))
 	for _, node := range design.Nodes {
-		if !validScadaID(node.ID) || nodes[node.ID] || !finiteBetween(node.Position.X, -10000, 10000) || !finiteBetween(node.Position.Y, -10000, 10000) || strings.TrimSpace(node.Data.Label) != node.Data.Label || node.Data.Label == "" || len(node.Data.Label) > 100 || node.Width != 0 && !finiteBetween(node.Width, 40, 2000) || node.Height != 0 && !finiteBetween(node.Height, 30, 2000) {
+		if !validScadaID(node.ID) || nodes[node.ID] || !finiteBetween(node.Position.X, -10000, 10000) || !finiteBetween(node.Position.Y, -10000, 10000) || strings.TrimSpace(node.Data.Label) != node.Data.Label || node.Data.Label == "" || len(node.Data.Label) > 100 || node.Width != 0 && !finiteBetween(node.Width, 40, 2000) || node.Height != 0 && !finiteBetween(node.Height, 30, 2000) || node.ZIndex < -10000 || node.ZIndex > 10000 || !validScadaStyle(node.Data) {
 			return ErrInvalid
 		}
 		nodes[node.ID] = true
@@ -192,7 +205,7 @@ func ValidateScadaDesign(design ScadaDesign) error {
 			if !oneOf(node.Data.ShapeKind, "rectangle", "circle", "triangle", "diamond", "hexagon") {
 				return ErrInvalid
 			}
-		case "section":
+		case "section", "group":
 		case "led":
 			if node.Data.Binding == nil || node.Data.OnValue != nil && !finiteBetween(*node.Data.OnValue, -1e15, 1e15) {
 				return ErrInvalid
@@ -234,6 +247,30 @@ func ValidateScadaDesign(design ScadaDesign) error {
 			}
 		}
 	}
+	for _, node := range design.Nodes {
+		if node.ParentID != "" && (node.ParentID == node.ID || !nodes[node.ParentID]) {
+			return ErrInvalid
+		}
+		seenParents := map[string]bool{node.ID: true}
+		parentID := node.ParentID
+		for parentID != "" {
+			if seenParents[parentID] {
+				return ErrInvalid
+			}
+			seenParents[parentID] = true
+			var next string
+			for _, candidate := range design.Nodes {
+				if candidate.ID == parentID {
+					if candidate.Type != "group" && candidate.Type != "section" {
+						return ErrInvalid
+					}
+					next = candidate.ParentID
+					break
+				}
+			}
+			parentID = next
+		}
+	}
 	edges := make(map[string]bool, len(design.Edges))
 	pairs := make(map[string]bool, len(design.Edges))
 	for _, edge := range design.Edges {
@@ -248,6 +285,21 @@ func ValidateScadaDesign(design ScadaDesign) error {
 		return ErrInvalid
 	}
 	return nil
+}
+
+func validScadaStyle(data ScadaNodeData) bool {
+	for _, color := range []string{data.BackgroundColor, data.BorderColor, data.TextColor} {
+		if color != "" && !scadaHexColorPattern.MatchString(color) {
+			return false
+		}
+	}
+	if data.BorderStyle != "" && !oneOf(data.BorderStyle, "solid", "dashed", "dotted") {
+		return false
+	}
+	if data.FontWeight != "" && !oneOf(data.FontWeight, "normal", "bold") {
+		return false
+	}
+	return data.FontSize == nil || finiteBetween(*data.FontSize, 8, 144)
 }
 
 func validScadaBinding(binding ScadaTelemetryBinding) bool {

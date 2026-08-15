@@ -417,6 +417,7 @@ function AddressMetadataDialog({ model, item, onClose, onSaved }: { model: Devic
   const [modbusDataType, setModbusDataType] = useState(item?.modbusDataType ?? "");
   const [isAlarm, setIsAlarm] = useState(item?.isAlarm ?? false);
   const [mappingMode, setMappingMode] = useState<"EXACT" | "BITMASK">(item?.mappingMode ?? "EXACT");
+  const [bitInterpretation, setBitInterpretation] = useState<"ONE_HOT" | "INDEPENDENT_FLAGS">(item?.bitInterpretation ?? "INDEPENDENT_FLAGS");
   const [mappings, setMappings] = useState<Array<RegisterValueMapping & { matchValueText: string; bitIndexText: string }>>(() => (item?.mappings ?? []).map((mapping) => ({ ...mapping, matchValueText: mapping.matchValue == null ? "" : String(mapping.matchValue), bitIndexText: mapping.bitIndex == null ? "" : String(mapping.bitIndex) })));
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
@@ -434,7 +435,7 @@ function AddressMetadataDialog({ model, item, onClose, onSaved }: { model: Devic
           modbusFunctionCode: modbusFunctionCode === "" ? null : Number(modbusFunctionCode),
           modbusRegister: modbusRegister === "" ? null : Number(modbusRegister),
           modbusWordOrder, modbusDataType,
-          isAlarm, mappingMode,
+          isAlarm, mappingMode, bitInterpretation,
           mappings: mappings.map((mapping) => ({
             displayValue: mapping.displayValue,
             matchValue: mappingMode === "EXACT" && mapping.matchValueText !== "" ? Number(mapping.matchValueText) : null,
@@ -528,9 +529,18 @@ function AddressMetadataDialog({ model, item, onClose, onSaved }: { model: Devic
                 <label className="flex items-center gap-2 text-sm font-bold text-slate-800"><Checkbox checked={isAlarm} onChange={setIsAlarm} /> Address นี้เป็น Alarm</label>
                 <Select value={mappingMode} onValueChange={(value) => setMappingMode(value as "EXACT" | "BITMASK")}>
                   <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
-                  <SelectContent><SelectItem value="EXACT">Exact value</SelectItem><SelectItem value="BITMASK" disabled={!isAlarm}>Bitmask</SelectItem></SelectContent>
+                  <SelectContent><SelectItem value="EXACT">Exact value</SelectItem><SelectItem value="BITMASK">Bit mapping</SelectItem></SelectContent>
                 </Select>
               </div>
+              {mappingMode === "BITMASK" && <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <label className={labelClass}>Bit interpretation
+                  <Select value={bitInterpretation} onValueChange={(value) => setBitInterpretation(value as "ONE_HOT" | "INDEPENDENT_FLAGS")}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent><SelectItem value="ONE_HOT">One-hot / single status</SelectItem><SelectItem value="INDEPENDENT_FLAGS">Independent flags</SelectItem></SelectContent>
+                  </Select>
+                </label>
+                <p className="self-end text-xs text-ink-soft">One-hot ใช้เมื่อมีสถานะหลักเพียงหนึ่ง Bit; Independent ใช้เมื่อหลาย Bit เป็น 1 ได้พร้อมกัน</p>
+              </div>}
               <div className="mt-3 space-y-2">
                 {mappings.map((mapping, index) => <div key={index} className="grid gap-2 sm:grid-cols-[90px_90px_minmax(0,1fr)_auto]">
                   <TextInput className={inputClass} type="number" placeholder={mappingMode === "EXACT" ? "Value" : "Bit"} value={mappingMode === "EXACT" ? mapping.matchValueText : mapping.bitIndexText} onChange={(event) => setMappings((current) => current.map((entry, row) => row === index ? { ...entry, ...(mappingMode === "EXACT" ? { matchValueText: event.target.value } : { bitIndexText: event.target.value }) } : entry))} />

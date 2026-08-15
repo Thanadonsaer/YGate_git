@@ -3161,6 +3161,80 @@ paths:
           description: Screen or target version is missing or outside scope
         "409":
           description: Published pointer changed
+  /api/v1/scada/screens/{screenId}/images:
+    parameters:
+      - name: screenId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: uploadScadaImage
+      summary: Upload an image asset for a SCADA screen
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [image]
+              properties:
+                image:
+                  type: string
+                  format: binary
+      responses:
+        "201":
+          description: Managed SCADA image URL
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [url]
+                properties:
+                  url:
+                    type: string
+                    format: uri-reference
+        "400":
+          description: Missing, unsupported, or over-sized image
+        "401":
+          description: Authentication required
+        "403":
+          description: Missing SCADA edit permission
+        "404":
+          description: Screen is missing or outside scope
+  /api/v1/scada/screens/{screenId}/images/{filename}:
+    parameters:
+      - name: screenId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: filename
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getScadaImage
+      summary: Return a managed SCADA image asset
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Image bytes
+          content:
+            image/png: {}
+            image/jpeg: {}
+            image/webp: {}
+        "401":
+          description: Authentication required
+        "404":
+          description: Image or screen is missing or outside scope
   /api/v1/dashboard/overview:
     get:
       operationId: getDashboardOverview
@@ -4679,6 +4753,7 @@ components:
         modbusDataType: {type: [string, "null"]}
         isAlarm: {type: boolean}
         mappingMode: {type: string, enum: [EXACT, BITMASK]}
+        bitInterpretation: {type: string, enum: [ONE_HOT, INDEPENDENT_FLAGS]}
         mappings:
           type: array
           items:
@@ -5310,6 +5385,31 @@ components:
           maxItems: 20
           items:
             $ref: "#/components/schemas/ScadaDataItem"
+        backgroundColor:
+          type: string
+          pattern: '^#[0-9a-fA-F]{6}$'
+        borderColor:
+          type: string
+          pattern: '^#[0-9a-fA-F]{6}$'
+        borderStyle:
+          type: string
+          enum: [solid, dashed, dotted]
+        borderEnabled:
+          type: boolean
+        textColor:
+          type: string
+          pattern: '^#[0-9a-fA-F]{6}$'
+        fontSize:
+          type: number
+          minimum: 8
+          maximum: 144
+        fontWeight:
+          type: string
+          enum: [normal, bold]
+        hidden:
+          type: boolean
+        locked:
+          type: boolean
     ScadaNode:
       type: object
       additionalProperties: false
@@ -5321,7 +5421,7 @@ components:
           maxLength: 100
         type:
           type: string
-          enum: [equipment, metric, label, shape, section, led, clock, image, table, alarms, ticker, device-summary]
+          enum: [equipment, metric, label, shape, section, group, led, clock, image, table, alarms, ticker, device-summary]
         position:
           $ref: "#/components/schemas/ScadaPosition"
         data:
@@ -5334,6 +5434,14 @@ components:
           type: number
           minimum: 30
           maximum: 2000
+        parentId:
+          type: string
+          minLength: 1
+          maxLength: 100
+        zIndex:
+          type: integer
+          minimum: -10000
+          maximum: 10000
     ScadaEdge:
       type: object
       additionalProperties: false

@@ -42,6 +42,8 @@ func TestValidateScadaDesign(t *testing.T) {
 		{name: "missing table rows", mutate: func(d *ScadaDesign) { d.Nodes[7].Data.Items = nil }},
 		{name: "invalid clock timezone", mutate: func(d *ScadaDesign) { d.Nodes[5].Data.Timezone = "Mars/Olympus" }},
 		{name: "oversized node", mutate: func(d *ScadaDesign) { d.Nodes[2].Width = 3000 }},
+		{name: "invalid node color", mutate: func(d *ScadaDesign) { d.Nodes[2].Data.BackgroundColor = "red" }},
+		{name: "orphaned parent", mutate: func(d *ScadaDesign) { d.Nodes[2].ParentID = "missing" }},
 		{name: "missing device-summary deviceId", mutate: func(d *ScadaDesign) { d.Nodes[10].Data.DeviceID = "" }},
 	}
 	for _, test := range tests {

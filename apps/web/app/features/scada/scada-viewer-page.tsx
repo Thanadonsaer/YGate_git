@@ -10,6 +10,7 @@ import { useRealtimeSocket } from "../../lib/realtime";
 import { LivePulse } from "../../components/live-pulse";
 import { ScadaCanvas } from "./scada-page";
 import type { Device, LatestTelemetry, PublishedScadaScreen, ScadaScreenSummary } from "../../lib/types";
+import { loadRegisterCatalogs, type PointMeta } from "../../lib/telemetry-history";
 
 export function ScadaViewerPage() {
   const [screens, setScreens] = useState<ScadaScreenSummary[]>([]);
@@ -17,6 +18,7 @@ export function ScadaViewerPage() {
   const [active, setActive] = useState<PublishedScadaScreen | null>(null);
   const [devices, setDevices] = useState<Device[]>([]);
   const [latestByDevice, setLatestByDevice] = useState<Record<string, LatestTelemetry>>({});
+  const [catalogs, setCatalogs] = useState<Record<string, Record<string, PointMeta>>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -31,7 +33,10 @@ export function ScadaViewerPage() {
       ]);
       if (!publishedResponse.ok) throw new Error("Screen นี้ยังไม่มี Published version");
       setActive((await publishedResponse.json()) as PublishedScadaScreen);
-      setDevices(deviceResponse.ok ? (await deviceResponse.json()) as Device[] : []);
+      const screenDevices = deviceResponse.ok ? (await deviceResponse.json()) as Device[] : [];
+      setDevices(screenDevices);
+      setCatalogs({});
+      void loadRegisterCatalogs(screen.plantId, screenDevices).then(setCatalogs).catch(() => setCatalogs({}));
       if (telemetryResponse.ok) {
         const readings = (await telemetryResponse.json()) as LatestTelemetry[];
         setLatestByDevice(Object.fromEntries(readings.map((reading) => [reading.deviceId, reading])));
@@ -117,6 +122,7 @@ export function ScadaViewerPage() {
           editable={false}
           devices={devices}
           latestByDevice={latestByDevice}
+          catalogs={catalogs}
           versions={[]}
           canPublish={false}
           onDesignChange={() => {}}

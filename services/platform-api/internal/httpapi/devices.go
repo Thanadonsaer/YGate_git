@@ -57,6 +57,7 @@ type updateModelRegisterMetadataRequest struct {
 	ModbusDataType     string                      `json:"modbusDataType"`
 	IsAlarm            bool                        `json:"isAlarm"`
 	MappingMode        string                      `json:"mappingMode"`
+	BitInterpretation  string                      `json:"bitInterpretation"`
 	Mappings           []core.RegisterValueMapping `json:"mappings"`
 }
 
@@ -220,7 +221,7 @@ func updateModelRegisterMetadataHandler(service *core.Service) func(http.Respons
 			},
 			ModbusFunctionCode: request.ModbusFunctionCode, ModbusRegister: request.ModbusRegister,
 			ModbusWordOrder: request.ModbusWordOrder, ModbusDataType: request.ModbusDataType,
-			IsAlarm: request.IsAlarm, MappingMode: request.MappingMode, Mappings: request.Mappings,
+			IsAlarm: request.IsAlarm, MappingMode: request.MappingMode, BitInterpretation: request.BitInterpretation, Mappings: request.Mappings,
 		}, remoteIP(r.RemoteAddr))
 		switch {
 		case errors.Is(err, core.ErrInvalid):

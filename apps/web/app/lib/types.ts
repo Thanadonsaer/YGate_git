@@ -159,7 +159,7 @@ export type ScadaDataItem = {
   maxAlarm?: number;
 };
 
-export type ScadaNodeType = "equipment" | "metric" | "label" | "shape" | "section" | "led" | "clock" | "image" | "table" | "alarms" | "ticker" | "device-summary";
+export type ScadaNodeType = "equipment" | "metric" | "label" | "shape" | "section" | "group" | "led" | "clock" | "image" | "table" | "alarms" | "ticker" | "device-summary";
 
 export type ScadaNodeData = {
   label: string;
@@ -175,11 +175,20 @@ export type ScadaNodeData = {
   text?: string;
   timezone?: string;
   items?: ScadaDataItem[];
+  backgroundColor?: string;
+  borderColor?: string;
+  borderStyle?: "solid" | "dashed" | "dotted";
+  borderEnabled?: boolean;
+  textColor?: string;
+  fontSize?: number;
+  fontWeight?: "normal" | "bold";
+  hidden?: boolean;
+  locked?: boolean;
 };
 
 export type ScadaDesign = {
   version: 1;
-  nodes: Array<{ id: string; type: ScadaNodeType; position: { x: number; y: number }; data: ScadaNodeData; width?: number; height?: number }>;
+  nodes: Array<{ id: string; type: ScadaNodeType; position: { x: number; y: number }; data: ScadaNodeData; width?: number; height?: number; parentId?: string; zIndex?: number }>;
   edges: Array<{ id: string; source: string; target: string; type: "default" | "smoothstep" }>;
   viewport: { x: number; y: number; zoom: number };
 };
@@ -268,6 +277,7 @@ export type DeviceModelRegisterMetadata = {
   modbusDataType?: string | null;
   isAlarm?: boolean;
   mappingMode?: "EXACT" | "BITMASK";
+  bitInterpretation?: "ONE_HOT" | "INDEPENDENT_FLAGS";
   mappings?: RegisterValueMapping[];
   createdAt: string;
   updatedAt: string;

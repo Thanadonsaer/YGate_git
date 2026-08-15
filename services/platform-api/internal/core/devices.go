@@ -123,6 +123,7 @@ type DeviceModelRegisterMetadata struct {
 	ModbusDataType     *string                `json:"modbusDataType"`
 	IsAlarm            bool                   `json:"isAlarm"`
 	MappingMode        string                 `json:"mappingMode"`
+	BitInterpretation  string                 `json:"bitInterpretation"`
 	Mappings           []RegisterValueMapping `json:"mappings"`
 	CreatedAt          time.Time              `json:"createdAt"`
 	UpdatedAt          time.Time              `json:"updatedAt"`
@@ -152,6 +153,7 @@ type UpdateDeviceModelRegisterMetadataInput struct {
 	ModbusDataType     string
 	IsAlarm            bool
 	MappingMode        string
+	BitInterpretation  string
 	Mappings           []RegisterValueMapping
 }
 
@@ -359,7 +361,7 @@ func (s *Service) DeviceModelRegisterMetadata(ctx context.Context, principal aut
 }
 
 func modelMetadataFromProfileAddress(modelID pgtype.UUID, address RegisterProfileAddress) DeviceModelRegisterMetadata {
-	return DeviceModelRegisterMetadata{ID: address.ID, OrganizationID: address.OrganizationID, DeviceModelID: uuidString(modelID), AddressKey: address.AddressKey, DisplayName: address.DisplayName, Unit: address.Unit, DataType: address.DataType, Scale: address.Scale, Offset: address.Offset, Decimals: address.Decimals, IsEnabled: address.IsEnabled, Notes: address.Notes, ModbusFunctionCode: address.ModbusFunctionCode, ModbusRegister: address.ModbusRegister, ModbusWordOrder: address.ModbusWordOrder, ModbusDataType: address.ModbusDataType, IsAlarm: address.IsAlarm, MappingMode: address.MappingMode, Mappings: address.Mappings, CreatedAt: address.CreatedAt, UpdatedAt: address.UpdatedAt}
+	return DeviceModelRegisterMetadata{ID: address.ID, OrganizationID: address.OrganizationID, DeviceModelID: uuidString(modelID), AddressKey: address.AddressKey, DisplayName: address.DisplayName, Unit: address.Unit, DataType: address.DataType, Scale: address.Scale, Offset: address.Offset, Decimals: address.Decimals, IsEnabled: address.IsEnabled, Notes: address.Notes, ModbusFunctionCode: address.ModbusFunctionCode, ModbusRegister: address.ModbusRegister, ModbusWordOrder: address.ModbusWordOrder, ModbusDataType: address.ModbusDataType, IsAlarm: address.IsAlarm, MappingMode: address.MappingMode, BitInterpretation: address.BitInterpretation, Mappings: address.Mappings, CreatedAt: address.CreatedAt, UpdatedAt: address.UpdatedAt}
 }
 
 func (s *Service) SetDeviceModelRegisterMetadata(ctx context.Context, principal auth.Principal, modelID string, input UpdateDeviceModelRegisterMetadataInput, sourceIP *netip.Addr) (DeviceModelRegisterMetadata, error) {
@@ -444,7 +446,7 @@ RETURNING id, organization_id, device_model_id, address_key, display_name, unit,
 		AddressKey: input.AddressKey, DisplayName: input.DisplayName, Unit: input.Unit, DataType: input.DataType,
 		Scale: input.Scale, Offset: input.Offset, Decimals: input.Decimals, IsEnabled: input.IsEnabled, Notes: input.Notes,
 		ModbusFunctionCode: input.ModbusFunctionCode, ModbusRegister: input.ModbusRegister, ModbusWordOrder: input.ModbusWordOrder, ModbusDataType: input.ModbusDataType,
-		IsAlarm: input.IsAlarm, MappingMode: input.MappingMode, Mappings: input.Mappings,
+		IsAlarm: input.IsAlarm, MappingMode: input.MappingMode, BitInterpretation: input.BitInterpretation, Mappings: input.Mappings,
 	}, sourceIP)
 	if err != nil {
 		return DeviceModelRegisterMetadata{}, err
