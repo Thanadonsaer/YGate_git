@@ -1,6 +1,8 @@
 export type User = {
   id: string;
   organizationId?: string;
+  /** Resolved on /auth/me so admin screens can show a name instead of a UUID. */
+  organizationName?: string;
   email: string;
   displayName: string;
   permissions: string[];

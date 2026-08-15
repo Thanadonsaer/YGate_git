@@ -54,11 +54,14 @@ type LoginResult struct {
 }
 
 type LoginUser struct {
-	ID             string   `json:"id"`
-	OrganizationID string   `json:"organizationId,omitempty"`
-	Email          string   `json:"email"`
-	DisplayName    string   `json:"displayName"`
-	Permissions    []string `json:"permissions"`
+	ID             string `json:"id"`
+	OrganizationID string `json:"organizationId,omitempty"`
+	// Display name of the organization. Session rows carry only the id, so the
+	// admin screens had nothing but a raw UUID to show; resolved on /auth/me.
+	OrganizationName string   `json:"organizationName,omitempty"`
+	Email            string   `json:"email"`
+	DisplayName      string   `json:"displayName"`
+	Permissions      []string `json:"permissions"`
 }
 
 type Principal struct {
@@ -73,6 +76,24 @@ type Principal struct {
 
 func (p Principal) User() LoginUser {
 	return LoginUser{ID: uuidString(p.UserID), OrganizationID: uuidString(p.OrganizationID), Email: p.Email, DisplayName: p.DisplayName}
+}
+
+// OrganizationName resolves the principal's organization for display. Kept as a
+// separate lookup rather than widening the session query: it is one indexed
+// read on /auth/me only, not on every authenticated request.
+func (s *Service) OrganizationName(ctx context.Context, principal Principal) (string, error) {
+	if !principal.OrganizationID.Valid {
+		return "", nil
+	}
+	var name string
+	err := s.pool.QueryRow(ctx, `SELECT name FROM organization WHERE id=$1`, principal.OrganizationID).Scan(&name)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("load organization name: %w", err)
+	}
+	return name, nil
 }
 
 func (p Principal) ValidCSRF(token string) bool {

@@ -177,7 +177,7 @@ func (s *Service) CreateRole(ctx context.Context, principal auth.Principal, inpu
 	if _, err = tx.Exec(ctx, `INSERT INTO auth.role(id, organization_id, name, description, is_system) VALUES($1,$2,$3,$4,false)`, id, orgOrNil(organizationID), name, description); err != nil {
 		return RoleDetail{}, mapRoleWriteError(err)
 	}
-	if err = replaceRolePermissions(ctx, tx, organizationID, id, permissionIDs); err != nil {
+	if err = replaceRolePermissions(ctx, tx, principal, organizationID, id, permissionIDs); err != nil {
 		return RoleDetail{}, err
 	}
 	detail := RoleDetail{
@@ -244,7 +244,7 @@ func (s *Service) UpdateRole(ctx context.Context, principal auth.Principal, role
 	if _, err = tx.Exec(ctx, `UPDATE auth.role SET name=$2, description=$3, updated_at=now() WHERE id=$1`, id, name, description); err != nil {
 		return RoleDetail{}, mapRoleWriteError(err)
 	}
-	if err = replaceRolePermissions(ctx, tx, organizationID, id, permissionIDs); err != nil {
+	if err = replaceRolePermissions(ctx, tx, principal, organizationID, id, permissionIDs); err != nil {
 		return RoleDetail{}, err
 	}
 	after := RoleDetail{
@@ -368,9 +368,57 @@ func rolePermissionIDs(ctx context.Context, querier rowsQuerier, roleID pgtype.U
 	return ids, rows.Err()
 }
 
+/*
+requireGrantablePermissions blocks privilege escalation through role authoring:
+without it an organization admin could mint a role carrying rights they do not
+hold, assign it to themselves, and step outside their own scope.
+
+The comparison is on resource_type + action rather than permission id, so it
+matches exactly what `can()` checks in the web app -- the picker hides what this
+rejects, and the two cannot drift apart.
+
+Permissions the role already carries are exempt. An org admin editing a role
+that was seeded with rights beyond theirs can still rename it or adjust the
+parts they do control, instead of being locked out of the whole record by a
+permission they cannot even see.
+*/
+func requireGrantablePermissions(ctx context.Context, tx pgx.Tx, principal auth.Principal, roleID pgtype.UUID, permissionIDs []pgtype.UUID) error {
+	if len(permissionIDs) == 0 {
+		return nil
+	}
+	var ungrantable int
+	err := tx.QueryRow(ctx, `
+SELECT count(*)
+FROM auth.permission wanted
+WHERE wanted.id = ANY($2::uuid[])
+  AND NOT EXISTS (
+      SELECT 1 FROM auth.role_permission existing
+      WHERE existing.role_id = $3 AND existing.permission_id = wanted.id
+  )
+  AND NOT EXISTS (
+      SELECT 1
+      FROM auth.user_role ur
+      JOIN auth.role_permission rp ON rp.role_id = ur.role_id
+      JOIN auth.permission mine ON mine.id = rp.permission_id
+      WHERE ur.user_id = $1
+        AND mine.resource_type = wanted.resource_type
+        AND mine.action = wanted.action
+  )`, principal.UserID, permissionIDs, roleID).Scan(&ungrantable)
+	if err != nil {
+		return fmt.Errorf("check grantable permissions: %w", err)
+	}
+	if ungrantable > 0 {
+		return ErrForbidden
+	}
+	return nil
+}
+
 // replaceRolePermissions mirrors UpdateUser's delete-then-insert idiom for
 // user_role: the permission set of a role is always replaced wholesale.
-func replaceRolePermissions(ctx context.Context, tx pgx.Tx, organizationID, roleID pgtype.UUID, permissionIDs []pgtype.UUID) error {
+func replaceRolePermissions(ctx context.Context, tx pgx.Tx, principal auth.Principal, organizationID, roleID pgtype.UUID, permissionIDs []pgtype.UUID) error {
+	if err := requireGrantablePermissions(ctx, tx, principal, roleID, permissionIDs); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(ctx, `DELETE FROM auth.role_permission WHERE role_id=$1`, roleID); err != nil {
 		return fmt.Errorf("clear role permissions: %w", err)
 	}

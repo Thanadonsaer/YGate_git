@@ -326,8 +326,13 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .progress-status-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-weight: 750; }
 .progress-status-track { width: 100%; height: 4px; }
 @keyframes loading-slide { 0% { transform: translateX(-110%); } 50% { transform: translateX(120%); } 100% { transform: translateX(240%); } }
+/* max-height keeps a many-series tooltip inside the panel: an absolutely
+   positioned box still extends its scroll container's overflow, which is what
+   made the rest of the page jump when hovering a chart with many registers. */
 .ts-tooltip { position: absolute; top: 34px; z-index: 2; display: grid; gap: 3px; min-width: 150px; max-width: 240px; padding: 8px 10px;
+  max-height: calc(100% - 44px); overflow-y: auto; overscroll-behavior: contain;
   border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); box-shadow: var(--shadow-lg); pointer-events: none; font-size: 11px; color: var(--muted); }
+.ts-tooltip > strong:first-child { position: sticky; top: -8px; padding: 2px 0; background: var(--surface); }
 .ts-tooltip span { display: flex; align-items: center; gap: 6px; }
 .ts-tooltip > strong:first-child { font-size: 11px; color: var(--ink); }
 .ts-tooltip span strong { margin-left: auto; }

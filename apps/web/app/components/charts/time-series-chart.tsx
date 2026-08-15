@@ -44,12 +44,19 @@ export function TimeSeriesChart({
 }) {
   const [hoverAt, setHoverAt] = React.useState<number | null>(null);
 
-  const groups: Array<{ unit: string; series: ChartSeries[] }> = [];
-  for (const entry of series) {
-    const group = groups.find((candidate) => candidate.unit === entry.unit);
-    if (group) group.series.push(entry);
-    else groups.push({ unit: entry.unit, series: [entry] });
-  }
+  // Memoised because hoverAt lives here: without it every mouse move rebuilt
+  // these arrays, handing each panel a fresh `series` prop and busting the
+  // downsample/domain/path memos below -- the whole chart was re-derived per
+  // frame, which is what froze Analytics once several devices were selected.
+  const groups = React.useMemo(() => {
+    const result: Array<{ unit: string; series: ChartSeries[] }> = [];
+    for (const entry of series) {
+      const group = result.find((candidate) => candidate.unit === entry.unit);
+      if (group) group.series.push(entry);
+      else result.push({ unit: entry.unit, series: [entry] });
+    }
+    return result;
+  }, [series]);
 
   if (groups.length === 0) return null;
 
@@ -72,7 +79,7 @@ export function TimeSeriesChart({
       ))}
       <p className="ts-axis-caption">
         {stampFormat.format(new Date(from))} – {stampFormat.format(new Date(to))}
-        {onZoom && <span className="ts-hint"> · ลากบนกราฟเพื่อ zoom · ดับเบิลคลิกเพื่อรีเซ็ต</span>}
+        {onZoom && <span className="ts-hint"> · ลากบนกราฟเพื่อ zoom · Ctrl+Scroll ซูมเข้าออก · Shift+Scroll เลื่อนแนวนอน · ดับเบิลคลิกเพื่อรีเซ็ต</span>}
       </p>
     </div>
   );
@@ -119,13 +126,76 @@ function ChartPanel({
     [series],
   );
 
+  // Hover drives a state update in the parent, so coalesce pointer moves down to
+  // one update per frame instead of one per event.
+  const hoverFrame = React.useRef(0);
+  const hoverValue = React.useRef<number | null>(null);
+  const pushHover = React.useCallback((at: number | null) => {
+    hoverValue.current = at;
+    if (hoverFrame.current) return;
+    hoverFrame.current = requestAnimationFrame(() => {
+      hoverFrame.current = 0;
+      onHoverAt(hoverValue.current);
+    });
+  }, [onHoverAt]);
+  React.useEffect(() => () => { if (hoverFrame.current) cancelAnimationFrame(hoverFrame.current); }, []);
+
+  /**
+   * Ctrl/Cmd+wheel zooms around the cursor, Shift+wheel pans sideways; a plain
+   * wheel is left alone so the page still scrolls.
+   *
+   * Registered natively because React routes wheel through a passive root
+   * listener, where preventDefault() is ignored. Each committed range refetches,
+   * so the emit is debounced -- one request when the gesture settles, not one
+   * per wheel tick.
+   */
+  React.useEffect(() => {
+    const element = containerRef.current;
+    if (!element || !onZoom) return;
+    let pending: { from: number; to: number } | null = null;
+    let timer = 0;
+    function onWheel(event: WheelEvent) {
+      const zooming = event.ctrlKey || event.metaKey;
+      if (!zooming && !event.shiftKey) return;
+      event.preventDefault();
+      const base = pending ?? { from, to };
+      const baseSpan = Math.max(base.to - base.from, 1);
+      if (zooming) {
+        const bounds = element!.getBoundingClientRect();
+        const usable = Math.max(bounds.width - MARGIN.left - MARGIN.right, 1);
+        const ratio = Math.min(Math.max((event.clientX - bounds.left - MARGIN.left) / usable, 0), 1);
+        const anchor = base.from + ratio * baseSpan;
+        // 1 minute floor, 2 years ceiling -- beyond either the axis is useless.
+        const nextSpan = Math.min(Math.max(baseSpan * Math.exp(event.deltaY * 0.0015), 60_000), 730 * 86_400_000);
+        pending = { from: anchor - ratio * nextSpan, to: anchor + (1 - ratio) * nextSpan };
+      } else {
+        const step = ((event.deltaX || event.deltaY) / 500) * baseSpan;
+        pending = { from: base.from + step, to: base.to + step };
+      }
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        if (pending) onZoom!(new Date(pending.from), new Date(pending.to));
+        pending = null;
+      }, 140);
+    }
+    element.addEventListener("wheel", onWheel, { passive: false });
+    return () => { element.removeEventListener("wheel", onWheel); window.clearTimeout(timer); };
+  }, [from, to, onZoom]);
+
   const innerWidth = Math.max(width - MARGIN.left - MARGIN.right, 10);
   const innerHeight = Math.max(height - MARGIN.top - MARGIN.bottom, 10);
-  const [low, high] = valueDomain(plotted);
+  // Both walk every sample of every series, so they must not re-run on hover.
+  const [low, high] = React.useMemo(() => valueDomain(plotted), [plotted]);
   const span = Math.max(to - from, 1);
 
   const scaleX = (t: number) => MARGIN.left + ((t - from) / span) * innerWidth;
   const scaleY = (v: number) => MARGIN.top + innerHeight - ((v - low) / (high - low)) * innerHeight;
+  const paths = React.useMemo(
+    () => plotted.map((entry) => ({ key: entry.key, color: entry.color, d: buildPath(entry.points, scaleX, scaleY) })),
+    // scaleX/scaleY are recreated each render; their inputs are the real deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [plotted, from, span, low, high, innerWidth, innerHeight],
+  );
   const timeAt = (px: number) => {
     const ratio = (px - MARGIN.left) / innerWidth;
     return from + Math.min(Math.max(ratio, 0), 1) * span;
@@ -173,7 +243,7 @@ function ChartPanel({
           onPointerMove={(event) => {
             const px = pixelAt(event);
             setActive(true);
-            onHoverAt(timeAt(px));
+            pushHover(timeAt(px));
             if (drag) setDrag({ start: drag.start, current: px });
           }}
           onPointerUp={() => {
@@ -187,7 +257,7 @@ function ChartPanel({
           onPointerLeave={() => {
             setDrag(null);
             setActive(false);
-            onHoverAt(null);
+            pushHover(null);
           }}
           onDoubleClick={() => onResetZoom?.()}
         >
@@ -221,8 +291,8 @@ function ChartPanel({
           <line className="ts-axis" x1={MARGIN.left} x2={width - MARGIN.right} y1={MARGIN.top + innerHeight} y2={MARGIN.top + innerHeight} />
           <line className="ts-axis" x1={MARGIN.left} x2={MARGIN.left} y1={MARGIN.top} y2={MARGIN.top + innerHeight} />
 
-          {plotted.map((entry) => (
-            <path key={entry.key} className="ts-line" d={buildPath(entry.points, scaleX, scaleY)} style={{ stroke: entry.color }} />
+          {paths.map((entry) => (
+            <path key={entry.key} className="ts-line" d={entry.d} style={{ stroke: entry.color }} />
           ))}
 
           {hoverAt !== null && !drag && (

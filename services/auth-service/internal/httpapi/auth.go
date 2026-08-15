@@ -81,7 +81,7 @@ func loginHandler(login LoginFunc, cookieSecure bool) http.HandlerFunc {
 
 type PermissionsFunc func(context.Context, pgtype.UUID) ([]string, error)
 
-func meHandler(permissions PermissionsFunc) func(http.ResponseWriter, *http.Request, auth.Principal) {
+func meHandler(permissions PermissionsFunc, organizationName func(context.Context, auth.Principal) (string, error)) func(http.ResponseWriter, *http.Request, auth.Principal) {
 	return func(w http.ResponseWriter, r *http.Request, principal auth.Principal) {
 		grants, err := permissions(r.Context(), principal.UserID)
 		if err != nil {
@@ -91,6 +91,13 @@ func meHandler(permissions PermissionsFunc) func(http.ResponseWriter, *http.Requ
 		}
 		user := principal.User()
 		user.Permissions = grants
+		// Best effort: an unnamed organization is a cosmetic gap on the admin
+		// screens, not a reason to fail the session lookup the whole app needs.
+		if name, nameErr := organizationName(r.Context(), principal); nameErr != nil {
+			log.Printf("load organization name failed: %v", nameErr)
+		} else {
+			user.OrganizationName = name
+		}
 		writeJSON(w, http.StatusOK, user)
 	}
 }

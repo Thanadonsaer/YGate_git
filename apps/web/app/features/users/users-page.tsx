@@ -117,12 +117,12 @@ export function UsersPage({ currentUserId, defaultOrganizationId }: { currentUse
         )} />
       </DataTable>
     )}
-    {editor && <UserEditor user={editor === "create" ? undefined : editor} roles={roles} organizations={organizations} defaultOrganizationId={defaultOrganizationId} onClose={() => setEditor(null)} onSaved={() => { setEditor(null); void loadUsers(); }} />}
+    {editor && <UserEditor user={editor === "create" ? undefined : editor} roles={roles} organizations={organizations} defaultOrganizationId={defaultOrganizationId} sessionOrganizationName={currentUser.organizationName} onClose={() => setEditor(null)} onSaved={() => { setEditor(null); void loadUsers(); }} />}
     {resetTarget && <PasswordResetDialog user={resetTarget} onClose={() => setResetTarget(null)} onSaved={() => { setResetTarget(null); void loadUsers(); }} />}
   </div>;
 }
 
-function UserEditor({ user, roles, organizations, defaultOrganizationId, onClose, onSaved }: { user?: ManagedUser; roles: Role[]; organizations: Organization[]; defaultOrganizationId?: string; onClose: () => void; onSaved: () => void }) {
+function UserEditor({ user, roles, organizations, defaultOrganizationId, sessionOrganizationName, onClose, onSaved }: { user?: ManagedUser; roles: Role[]; organizations: Organization[]; defaultOrganizationId?: string; sessionOrganizationName?: string; onClose: () => void; onSaved: () => void }) {
   const [email, setEmail] = useState(user?.email ?? "");
   const [username, setUsername] = useState(user?.username ?? "");
   const [displayName, setDisplayName] = useState(user?.displayName ?? "");
@@ -169,8 +169,12 @@ function UserEditor({ user, roles, organizations, defaultOrganizationId, onClose
             <label>Username<TextInput value={username} onChange={(event) => setUsername(event.target.value)} maxLength={100} /></label>
             <label className="full-field">ชื่อแสดงผล<TextInput value={displayName} onChange={(event) => setDisplayName(event.target.value)} maxLength={200} required /></label>
             <label>Organization
+              {/* Without organization:read the list comes back empty, so there is
+                  nothing to choose between -- show the signed-in organization by
+                  name and keep its id in the payload, rather than asking someone
+                  to confirm a raw UUID they cannot change anyway. */}
               {organizations.length === 0 ? (
-                <TextInput value={organizationId} onChange={(event) => setOrganizationId(event.target.value)} required />
+                <TextInput value={sessionOrganizationName || organizationId} readOnly />
               ) : (
                 <Select value={organizationId} onValueChange={setOrganizationId}>
                   <SelectTrigger><SelectValue placeholder="เลือก Organization" /></SelectTrigger>

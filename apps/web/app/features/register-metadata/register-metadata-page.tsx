@@ -105,7 +105,7 @@ export function RegisterMetadataPage() {
   const selectedModel = models.find((model) => model.id === selectedModelId);
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const filteredModels = useMemo(() => models.filter((model) =>
-    !normalizedQuery || [model.manufacturer, model.deviceType, model.model, String(model.sourceTypeId ?? "")]
+    !normalizedQuery || [model.manufacturer, model.deviceType, model.model]
       .some((value) => value.toLocaleLowerCase().includes(normalizedQuery))
   ), [models, normalizedQuery]);
   const filteredItems = useMemo(() => items.filter((item) =>
@@ -233,7 +233,6 @@ export function RegisterMetadataPage() {
           <div className="flex flex-wrap gap-x-6 gap-y-1 text-ink-soft">
             <span>Brand <strong className="text-ink">{selectedModel.manufacturer}</strong></span>
             <span>ชนิด <strong className="text-ink">{selectedModel.deviceType}</strong></span>
-            <span>Source Type <strong className="text-ink">{selectedModel.sourceTypeId ?? "-"}</strong></span>
             <label className="flex items-center gap-2">Register Profile
               <Select value={selectedModel.registerProfileId} onValueChange={(value) => void assignProfile(value)} disabled={!can(user, "device_model", "update")}>
                 <SelectTrigger className="h-8 min-w-56"><SelectValue placeholder="เลือก Profile" /></SelectTrigger>
@@ -273,11 +272,11 @@ export function RegisterMetadataPage() {
           </>
         ) : (
           <>
-            <div className="hidden min-h-11 grid-cols-[minmax(150px,1fr)_minmax(120px,.8fr)_minmax(180px,1.2fr)_100px_90px_96px] items-center gap-3 border-b border-line bg-canvas px-4 text-xs font-extrabold text-ink-soft md:grid">
-              <span>Brand</span><span>ชนิด</span><span>รุ่น</span><span>Source</span><span>Status</span><span aria-label="คำสั่ง" />
+            <div className="hidden min-h-11 grid-cols-[minmax(150px,1fr)_minmax(120px,.8fr)_minmax(180px,1.2fr)_90px_96px] items-center gap-3 border-b border-line bg-canvas px-4 text-xs font-extrabold text-ink-soft md:grid">
+              <span>Brand</span><span>ชนิด</span><span>รุ่น</span><span>Status</span><span aria-label="คำสั่ง" />
             </div>
             {filteredModels.map((model) => (
-              <div key={model.id} role="button" tabIndex={0} className="grid cursor-pointer grid-cols-[minmax(0,1fr)_88px] gap-3 border-b border-line px-4 py-3 text-sm transition last:border-b-0 hover:bg-canvas focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-focus md:min-h-16 md:grid-cols-[minmax(150px,1fr)_minmax(120px,.8fr)_minmax(180px,1.2fr)_100px_90px_96px] md:items-center" onClick={() => { setSelectedModelId(model.id); setQuery(""); }} onKeyDown={(event) => {
+              <div key={model.id} role="button" tabIndex={0} className="grid cursor-pointer grid-cols-[minmax(0,1fr)_88px] gap-3 border-b border-line px-4 py-3 text-sm transition last:border-b-0 hover:bg-canvas focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-focus md:min-h-16 md:grid-cols-[minmax(150px,1fr)_minmax(120px,.8fr)_minmax(180px,1.2fr)_90px_96px] md:items-center" onClick={() => { setSelectedModelId(model.id); setQuery(""); }} onKeyDown={(event) => {
                 if (event.key === "Enter" || event.key === " ") {
                   event.preventDefault();
                   setSelectedModelId(model.id);
@@ -287,7 +286,6 @@ export function RegisterMetadataPage() {
                 <div className="min-w-0"><strong className="block truncate text-ink">{model.manufacturer}</strong><small className="block truncate text-xs text-ink-soft md:hidden">{model.deviceType} · {model.model}</small></div>
                 <span className="hidden truncate text-ink md:block">{model.deviceType}</span>
                 <span className="hidden truncate text-ink md:block">{model.model}</span>
-                <span className="hidden truncate text-ink md:block">{model.sourceTypeId ?? "-"}</span>
                 <span className={`hidden w-fit rounded-full px-2.5 py-1 text-xs font-extrabold md:block ${model.isActive ? "bg-success/10 text-success" : "bg-danger/10 text-danger"}`}>{model.isActive ? "เปิด" : "ปิด"}</span>
                 <div className="flex justify-end gap-1">
                   {can(user, "device_model", "update") && <Button variant="bare" className={iconButtonClass} type="button" onClick={(event) => { event.stopPropagation(); setModelDialog(model); }} title="แก้ไข Model" aria-label={`แก้ไข ${model.model}`}><Pencil size={16} /></Button>}
@@ -313,29 +311,16 @@ function DeviceModelDialog({ model, models, onClose, onSaved }: { model: DeviceM
   const [manufacturer, setManufacturer] = useState(model?.manufacturer ?? "");
   const [deviceType, setDeviceType] = useState(model?.deviceType ?? "");
   const [modelName, setModelName] = useState(model?.model ?? "");
-  const [sourceTypeId, setSourceTypeId] = useState(model?.sourceTypeId == null ? "" : String(model.sourceTypeId));
   const [isActive, setIsActive] = useState(model?.isActive ?? true);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
 
-  const deviceTypeOptions = useMemo(() => {
-    const bySourceType = new Map<string, number | null>();
-    for (const item of models) if (!bySourceType.has(item.deviceType)) bySourceType.set(item.deviceType, item.sourceTypeId ?? null);
-    return [...bySourceType.entries()].sort(([a], [b]) => a.localeCompare(b));
-  }, [models]);
-  const [customDeviceType, setCustomDeviceType] = useState(!deviceTypeOptions.some(([type]) => type === deviceType));
+  const deviceTypeOptions = useMemo(() => [...new Set(models.map((item) => item.deviceType))].sort((a, b) => a.localeCompare(b)), [models]);
+  const [customDeviceType, setCustomDeviceType] = useState(!deviceTypeOptions.includes(deviceType));
 
   function selectDeviceType(value: string) {
-    if (value === NEW_DEVICE_TYPE) {
-      setCustomDeviceType(true);
-      setDeviceType("");
-      setSourceTypeId("");
-      return;
-    }
-    setCustomDeviceType(false);
-    setDeviceType(value);
-    const mapped = deviceTypeOptions.find(([type]) => type === value)?.[1];
-    setSourceTypeId(mapped == null ? "" : String(mapped));
+    setCustomDeviceType(value === NEW_DEVICE_TYPE);
+    setDeviceType(value === NEW_DEVICE_TYPE ? "" : value);
   }
 
   async function submit(event: FormEvent) {
@@ -346,7 +331,10 @@ function DeviceModelDialog({ model, models, onClose, onSaved }: { model: DeviceM
       const response = await api(model ? `/api/v1/device-models/${encodeURIComponent(model.id)}` : "/api/v1/device-models", {
         method: model ? "PUT" : "POST",
         headers: { "X-CSRF-Token": csrfToken() },
-        body: JSON.stringify({ manufacturer, deviceType, model: modelName, sourceTypeId: sourceTypeId === "" ? null : Number(sourceTypeId), isActive }),
+        // sourceTypeId is written by middleware auto-onboarding only (the gateway's
+        // devTypeId) and is not editable here -- resend the stored value so an edit
+        // through this form cannot wipe it.
+        body: JSON.stringify({ manufacturer, deviceType, model: modelName, sourceTypeId: model?.sourceTypeId ?? null, isActive }),
       });
       if (!response.ok) throw new Error(response.status === 409 ? "Brand/ชนิด/รุ่นนี้มีอยู่แล้ว" : "ไม่สามารถบันทึก Device Model ได้");
       onSaved((await response.json()) as DeviceModelOption);
@@ -372,24 +360,20 @@ function DeviceModelDialog({ model, models, onClose, onSaved }: { model: DeviceM
                 ? (
                   <span className="flex gap-2">
                     <TextInput className={inputClass} value={deviceType} onChange={(event) => setDeviceType(event.target.value)} maxLength={100} placeholder="ชนิดอุปกรณ์ใหม่" required autoFocus />
-                    {deviceTypeOptions.length > 0 && <Button variant="bare" type="button" className={`${secondaryButtonClass} shrink-0 text-xs`} onClick={() => selectDeviceType(deviceTypeOptions[0][0])}>เลือกจากรายการ</Button>}
+                    {deviceTypeOptions.length > 0 && <Button variant="bare" type="button" className={`${secondaryButtonClass} shrink-0 text-xs`} onClick={() => selectDeviceType(deviceTypeOptions[0])}>เลือกจากรายการ</Button>}
                   </span>
                 )
                 : (
                   <Select value={deviceType} onValueChange={selectDeviceType}>
                     <SelectTrigger aria-label="ชนิดอุปกรณ์"><SelectValue placeholder="เลือกชนิดอุปกรณ์" /></SelectTrigger>
                     <SelectContent>
-                      {deviceTypeOptions.map(([type]) => <SelectItem key={type} value={type}>{type}</SelectItem>)}
+                      {deviceTypeOptions.map((type) => <SelectItem key={type} value={type}>{type}</SelectItem>)}
                       <SelectItem value={NEW_DEVICE_TYPE}>+ เพิ่มชนิดใหม่</SelectItem>
                     </SelectContent>
                   </Select>
                 )}
             </label>
             <label className={`${labelClass} sm:col-span-2`}>รุ่น<TextInput className={inputClass} value={modelName} onChange={(event) => setModelName(event.target.value)} maxLength={200} required /></label>
-            <label className={labelClass}>
-              Source Type ID
-              <TextInput className={inputClass} type="number" min="0" value={sourceTypeId} onChange={(event) => setSourceTypeId(event.target.value)} readOnly={!customDeviceType && deviceTypeOptions.some(([type]) => type === deviceType)} />
-            </label>
             <label className="flex items-center gap-2 self-end text-sm font-bold text-slate-800"><Checkbox checked={isActive} onChange={setIsActive} /> เปิดใช้งาน</label>
             {error && <FormMessage className="sm:col-span-2">{error}</FormMessage>}
             <div className="flex justify-end gap-2 sm:col-span-2"><Button variant="bare" type="button" className={secondaryButtonClass} onClick={onClose} disabled={pending}>ยกเลิก</Button><Button variant="bare" className={primaryButtonClass} disabled={pending}>{pending ? "กำลังบันทึก" : "บันทึก"}</Button></div>

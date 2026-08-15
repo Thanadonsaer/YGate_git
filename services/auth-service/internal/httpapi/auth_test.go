@@ -176,8 +176,9 @@ func TestMeHandlerAttachesPermissions(t *testing.T) {
 		}
 		return []string{"plant:read", "alarm:read"}, nil
 	}
+	organizationName := func(context.Context, auth.Principal) (string, error) { return "Example Organization", nil }
 	res := httptest.NewRecorder()
-	meHandler(permissions)(res, httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil), principal)
+	meHandler(permissions, organizationName)(res, httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil), principal)
 	if res.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", res.Code, res.Body.String())
 	}

@@ -1,8 +1,8 @@
 "use client";
 
-import { Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Eye, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { Checkbox, FormMessage, StatusTag, TextInput } from "../../components/ui/form";
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { api, errorMessage, csrfToken } from "../../lib/api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody } from "../../components/ui/dialog";
 import { toast } from "../../components/ui/sonner";
@@ -22,6 +22,9 @@ export function RolesPage({ defaultOrganizationId }: { defaultOrganizationId?: s
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [editor, setEditor] = useState<Role | "create" | null>(null);
+  // The editor doubles as a read-only permission viewer for roles this
+  // organization may see but not change.
+  const [readOnly, setReadOnly] = useState(false);
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [organizationId, setOrganizationId] = useState(defaultOrganizationId ?? "");
   const systemAdmin = isSystemAdmin(user);
@@ -58,7 +61,14 @@ export function RolesPage({ defaultOrganizationId }: { defaultOrganizationId?: s
     else setError("ไม่สามารถลบ Role ได้");
   }
 
-  const scopedRoles = roles.filter((role) => role.isSystem || role.organizationId === organizationId);
+  // Every role the user could actually be assigned, matching what the user
+  // editor's dropdown offers: org-scoped roles plus global ones. Global custom
+  // roles (organizationId null, isSystem false) fell through both arms of the
+  // old filter, so they were assignable but invisible here.
+  const scopedRoles = roles.filter((role) => !role.organizationId || role.organizationId === organizationId);
+  // Global roles belong to the whole platform -- an org admin may read one to
+  // see what it grants, but only a system admin may change it.
+  const canManage = (role: Role) => !role.isSystem && (systemAdmin || Boolean(role.organizationId));
 
   return (
     <div className="content plants-content">
@@ -89,8 +99,10 @@ export function RolesPage({ defaultOrganizationId }: { defaultOrganizationId?: s
           )} />
           <TableColumn header="" body={(role: Role) => (
             <div className="row-actions">
-              {can(user, "role", "update") && !role.isSystem && <Button variant="icon" onClick={() => setEditor(role)} title="แก้ไข Role" aria-label={`แก้ไข ${role.name}`}><Pencil size={17} /></Button>}
-              {can(user, "role", "delete") && !role.isSystem && <Button variant="icon" danger onClick={() => void deleteRole(role)} title="ลบ Role" aria-label={`ลบ ${role.name}`}><Trash2 size={17} /></Button>}
+              {can(user, "role", "update") && canManage(role)
+                ? <Button variant="icon" onClick={() => { setReadOnly(false); setEditor(role); }} title="แก้ไข Role" aria-label={`แก้ไข ${role.name}`}><Pencil size={17} /></Button>
+                : <Button variant="icon" onClick={() => { setReadOnly(true); setEditor(role); }} title="ดูสิทธิ์ของ Role นี้" aria-label={`ดูสิทธิ์ของ ${role.name}`}><Eye size={17} /></Button>}
+              {can(user, "role", "delete") && canManage(role) && <Button variant="icon" danger onClick={() => void deleteRole(role)} title="ลบ Role" aria-label={`ลบ ${role.name}`}><Trash2 size={17} /></Button>}
             </div>
           )} />
         </DataTable>
@@ -100,6 +112,7 @@ export function RolesPage({ defaultOrganizationId }: { defaultOrganizationId?: s
           role={editor === "create" ? undefined : editor}
           permissions={permissions}
           defaultOrganizationId={organizationId || defaultOrganizationId}
+          readOnly={editor !== "create" && readOnly}
           onClose={() => setEditor(null)}
           onSaved={() => { setEditor(null); void loadRoles(); }}
         />
@@ -116,7 +129,7 @@ function permissionsForGroup(group: PagePermissionGroup, permissions: Permission
     group.entries.some((entry) => entry.resourceType === permission.resourceType && (!entry.actions || entry.actions.includes(permission.action))));
 }
 
-function RoleEditor({ role, permissions, defaultOrganizationId, onClose, onSaved }: { role?: Role; permissions: Permission[]; defaultOrganizationId?: string; onClose: () => void; onSaved: () => void }) {
+function RoleEditor({ role, permissions, defaultOrganizationId, readOnly = false, onClose, onSaved }: { role?: Role; permissions: Permission[]; defaultOrganizationId?: string; readOnly?: boolean; onClose: () => void; onSaved: () => void }) {
   const [loadingDetail, setLoadingDetail] = useState(Boolean(role));
   const [name, setName] = useState(role?.name ?? "");
   const [description, setDescription] = useState(role?.description ?? "");
@@ -124,6 +137,20 @@ function RoleEditor({ role, permissions, defaultOrganizationId, onClose, onSaved
   const [expandedPages, setExpandedPages] = useState<Set<string>>(new Set());
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+  const { user } = usePlatformSession();
+
+  // Mirrors requireGrantablePermissions in auth-service: you cannot grant what
+  // you do not hold. Permissions already on the role stay listed but locked, so
+  // editing a role seeded with wider rights cannot silently strip them.
+  const grantable = useCallback(
+    (permission: Permission) => can(user, permission.resourceType, permission.action),
+    [user],
+  );
+  const visiblePermissions = useMemo(
+    () => readOnly ? permissions : permissions.filter((permission) => grantable(permission) || permissionIds.includes(permission.id)),
+    [permissions, readOnly, grantable, permissionIds],
+  );
+  const locked = (permission: Permission) => readOnly || !grantable(permission);
 
   useEffect(() => {
     if (!role) return;
@@ -151,7 +178,9 @@ function RoleEditor({ role, permissions, defaultOrganizationId, onClose, onSaved
   }
 
   function togglePage(group: PagePermissionGroup) {
-    const groupPermissionIds = permissionsForGroup(group, permissions).map((permission) => permission.id);
+    // Only clear what this user is allowed to grant -- collapsing a menu must
+    // not strip a permission they cannot see or re-add.
+    const groupPermissionIds = permissionsForGroup(group, visiblePermissions).filter(grantable).map((permission) => permission.id);
     setExpandedPages((current) => {
       const next = new Set(current);
       if (next.has(group.href)) {
@@ -165,7 +194,7 @@ function RoleEditor({ role, permissions, defaultOrganizationId, onClose, onSaved
   }
 
   const mappedResourceTypes = new Set(pagePermissionGroups.flatMap((group) => group.entries.map((entry) => entry.resourceType)));
-  const otherGroups = groupByResourceType(permissions.filter((permission) => !mappedResourceTypes.has(permission.resourceType)));
+  const otherGroups = groupByResourceType(visiblePermissions.filter((permission) => !mappedResourceTypes.has(permission.resourceType)));
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -197,26 +226,28 @@ function RoleEditor({ role, permissions, defaultOrganizationId, onClose, onSaved
         <DialogHeader>
           <div>
             <DialogDescription>Access management</DialogDescription>
-            <DialogTitle>{role ? "แก้ไข Role" : "เพิ่ม Role"}</DialogTitle>
+            <DialogTitle>{!role ? "เพิ่ม Role" : readOnly ? `สิทธิ์ของ ${role.name}` : "แก้ไข Role"}</DialogTitle>
           </div>
         </DialogHeader>
         <DialogBody>
           {loadingDetail ? <div className="table-state">กำลังโหลดข้อมูล</div> : (
             <form className="plant-editor-form" onSubmit={submit}>
-              <label className="full-field">ชื่อ Role<TextInput autoFocus value={name} onChange={(event) => setName(event.target.value)} maxLength={100} required /></label>
-              <label className="full-field">คำอธิบาย<TextInput value={description} onChange={(event) => setDescription(event.target.value)} maxLength={500} /></label>
+              <label className="full-field">ชื่อ Role<TextInput autoFocus={!readOnly} value={name} onChange={(event) => setName(event.target.value)} maxLength={100} required readOnly={readOnly} /></label>
+              <label className="full-field">คำอธิบาย<TextInput value={description} onChange={(event) => setDescription(event.target.value)} maxLength={500} readOnly={readOnly} /></label>
               <fieldset className="full-field permission-picker">
                 <legend>สิทธิ์การใช้งาน</legend>
-                <p className="permission-picker-hint">1) ติ๊กเมนูที่ role นี้เข้าถึงได้ 2) ในแต่ละเมนูที่ติ๊ก เลือกว่าทำ action อะไรได้บ้าง</p>
+                <p className="permission-picker-hint">{readOnly
+                  ? "Role นี้แก้ไขไม่ได้จากองค์กรนี้ — แสดงเพื่อให้ตรวจสอบว่าให้สิทธิ์อะไรบ้าง"
+                  : "1) ติ๊กเมนูที่ role นี้เข้าถึงได้ 2) ในแต่ละเมนูที่ติ๊ก เลือกว่าทำ action อะไรได้บ้าง"}</p>
                 {pagePermissionGroups.map((group) => {
-                  const groupPermissions = permissionsForGroup(group, permissions);
+                  const groupPermissions = permissionsForGroup(group, visiblePermissions);
                   if (groupPermissions.length === 0) return null;
                   const expanded = expandedPages.has(group.href);
                   const multiEntry = group.entries.length > 1;
                   return (
                     <div key={group.href} className="permission-group">
                       <label className="toggle-field permission-page-toggle">
-                        <Checkbox checked={expanded} onChange={() => togglePage(group)} />
+                        <Checkbox checked={expanded} disabled={readOnly} onChange={() => togglePage(group)} />
                         <strong>{group.label}</strong>
                       </label>
                       {expanded && (
@@ -230,7 +261,7 @@ function RoleEditor({ role, permissions, defaultOrganizationId, onClose, onSaved
                                   <small>{entry.resourceType}</small>
                                   {entryPermissions.map((permission) => (
                                     <label key={permission.id} className="toggle-field">
-                                      <Checkbox checked={permissionIds.includes(permission.id)} onChange={() => togglePermission(permission.id)} />
+                                      <Checkbox checked={permissionIds.includes(permission.id)} disabled={locked(permission)} onChange={() => togglePermission(permission.id)} />
                                       <span>{permission.action}{permission.description ? ` — ${permission.description}` : ""}</span>
                                     </label>
                                   ))}
@@ -240,7 +271,7 @@ function RoleEditor({ role, permissions, defaultOrganizationId, onClose, onSaved
                           ) : (
                             groupPermissions.map((permission) => (
                               <label key={permission.id} className="toggle-field">
-                                <Checkbox checked={permissionIds.includes(permission.id)} onChange={() => togglePermission(permission.id)} />
+                                <Checkbox checked={permissionIds.includes(permission.id)} disabled={locked(permission)} onChange={() => togglePermission(permission.id)} />
                                 <span>{permission.action}{permission.description ? ` — ${permission.description}` : ""}</span>
                               </label>
                             ))
@@ -258,7 +289,7 @@ function RoleEditor({ role, permissions, defaultOrganizationId, onClose, onSaved
                         <small>{resourceType}</small>
                         {items.map((permission) => (
                           <label key={permission.id} className="toggle-field">
-                            <Checkbox checked={permissionIds.includes(permission.id)} onChange={() => togglePermission(permission.id)} />
+                            <Checkbox checked={permissionIds.includes(permission.id)} disabled={locked(permission)} onChange={() => togglePermission(permission.id)} />
                             <span>{permission.action}{permission.description ? ` — ${permission.description}` : ""}</span>
                           </label>
                         ))}
@@ -268,7 +299,7 @@ function RoleEditor({ role, permissions, defaultOrganizationId, onClose, onSaved
                 )}
               </fieldset>
               {error && <FormMessage className="full-field">{error}</FormMessage>}
-              <div className="editor-actions full-field"><Button type="button" variant="secondary" onClick={onClose} disabled={pending}>ยกเลิก</Button><Button disabled={pending}>{pending ? "กำลังบันทึก" : "บันทึก"}</Button></div>
+              <div className="editor-actions full-field"><Button type="button" variant="secondary" onClick={onClose} disabled={pending}>{readOnly ? "ปิด" : "ยกเลิก"}</Button>{!readOnly && <Button disabled={pending}>{pending ? "กำลังบันทึก" : "บันทึก"}</Button>}</div>
             </form>
           )}
         </DialogBody>
