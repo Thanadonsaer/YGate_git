@@ -18,8 +18,29 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                deleteDir()
-                checkout scm
+                // The repository contains several legacy binary artifacts. A
+                // full tag/history fetch makes the Windows agent transfer a
+                // much larger pack than this build needs and is vulnerable to
+                // transient GitHub HTTP disconnects (curl 18 / early EOF).
+                withEnv([
+                    'GIT_CONFIG_COUNT=1',
+                    'GIT_CONFIG_KEY_0=http.version',
+                    'GIT_CONFIG_VALUE_0=HTTP/1.1'
+                ]) {
+                    retry(3) {
+                        deleteDir()
+                        checkout([
+                            $class: 'GitSCM',
+                            branches: scm.branches,
+                            doGenerateSubmoduleConfigurations: false,
+                            extensions: [
+                                [$class: 'CloneOption', depth: 1, noTags: true, shallow: true, timeout: 30],
+                                [$class: 'CheckoutOption', timeout: 30]
+                            ],
+                            userRemoteConfigs: scm.userRemoteConfigs
+                        ])
+                    }
+                }
                 script {
                     env.RELEASE_SHA = powershell(script: 'git rev-parse HEAD', returnStdout: true).trim()
                     if (!env.BRANCH_NAME) {
