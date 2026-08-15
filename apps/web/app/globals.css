@@ -604,22 +604,66 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .scada-workbench.solo { grid-template-columns: minmax(0, 1fr); }
 .scada-workbench.solo .scada-stage-shell { height: calc(100vh - 210px); min-height: 480px; }
 .scada-workbench.solo .scada-stage { height: calc(100% - 46px); }
-.scada-dark .scada-palette, .scada-dark .scada-inspector, .scada-dark .scada-stage-shell { min-width: 0; border: 1px solid var(--scada-line); background: var(--scada-surface); }
-.scada-palette, .scada-inspector { height: 690px; overflow-y: auto; }
-.scada-dark .scada-palette header, .scada-dark .scada-inspector header { min-height: 58px; padding: 12px 13px; border-bottom: 1px solid var(--scada-line); display: flex; align-items: center; gap: 9px; }
-.scada-palette header div, .scada-inspector header div { min-width: 0; display: grid; gap: 3px; }
-.scada-dark .scada-palette header strong, .scada-dark .scada-inspector header strong { color: var(--scada-ink); font-size: 12px; }
-.scada-dark .scada-palette header small, .scada-dark .scada-inspector header small { color: var(--scada-muted); font-size: 10px; }
-.scada-dark .scada-palette > button { width: calc(100% - 20px); min-height: 58px; margin: 10px 10px 0; padding: 10px; border: 1px solid var(--scada-line); border-radius: var(--radius-sm); display: flex; align-items: center; gap: 10px; color: var(--scada-ink); background: var(--scada-surface); text-align: left; }
-.scada-dark .scada-palette > button:hover { border-color: color-mix(in srgb, var(--scada-accent) 45%, var(--scada-line)); background: color-mix(in srgb, var(--scada-accent) 8%, var(--scada-surface)); }
-.scada-palette > button span { min-width: 0; display: grid; gap: 3px; }
-.scada-dark .scada-palette > button strong { font-size: 12px; }
-.scada-dark .scada-palette > button small { color: var(--scada-muted); font-size: 10px; }
-.scada-dark .palette-note { margin: 14px 10px; padding: 10px; display: flex; align-items: flex-start; gap: 8px; color: var(--scada-muted); background: var(--scada-bg); font-size: 10px; line-height: 1.45; }
-.palette-note p { margin: 0; }
+.scada-dark .scada-layers, .scada-dark .scada-inspector, .scada-dark .scada-stage-shell { min-width: 0; border: 1px solid var(--scada-line); background: var(--scada-surface); }
+.scada-inspector { height: 690px; overflow-y: auto; }
+.scada-layers { height: 690px; display: grid; grid-template-rows: auto minmax(0, 1fr); }
+.scada-dark .scada-layers header, .scada-dark .scada-inspector header { min-height: 58px; padding: 12px 13px; border-bottom: 1px solid var(--scada-line); display: flex; align-items: center; gap: 9px; }
+.scada-layers header div, .scada-inspector header div { min-width: 0; display: grid; gap: 3px; }
+.scada-dark .scada-layers header strong, .scada-dark .scada-inspector header strong { color: var(--scada-ink); font-size: 12px; }
+.scada-dark .scada-layers header small, .scada-dark .scada-inspector header small { color: var(--scada-muted); font-size: 10px; }
+
+/* --- Layers panel ------------------------------------------------------- */
+.scada-layer-list { overflow-y: auto; padding: 6px 0; }
+.scada-dark .scada-layer-row { position: relative; min-height: 30px; padding-right: 6px; display: grid; grid-template-columns: 16px minmax(0, 1fr) 22px 22px; align-items: center; gap: 6px; color: var(--scada-ink); font-size: 11px; cursor: default; user-select: none; }
+.scada-dark .scada-layer-row:hover { background: color-mix(in srgb, var(--scada-accent) 8%, transparent); }
+.scada-dark .scada-layer-row.selected { background: color-mix(in srgb, var(--scada-accent) 18%, transparent); box-shadow: inset 2px 0 0 var(--scada-accent); }
+.scada-layer-row.dragging { opacity: .4; }
+.scada-layer-row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scada-layer-row > input { width: 100%; height: 22px; padding: 0 4px; border: 1px solid var(--scada-accent); border-radius: 3px; color: var(--scada-ink); background: var(--scada-bg); font-size: 11px; }
+.scada-dark .scada-layer-row > button { display: flex; align-items: center; justify-content: center; height: 22px; border: 0; border-radius: 3px; color: var(--scada-muted); background: transparent; }
+.scada-dark .scada-layer-row > button:hover { color: var(--scada-ink); background: var(--scada-bg); }
+/* Drop indicators: a line for reordering, a ring for reparenting into a container. */
+.scada-layer-row.drop-above::before, .scada-layer-row.drop-below::after { content: ""; position: absolute; left: 0; right: 0; height: 2px; background: var(--scada-accent); }
+.scada-layer-row.drop-above::before { top: -1px; }
+.scada-layer-row.drop-below::after { bottom: -1px; }
+.scada-layer-row.drop-inside { outline: 1px solid var(--scada-accent); outline-offset: -1px; }
+.scada-dark .scada-layer-empty { margin: 14px 12px; color: var(--scada-muted); font-size: 10px; line-height: 1.5; }
+
+/* --- Tool strip --------------------------------------------------------- */
+.scada-toolbar { min-width: 0; display: flex; align-items: center; gap: 2px; }
+.scada-dark .scada-toolbar button.tool-active { color: var(--scada-bg); background: var(--scada-accent); }
+.scada-dark .scada-toolbar-divider { width: 1px; height: 18px; margin: 0 5px; background: var(--scada-line); }
+.scada-dark .scada-toolbar-hint { margin-left: 8px; display: flex; align-items: center; gap: 6px; color: var(--scada-muted); font-size: 10px; font-weight: 650; white-space: nowrap; }
+.scada-dark .scada-toolbar-hint strong { color: var(--scada-ink); }
+.scada-dark .scada-toolbar-hint button { padding: 2px 6px; border: 1px solid var(--scada-line); border-radius: 999px; color: var(--scada-muted); background: transparent; font-size: 9px; }
+.scada-insert { position: relative; }
+.scada-dark .scada-insert-menu { position: absolute; z-index: 20; top: calc(100% + 6px); left: 0; width: 268px; max-height: 340px; overflow-y: auto; padding: 5px; border: 1px solid var(--scada-line); border-radius: var(--radius-sm); background: var(--scada-surface); box-shadow: 0 12px 30px rgb(0 0 0 / .45); }
+.scada-dark .scada-insert-menu button { width: 100%; padding: 7px 8px; border: 0; border-radius: 4px; display: flex; align-items: center; gap: 9px; color: var(--scada-ink); background: transparent; text-align: left; }
+.scada-dark .scada-insert-menu button:hover:not(:disabled) { background: color-mix(in srgb, var(--scada-accent) 14%, transparent); }
+.scada-insert-menu button:disabled { opacity: .4; }
+.scada-insert-menu button span { min-width: 0; display: grid; gap: 2px; }
+.scada-dark .scada-insert-menu strong { font-size: 11px; }
+.scada-dark .scada-insert-menu small { color: var(--scada-muted); font-size: 9px; }
+
+/* --- Zoom widget -------------------------------------------------------- */
+.scada-zoom { position: relative; display: flex; align-items: center; gap: 1px; }
+.scada-dark .scada-zoom-value { min-width: 46px; height: 26px; padding: 0 4px; border: 0; border-radius: 4px; color: var(--scada-ink); background: transparent; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.scada-dark .scada-zoom-value:hover { background: var(--scada-bg); }
+.scada-dark .scada-zoom-menu { position: absolute; z-index: 20; top: calc(100% + 6px); right: 0; width: 214px; padding: 5px; border: 1px solid var(--scada-line); border-radius: var(--radius-sm); background: var(--scada-surface); box-shadow: 0 12px 30px rgb(0 0 0 / .45); }
+.scada-dark .scada-zoom-menu button { width: 100%; padding: 6px 8px; border: 0; border-radius: 4px; display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--scada-ink); background: transparent; font-size: 11px; }
+.scada-dark .scada-zoom-menu button:hover:not(:disabled) { background: color-mix(in srgb, var(--scada-accent) 14%, transparent); }
+.scada-zoom-menu button:disabled { opacity: .4; }
+.scada-dark .scada-zoom-menu kbd { color: var(--scada-muted); font-family: var(--font-mono); font-size: 9px; }
+
+/* --- Drag overlays ------------------------------------------------------ */
+/* Guides live inside React Flow's ViewportPortal, so these coordinates are already flow-space. */
+.scada-guide { z-index: 5; pointer-events: none; background: #f2496b; }
+.scada-guide-gap { position: absolute; top: 50%; left: 50%; padding: 1px 4px; border-radius: 3px; color: white; background: #f2496b; font-size: 9px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; transform-origin: 0 0; }
+.scada-draw-preview { position: absolute; z-index: 6; pointer-events: none; border: 1px solid var(--scada-accent); background: color-mix(in srgb, var(--scada-accent) 12%, transparent); }
+.scada-draw-preview span { position: absolute; top: -18px; left: 0; padding: 1px 5px; border-radius: 3px; color: var(--scada-bg); background: var(--scada-accent); font-size: 9px; font-weight: 700; white-space: nowrap; }
 .scada-dark .scada-stage-shell { position: relative; height: 690px; overflow: hidden; }
 .scada-dark .scada-stage-toolbar { height: 46px; padding: 0 8px 0 13px; border-bottom: 1px solid var(--scada-line); display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--scada-muted); font-size: 11px; font-weight: 700; }
-.scada-dark .scada-stage { width: 100%; height: 642px; background: var(--scada-bg); }
+.scada-dark .scada-stage { position: relative; width: 100%; height: 642px; background: var(--scada-bg); }
 .scada-dark .scada-stage-shell:fullscreen { width: 100vw; height: 100vh; border: 0; background: var(--scada-bg); }
 .scada-dark .scada-stage-shell:fullscreen .scada-stage { height: calc(100vh - 46px); }
 .scada-dark .scada-inspector > label { margin: 12px 13px 0; display: grid; gap: 6px; color: var(--scada-ink); font-size: 11px; font-weight: 700; }

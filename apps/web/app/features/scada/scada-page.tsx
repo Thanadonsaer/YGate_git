@@ -3,13 +3,13 @@
 import {
   Background,
   BackgroundVariant,
-  Controls,
   Handle,
   MiniMap,
   NodeResizer,
   Panel,
   Position,
   ReactFlow,
+  ViewportPortal,
   type ReactFlowInstance,
   addEdge,
   applyEdgeChanges,
@@ -62,7 +62,29 @@ import {
   Workflow,
   Zap,
 } from "lucide-react";
-import { FormEvent, useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  CanvasToolbar,
+  DrawPreview,
+  GuideOverlay,
+  LayersPanel,
+  MOVE_TOOL,
+  ZoomControl,
+  toolCursor,
+  toolForKey,
+  type CanvasTool,
+  type LayerDrop,
+  type LayerRow,
+} from "./scada-canvas-chrome";
+import {
+  absolutePosition,
+  lockAxis,
+  relativePosition,
+  reorder,
+  resequenceZ,
+  snapToGuides,
+  type Guide,
+} from "../../lib/canvas-geometry";
 import { FormMessage, StatusTag, TextInput } from "../../components/ui/form";
 import { api, errorMessage, csrfToken, formatDate } from "../../lib/api";
 import { sameSelection } from "../../lib/selection";
@@ -133,6 +155,13 @@ const paletteEntries: Array<{ type: ScadaNodeType; title: string; description: s
   { type: "image", title: "Image", description: "เลือกไฟล์หรือลากรูปลง canvas", icon: ImageIcon },
   { type: "clock", title: "Plant clock", description: "เวลาและ timezone ที่ระบุ", icon: Clock3 },
 ];
+
+/** Layer-row icons. The palette covers most types; equipment and group are builder-only. */
+const nodeIcons: Partial<Record<ScadaNodeType, typeof Zap>> = {
+  ...Object.fromEntries(paletteEntries.map((entry) => [entry.type, entry.icon])),
+  equipment: Zap,
+  group: Grid2X2,
+};
 
 export function ScadaPage() {
   const { user } = usePlatformSession();
@@ -458,6 +487,117 @@ export function ScadaCanvas({ screenId, design, editable, devices, latestByDevic
   const selectionProtected = selectedNodes.some((node) => node.data.locked || inheritedFlag(node, "locked"));
   const canUngroup = selectedNodes.some((node) => node.type === "group");
 
+  // --- Figma-style canvas interaction state -------------------------------
+  const [tool, setTool] = useState<CanvasTool>(MOVE_TOOL);
+  const [stickyTool, setStickyTool] = useState(false);
+  const [spaceHeld, setSpaceHeld] = useState(false);
+  const [guides, setGuides] = useState<Guide[]>([]);
+  const [drawRect, setDrawRect] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
+  const [connectorSource, setConnectorSource] = useState("");
+  const [zoom, setZoom] = useState(design.viewport.zoom || 1);
+  // Modifier keys are read inside onNodesChange, which has no event to inspect,
+  // so a window-level listener mirrors them into a ref.
+  const modifiers = useRef({ shift: false, ctrl: false });
+  const drawOrigin = useRef<{ screen: { x: number; y: number }; flow: { x: number; y: number } } | null>(null);
+  const dragOrigin = useRef<Record<string, { x: number; y: number }>>({});
+
+  /** Absolute canvas origin of a node's parent chain, for guide math across groups. */
+  function ancestorOrigin(node: FlowNode) {
+    const origins: { x: number; y: number }[] = [];
+    let current: FlowNode | undefined = node;
+    const visited = new Set<string>();
+    while (current?.parentId && !visited.has(current.parentId)) {
+      visited.add(current.parentId);
+      current = nodes.find((item) => item.id === current!.parentId);
+      if (!current) break;
+      origins.push(current.position);
+    }
+    return origins;
+  }
+
+  // ponytail: guides re-walk every node's ancestor chain each drag frame -- O(n^2)
+  // at a few hundred nodes, still well under a frame. Memoise the absolute rects
+  // on drag start if a screen ever grows past that.
+  function nodeRect(node: FlowNode, position = node.position) {
+    const origin = absolutePosition(position, ancestorOrigin(node));
+    return { ...origin, width: node.measured?.width ?? node.width ?? 160, height: node.measured?.height ?? node.height ?? 80 };
+  }
+
+  function pickTool(next: CanvasTool, sticky: boolean) {
+    setTool(next);
+    setStickyTool(sticky && next.kind === "draw");
+    setConnectorSource("");
+  }
+
+  function applyZoom(next: number) {
+    const clamped = Math.max(0.1, Math.min(4, next));
+    flowRef.current?.zoomTo(clamped, { duration: 120 });
+    setZoom(clamped);
+  }
+
+  function zoomToSelection() {
+    if (!selectedNodes.length) return;
+    flowRef.current?.fitBounds(getNodesBounds(selectedNodes), { padding: 0.25, duration: 200 });
+    setTimeout(() => setZoom(flowRef.current?.getZoom() ?? zoom), 220);
+  }
+
+  function fitAll() {
+    flowRef.current?.fitView({ padding: 0.15, duration: 200 });
+    setTimeout(() => setZoom(flowRef.current?.getZoom() ?? zoom), 220);
+  }
+
+  // --- Drag-to-draw. The rubber band is tracked in stage pixels (so it can be
+  // drawn without a re-projection every frame) while the node it creates comes
+  // from the flow-space start and end points.
+  function beginDraw(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!editable || tool.kind !== "draw" || event.button !== 0 || spaceHeld) return;
+    const flow = flowRef.current?.screenToFlowPosition({ x: event.clientX, y: event.clientY });
+    if (!flow) return;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const screen = { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
+    drawOrigin.current = { screen, flow };
+    setDrawRect({ left: screen.x, top: screen.y, width: 0, height: 0 });
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function trackDraw(event: ReactPointerEvent<HTMLDivElement>) {
+    const origin = drawOrigin.current;
+    if (!origin) return;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const x = event.clientX - bounds.left;
+    const y = event.clientY - bounds.top;
+    setDrawRect({ left: Math.min(origin.screen.x, x), top: Math.min(origin.screen.y, y), width: Math.abs(x - origin.screen.x), height: Math.abs(y - origin.screen.y) });
+  }
+
+  function finishDraw(event: ReactPointerEvent<HTMLDivElement>) {
+    const origin = drawOrigin.current;
+    drawOrigin.current = null;
+    setDrawRect(null);
+    if (!origin || tool.kind !== "draw") return;
+    const end = flowRef.current?.screenToFlowPosition({ x: event.clientX, y: event.clientY });
+    if (!end) return;
+    const width = Math.round(Math.abs(end.x - origin.flow.x));
+    const height = Math.round(Math.abs(end.y - origin.flow.y));
+    // A click with no meaningful drag falls back to the type's default size,
+    // which is what the old palette produced.
+    const sized = width > 8 && height > 8 && tool.node !== "label";
+    addNode(tool.node, {
+      position: { x: Math.min(origin.flow.x, end.x), y: Math.min(origin.flow.y, end.y) },
+      size: sized ? { width, height } : undefined,
+      data: tool.shapeKind ? { shapeKind: tool.shapeKind, label: tool.label } : undefined,
+      edit: tool.node === "label",
+    });
+    if (!stickyTool) pickTool(MOVE_TOOL, false);
+  }
+
+  /** Connector tool: first click picks the source, second creates the edge. */
+  function connectorClick(id: string) {
+    if (!connectorSource) { setConnectorSource(id); return; }
+    connect({ source: connectorSource, target: id, sourceHandle: null, targetHandle: null });
+    setConnectorSource("");
+    if (!stickyTool) pickTool(MOVE_TOOL, false);
+  }
+
   function emit(nextNodes: FlowNode[], nextEdges: FlowEdge[], nextViewport = viewport) {
     onDesignChange({
       version: 1,
@@ -508,9 +648,44 @@ export function ScadaCanvas({ screenId, design, editable, devices, latestByDevic
     if (!editable) return;
     const allowed = changes.filter((change) => change.type !== "remove" || !nodes.some((node) => node.id === change.id && (node.data.locked || inheritedFlag(node, "locked"))));
     if (allowed.some((change) => change.type === "remove")) pushHistory();
+    applySnapping(allowed);
     const next = applyNodeChanges(allowed, nodes);
     setNodes(next);
     emit(next, edges);
+  }
+
+  /**
+   * Figma-style drag correction, applied in place on the change React Flow is
+   * about to commit (its documented helper-lines pattern).
+   *
+   * Only a single-node drag snaps: with a multi-node drag every node gets its
+   * own change and snapping each independently would tear the selection apart.
+   * Holding Ctrl suppresses snapping entirely; the old 20px grid stays as the
+   * fallback when nothing is close enough to align to.
+   */
+  function applySnapping(changes: NodeChange<FlowNode>[]) {
+    const dragging = changes.filter((change) => change.type === "position" && change.dragging && change.position);
+    if (dragging.length !== 1) {
+      if (guides.length) setGuides([]);
+      return;
+    }
+    const change = dragging[0] as Extract<NodeChange<FlowNode>, { type: "position" }>;
+    const node = nodes.find((item) => item.id === change.id);
+    if (!node || !change.position) return;
+
+    const origin = dragOrigin.current[node.id];
+    let position = modifiers.current.shift && origin ? lockAxis(origin, change.position) : change.position;
+    if (modifiers.current.ctrl) {
+      if (guides.length) setGuides([]);
+    } else {
+      const others = nodes.filter((item) => item.id !== node.id && item.id !== node.parentId).map((item) => nodeRect(item));
+      const snapped = snapToGuides(nodeRect(node, position), others);
+      setGuides(snapped.guides);
+      position = snapped.guides.length
+        ? relativePosition(snapped.position, absolutePosition({ x: 0, y: 0 }, ancestorOrigin(node)))
+        : { x: Math.round(position.x / 20) * 20, y: Math.round(position.y / 20) * 20 };
+    }
+    change.position = position;
   }
 
   function edgesChanged(changes: EdgeChange<FlowEdge>[]) {
@@ -530,7 +705,12 @@ export function ScadaCanvas({ screenId, design, editable, devices, latestByDevic
     emit(nodes, next);
   }
 
-  function addNode(type: ScadaNodeType) {
+  /**
+   * Create one node. Called both by a plain tool click (no options -- cascading
+   * position and the type's default size, as the old palette did) and by
+   * drag-to-draw, which supplies the rectangle the pointer swept out.
+   */
+  function addNode(type: ScadaNodeType, options: { position?: { x: number; y: number }; size?: { width: number; height: number }; data?: Partial<ScadaNodeData>; edit?: boolean } = {}) {
     if (!editable) return;
     if (paletteEntries.find((entry) => entry.type === type)?.requiresDevice && devices.length === 0) return;
     pushHistory();
@@ -553,11 +733,108 @@ export function ScadaCanvas({ screenId, design, editable, devices, latestByDevic
       ticker: { label: "Message", text: "Plant operating normally" },
       "device-summary": { label: "Device parameters", deviceId: devices[0]?.id },
     };
-    const dimensions: { width?: number; height?: number } = type === "section" ? { width: 360, height: 220 } : type === "image" ? { width: 260, height: 160 } : type === "device-summary" ? { width: 300, height: 240 } : type === "table" || type === "alarms" ? { width: 280, height: 180 } : type === "shape" ? { width: 140, height: 90 } : {};
-    const nextNode: FlowNode = { id, type, position: { x: 100 + nodes.length * 28, y: 100 + nodes.length * 24 }, data: defaults[type], zIndex: type === "section" || type === "group" ? -1 : 0, ...dimensions, ...(dimensions.width && dimensions.height ? { style: dimensions } : {}) };
+    const defaultSize: { width?: number; height?: number } = type === "section" ? { width: 360, height: 220 } : type === "image" ? { width: 260, height: 160 } : type === "device-summary" ? { width: 300, height: 240 } : type === "table" || type === "alarms" ? { width: 280, height: 180 } : type === "shape" ? { width: 140, height: 90 } : {};
+    const dimensions = options.size ?? defaultSize;
+    const nextNode: FlowNode = {
+      id, type,
+      position: options.position ?? { x: 100 + nodes.length * 28, y: 100 + nodes.length * 24 },
+      data: { ...defaults[type], ...options.data },
+      zIndex: type === "section" || type === "group" ? -1 : 0,
+      ...dimensions, ...(dimensions.width && dimensions.height ? { style: dimensions } : {}),
+    };
     const next = [...nodes, nextNode];
     setNodes(next);
     setSelectedIDs([id]);
+    if (options.edit) setEditingID(id);
+    emit(next, edges);
+  }
+
+  /**
+   * Alt+drag: leave a copy behind and keep dragging the originals, like Figma.
+   * The clones are inserted unselected so React Flow's in-flight drag keeps
+   * targeting the nodes the pointer grabbed.
+   */
+  function stampCopy() {
+    if (!editable || selectedIDs.length === 0) return;
+    pushHistory();
+    const copies = cloneNodes(copyableSelection(), 0).map((node) => ({ ...node, selected: false }));
+    const next = [...nodes, ...copies];
+    setNodes(next);
+    emit(next, edges);
+  }
+
+  /** Nudge the selection by whole pixels, bypassing the 20px grid. */
+  function nudgeSelection(dx: number, dy: number) {
+    if (!editable || selectedIDs.length === 0 || selectionProtected) return;
+    pushHistory();
+    const next = nodes.map((node) => selectedIDs.includes(node.id) ? { ...node, position: { x: node.position.x + dx, y: node.position.y + dy } } : node);
+    setNodes(next);
+    emit(next, edges);
+  }
+
+  /**
+   * Layers panel rows: topmost first, children nested under their container.
+   * Siblings are ordered by zIndex so the panel and the canvas agree.
+   */
+  function layerRows(): LayerRow[] {
+    const rows: LayerRow[] = [];
+    const walk = (parentId: string | undefined, depth: number) => {
+      nodes
+        .filter((node) => node.parentId === parentId)
+        .sort((a, b) => (b.zIndex ?? 0) - (a.zIndex ?? 0))
+        .forEach((node) => {
+          rows.push({
+            id: node.id, type: node.type as ScadaNodeType, label: node.data.label || node.type || "node", depth,
+            hidden: Boolean(node.data.hidden), locked: Boolean(node.data.locked),
+            container: node.type === "group" || node.type === "section",
+          });
+          walk(node.id, depth + 1);
+        });
+    };
+    walk(undefined, 0);
+    return rows;
+  }
+
+  /**
+   * Drop handler for the layers panel. "inside" reparents into a container;
+   * "above"/"below" reorder within the target's sibling run. Either way the
+   * whole run gets dense z-indices back so repeated drags stay stable.
+   */
+  function reorderLayer(dragID: string, targetID: string, drop: LayerDrop) {
+    if (!editable) return;
+    const dragged = nodes.find((node) => node.id === dragID);
+    const target = nodes.find((node) => node.id === targetID);
+    if (!dragged || !target) return;
+    // Refuse to drop a container into its own subtree -- that would orphan it.
+    if (selectionWithDescendants([dragID]).has(targetID)) return;
+    pushHistory();
+
+    const parentId = drop === "inside" ? target.id : target.parentId;
+    let moved = dragged;
+    if (parentId !== dragged.parentId) {
+      const absolute = absolutePosition(dragged.position, ancestorOrigin(dragged));
+      const parent = parentId ? nodes.find((node) => node.id === parentId) : undefined;
+      const parentOrigin = parent ? absolutePosition(parent.position, ancestorOrigin(parent)) : { x: 0, y: 0 };
+      moved = { ...dragged, parentId, extent: parentId ? "parent" as const : undefined, position: relativePosition(absolute, parentOrigin) };
+    }
+
+    const rebased = nodes.map((node) => node.id === dragID ? moved : node);
+    // Sibling ids, bottom-to-top, matching the panel's reversed display order.
+    const siblings = rebased
+      .filter((node) => node.parentId === parentId)
+      .sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0))
+      .map((node) => node.id);
+    // The panel lists highest z first, so "above" means later in this
+    // bottom-to-top run: land just past the target. "below" takes the target's
+    // own slot and pushes it up. A reparent ("inside") goes straight to the top.
+    const without = siblings.filter((id) => id !== dragID);
+    const anchor = without.indexOf(targetID);
+    const beforeId = drop === "inside" ? null : drop === "above" ? (without[anchor + 1] ?? null) : targetID;
+    const zByID = resequenceZ(reorder(siblings, dragID, beforeId));
+
+    const next = rebased.map((node) => node.id in zByID ? { ...node, zIndex: zByID[node.id] } : node);
+    setNodes(next);
+    setSelectedIDs([dragID]);
     emit(next, edges);
   }
 
@@ -794,19 +1071,58 @@ export function ScadaCanvas({ screenId, design, editable, devices, latestByDevic
     function isTypingTarget(target: EventTarget | null) {
       return target instanceof HTMLElement && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
     }
+    function trackModifiers(event: KeyboardEvent) {
+      modifiers.current.shift = event.shiftKey;
+      modifiers.current.ctrl = event.ctrlKey || event.metaKey;
+    }
+    function onKeyUp(event: KeyboardEvent) {
+      trackModifiers(event);
+      if (event.code === "Space") setSpaceHeld(false);
+    }
     function onKeyDown(event: KeyboardEvent) {
-      if (isTypingTarget(event.target) || !(event.ctrlKey || event.metaKey)) return;
+      trackModifiers(event);
+      if (isTypingTarget(event.target)) return;
       const key = event.key.toLowerCase();
-      if (key === "c") copySelection();
-      else if (key === "v") pasteClipboard();
-      else if (key === "d") { event.preventDefault(); duplicateSelection(); }
-      else if (key === "z" && event.shiftKey) { event.preventDefault(); redo(); }
-      else if (key === "z") { event.preventDefault(); undo(); }
-      else if (key === "y") { event.preventDefault(); redo(); }
+
+      // Space held = temporary Hand tool, released back to whatever was active.
+      // A focused button keeps Space as its activation key.
+      if (event.code === "Space") {
+        if (event.target instanceof HTMLElement && event.target.closest("button")) return;
+        event.preventDefault();
+        if (!event.repeat) setSpaceHeld(true);
+        return;
+      }
+
+      if (event.ctrlKey || event.metaKey) {
+        if (key === "c") copySelection();
+        else if (key === "v") pasteClipboard();
+        else if (key === "d") { event.preventDefault(); duplicateSelection(); }
+        else if (key === "g") { event.preventDefault(); if (event.shiftKey) ungroupSelection(); else wrapSelection("group"); }
+        else if (key === "z") { event.preventDefault(); if (event.shiftKey) redo(); else undo(); }
+        else if (key === "y") { event.preventDefault(); redo(); }
+        else if (key === "=" || key === "+") { event.preventDefault(); applyZoom(zoom * 1.2); }
+        else if (key === "-") { event.preventDefault(); applyZoom(zoom / 1.2); }
+        return;
+      }
+
+      if (event.shiftKey && (key === "1" || key === "!")) { event.preventDefault(); fitAll(); return; }
+      if (event.shiftKey && (key === "2" || key === "@")) { event.preventDefault(); zoomToSelection(); return; }
+      if (event.shiftKey && (key === "0" || key === ")")) { event.preventDefault(); applyZoom(1); return; }
+
+      if (key === "escape") { pickTool(MOVE_TOOL, false); return; }
+      if (key.startsWith("arrow")) {
+        const step = event.shiftKey ? 10 : 1;
+        event.preventDefault();
+        nudgeSelection(key === "arrowleft" ? -step : key === "arrowright" ? step : 0, key === "arrowup" ? -step : key === "arrowdown" ? step : 0);
+        return;
+      }
+      const next = toolForKey(key);
+      if (next) { event.preventDefault(); pickTool(next, event.altKey); }
     }
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [editable, nodes, edges, selectedIDs]);
+    window.addEventListener("keyup", onKeyUp);
+    return () => { window.removeEventListener("keydown", onKeyDown); window.removeEventListener("keyup", onKeyUp); };
+  }, [editable, nodes, edges, selectedIDs, zoom, tool]);
 
   useEffect(() => {
     if (!contextMenu) return;
@@ -817,21 +1133,56 @@ export function ScadaCanvas({ screenId, design, editable, devices, latestByDevic
   }, [contextMenu]);
 
   return <div className={editable ? "scada-workbench editing scada-dark" : hideInspector ? "scada-workbench solo scada-dark" : "scada-workbench viewing scada-dark"}>
-    {editable && <aside className="scada-palette"><header><Grid2X2 size={17} /><div><strong>Node palette</strong><small>เพิ่มองค์ประกอบลง fixed canvas</small></div></header>{paletteEntries.map(({ type, title, description, icon: Icon, requiresDevice }) => <Button variant="bare" key={type} onClick={() => addNode(type)} disabled={requiresDevice && devices.length === 0} title={requiresDevice && devices.length === 0 ? "Plant นี้ยังไม่มี Device" : undefined}><Icon size={18} /><span><strong>{title}</strong><small>{description}</small></span></Button>)}<div className="palette-note"><Workflow size={16} /><p>ใช้ Edge ของ React Flow สำหรับเส้นและลูกศรระหว่าง Node</p></div></aside>}
+    {editable && <LayersPanel
+      rows={layerRows()}
+      selectedIDs={selectedIDs}
+      icons={nodeIcons}
+      onSelect={(id, additive) => {
+        const next = additive ? (selectedIDs.includes(id) ? selectedIDs.filter((item) => item !== id) : [...selectedIDs, id]) : [id];
+        setNodes((current) => current.map((node) => ({ ...node, selected: next.includes(node.id) })));
+        setSelectedIDs(next);
+      }}
+      onToggleHidden={(id) => { pushHistory(); const next = nodes.map((node) => node.id === id ? { ...node, data: { ...node.data, hidden: !node.data.hidden } } : node); setNodes(next); emit(next, edges); }}
+      onToggleLocked={(id) => { pushHistory(); const next = nodes.map((node) => node.id === id ? { ...node, data: { ...node.data, locked: !node.data.locked } } : node); setNodes(next); emit(next, edges); }}
+      onRename={(id, label) => { pushHistory(); const next = nodes.map((node) => node.id === id ? { ...node, data: { ...node.data, label: label.slice(0, 100) } } : node); setNodes(next); emit(next, edges); }}
+      onReorder={reorderLayer}
+    />}
     <section className="scada-stage-shell" ref={stageRef}>
       <div className="scada-stage-toolbar">
-        <span>{editable ? "Draft canvas · Snap 20px" : "Operational viewer · Read only"}</span>
+        {editable
+          ? <CanvasToolbar
+              tool={tool}
+              sticky={stickyTool}
+              onTool={pickTool}
+              onSticky={setStickyTool}
+              insertEntries={paletteEntries.map(({ type, title, description, icon, requiresDevice }) => ({
+                type, title, description, icon,
+                disabled: requiresDevice && devices.length === 0,
+                disabledReason: "Plant นี้ยังไม่มี Device",
+              }))}
+            />
+          : <span>Operational viewer · Read only</span>}
         <div className="flex items-center gap-1">
           {editable && <Button variant="icon" disabled={historyRef.current.past.length === 0} onClick={undo} title="เลิกทำ (Ctrl+Z)" aria-label="เลิกทำ"><Undo2 size={16} /></Button>}
           {editable && <Button variant="icon" disabled={historyRef.current.future.length === 0} onClick={redo} title="ทำซ้ำ (Ctrl+Shift+Z)" aria-label="ทำซ้ำ"><Redo2 size={16} /></Button>}
+          {!locked && <ZoomControl zoom={zoom} hasSelection={selectedIDs.length > 0} onZoom={(direction) => applyZoom(direction > 0 ? zoom * 1.2 : zoom / 1.2)} onFit={fitAll} onZoomSelection={zoomToSelection} onReset={() => applyZoom(1)} />}
           <Button variant="icon" onClick={() => void stageRef.current?.requestFullscreen()} title="เต็มจอ" aria-label="แสดง SCADA เต็มจอ"><Fullscreen size={17} /></Button>
         </div>
       </div>
-      <div className="scada-stage" onDragOver={(event) => { if (editable && Array.from(event.dataTransfer.items).some((item) => item.type.startsWith("image/"))) { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; } }} onDrop={(event) => { const file = event.dataTransfer.files[0]; if (!editable || !file?.type.startsWith("image/")) return; event.preventDefault(); const position = flowRef.current?.screenToFlowPosition({ x: event.clientX, y: event.clientY }); void uploadImage(file, undefined, position); }}>
-        <ReactFlow<FlowNode, FlowEdge> nodes={nodes.map((node) => ({ ...node, style: { ...node.style, ...nodeVisualVars(node.data), opacity: editable && (node.data.hidden || inheritedFlag(node, "hidden")) ? .35 : 1 }, draggable: editable && !locked && !node.data.locked && !inheritedFlag(node, "locked"), hidden: !editable && (node.data.hidden || inheritedFlag(node, "hidden")), data: { ...node.data, latest: latestByDevice[node.data.binding?.deviceId || ""], latestByDevice, catalogs, builderMode: editable, editing: node.id === editingID, onEditCommit: (patch: Partial<ScadaNodeData>) => commitEdit(node.id, patch), onEditCancel: () => setEditingID("") } }))} edges={edges} nodeTypes={nodeTypes} onInit={(instance) => { flowRef.current = instance; }} onNodesChange={nodesChanged} onEdgesChange={edgesChanged} onConnect={connect} onNodeDragStart={() => { if (editable) pushHistory(); }} onSelectionChange={({ nodes: selectedNodes }) => setSelectedIDs((current) => { const next = selectedNodes.map((node) => node.id); return sameSelection(current, next) ? current : next; })} onNodeClick={(event, node) => { const parent = node.parentId ? nodes.find((item) => item.id === node.parentId && item.type === "group") : undefined; if (editable && parent && !event.altKey) selectOnly(parent.id); }} onNodeContextMenu={(event, node) => { if (!editable) return; event.preventDefault(); const parent = node.parentId ? nodes.find((item) => item.id === node.parentId && item.type === "group") : undefined; const targetID = parent?.id || node.id; if (!selectedIDs.includes(targetID)) selectOnly(targetID); setContextMenu({ x: Math.max(8, Math.min(event.clientX, window.innerWidth - 226)), y: Math.max(8, Math.min(event.clientY, window.innerHeight - 410)) }); }} onPaneClick={() => setContextMenu(null)} onNodeDoubleClick={(_, node) => { if (editable && (node.type === "label" || node.type === "section" || node.type === "group" || node.type === "ticker")) setEditingID(node.id); }} onMoveEnd={(_, next) => { setViewport(next); if (editable) emit(nodes, edges, next); }} defaultViewport={viewport} nodesDraggable={editable} nodesConnectable={editable} elementsSelectable={editable} deleteKeyCode={editable ? ["Backspace", "Delete"] : null} panOnDrag={!locked} panOnScroll={!locked} zoomOnScroll={!locked} zoomOnPinch={!locked} zoomOnDoubleClick={!locked} snapToGrid snapGrid={[20, 20]} fitView minZoom={0.1} maxZoom={4} attributionPosition="bottom-left">
+      <div className="scada-stage" style={{ cursor: editable ? toolCursor(tool, spaceHeld) : undefined }} onPointerDown={beginDraw} onPointerMove={trackDraw} onPointerUp={finishDraw} onDragOver={(event) => { if (editable && Array.from(event.dataTransfer.items).some((item) => item.type.startsWith("image/"))) { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; } }} onDrop={(event) => { const file = event.dataTransfer.files[0]; if (!editable || !file?.type.startsWith("image/")) return; event.preventDefault(); const position = flowRef.current?.screenToFlowPosition({ x: event.clientX, y: event.clientY }); void uploadImage(file, undefined, position); }}>
+        <ReactFlow<FlowNode, FlowEdge> nodes={nodes.map((node) => ({ ...node, style: { ...node.style, ...nodeVisualVars(node.data), opacity: editable && (node.data.hidden || inheritedFlag(node, "hidden")) ? .35 : 1 }, draggable: editable && !locked && !node.data.locked && !inheritedFlag(node, "locked"), hidden: !editable && (node.data.hidden || inheritedFlag(node, "hidden")), data: { ...node.data, latest: latestByDevice[node.data.binding?.deviceId || ""], latestByDevice, catalogs, builderMode: editable, editing: node.id === editingID, onEditCommit: (patch: Partial<ScadaNodeData>) => commitEdit(node.id, patch), onEditCancel: () => setEditingID("") } }))} edges={edges} nodeTypes={nodeTypes} onInit={(instance) => { flowRef.current = instance; }} onNodesChange={nodesChanged} onEdgesChange={edgesChanged} onConnect={connect} onNodeDragStart={(event, node) => { if (!editable) return; if (event.altKey) stampCopy(); else pushHistory(); dragOrigin.current = { [node.id]: node.position }; }} onSelectionChange={({ nodes: selectedNodes }) => setSelectedIDs((current) => { const next = selectedNodes.map((node) => node.id); return sameSelection(current, next) ? current : next; })} onNodeClick={(event, node) => { if (editable && tool.kind === "connector") { connectorClick(node.id); return; } const parent = node.parentId ? nodes.find((item) => item.id === node.parentId && item.type === "group") : undefined; if (editable && parent && !event.altKey) selectOnly(parent.id); }} onNodeContextMenu={(event, node) => { if (!editable) return; event.preventDefault(); const parent = node.parentId ? nodes.find((item) => item.id === node.parentId && item.type === "group") : undefined; const targetID = parent?.id || node.id; if (!selectedIDs.includes(targetID)) selectOnly(targetID); setContextMenu({ x: Math.max(8, Math.min(event.clientX, window.innerWidth - 226)), y: Math.max(8, Math.min(event.clientY, window.innerHeight - 410)) }); }} onPaneClick={() => setContextMenu(null)} onNodeDoubleClick={(_, node) => { if (editable && (node.type === "label" || node.type === "section" || node.type === "group" || node.type === "ticker")) setEditingID(node.id); }} onMoveEnd={(_, next) => { setViewport(next); if (editable) emit(nodes, edges, next); }} defaultViewport={viewport} nodesDraggable={editable && !spaceHeld && tool.kind === "move"} nodesConnectable={editable} elementsSelectable={editable} deleteKeyCode={editable ? ["Backspace", "Delete"] : null}
+          /* Figma navigation: left-drag marquee-selects with the Move tool, Space/Hand or the middle
+             button pans, the wheel pans and Ctrl+wheel zooms. Grid snapping is handled in
+             applySnapping() instead of snapGrid so alignment guides can win over the 20px grid. */
+          panOnDrag={locked ? false : spaceHeld || tool.kind === "hand" ? [0, 1] : [1]}
+          selectionOnDrag={!locked && !spaceHeld && tool.kind === "move"}
+          panOnScroll={!locked} zoomOnScroll={false} zoomOnPinch={!locked} zoomOnDoubleClick={false}
+          /* Only a real zoom change re-renders -- a plain pan fires onMove every frame. */
+          onMove={(_, next) => setZoom((current) => Math.abs(current - next.zoom) < 0.001 ? current : next.zoom)}
+          fitView minZoom={0.1} maxZoom={4} attributionPosition="bottom-left">
           <Background variant={BackgroundVariant.Lines} gap={20} size={1} color="var(--line)" />
           {showMinimap && <MiniMap pannable zoomable nodeColor={(node) => node.type === "metric" ? "var(--action)" : node.type === "equipment" ? "var(--warning)" : "var(--muted)"} />}
-          {!locked && <Controls showInteractive={false} />}
+          <ViewportPortal><GuideOverlay guides={guides} zoom={zoom} /></ViewportPortal>
           {editable && selectedIDs.length > 0 && (
             <Panel position="top-center">
               <div className="scada-selection-toolbar">
@@ -855,6 +1206,7 @@ export function ScadaCanvas({ screenId, design, editable, devices, latestByDevic
             </Panel>
           )}
         </ReactFlow>
+        <DrawPreview rect={drawRect} label={tool.kind === "draw" ? tool.label : ""} />
       </div>
       {imageError && <div className="scada-upload-error">{imageError}</div>}
     </section>
