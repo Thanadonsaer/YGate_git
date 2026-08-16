@@ -47,6 +47,36 @@ export async function fetchRange(
   return { readings: readings.reverse(), truncated: true };
 }
 
+/**
+ * Device history walks allowed in flight at once.
+ *
+ * Each device is its own sequential walk of up to MAX_PAGES requests, so firing
+ * every selected device at once both exhausts the browser's six-connection
+ * budget for the origin -- starving the register-metadata requests the same
+ * page fires alongside these -- and hands the API that many concurrent
+ * full-range scans. An eight-device selection came back as eight 502s and a
+ * chart that never loaded, which is what this bounds.
+ */
+const CONCURRENT_DEVICES = 3;
+
+/** fetchRange for several devices, results in device order, bounded fan-out. */
+export async function fetchRanges(
+  plantId: string,
+  deviceIds: string[],
+  from: Date,
+  to: Date,
+  signal?: AbortSignal,
+) {
+  const pages: Array<{ readings: LatestTelemetry[]; truncated: boolean }> = [];
+  // ponytail: fixed batches, not a rolling pool -- the slowest device in a
+  // batch holds up the next one. Swap for a worker pool if that ever shows.
+  for (let index = 0; index < deviceIds.length; index += CONCURRENT_DEVICES) {
+    const batch = deviceIds.slice(index, index + CONCURRENT_DEVICES);
+    pages.push(...(await Promise.all(batch.map((id) => fetchRange(plantId, id, from, to, signal)))));
+  }
+  return pages;
+}
+
 /** What the point picker and the chart need to know about one register. */
 export type PointMeta = {
   key: string;
@@ -91,6 +121,11 @@ export async function loadRegisterCatalogs(plantId: string, devices: Device[], s
     const catalog = await buildCatalog(plantId, device, signal, cachedModelTags).catch(() => ({}));
     return [device.id, catalog] as const;
   }));
+  // Each device swallows its own failure above, and `api` turns an aborted
+  // fetch into a 503 rather than a rejection -- so without this a cancelled
+  // batch resolves cleanly with empty catalogs and the caller's `.then` writes
+  // those over the catalogs the run that replaced it has already loaded.
+  signal?.throwIfAborted();
   return Object.fromEntries(entries) as Record<string, Record<string, PointMeta>>;
 }
 

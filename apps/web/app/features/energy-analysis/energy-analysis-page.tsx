@@ -10,7 +10,7 @@ import {
   toDatetimeLocal,
 } from "../../lib/api";
 import {
-  fetchRange,
+  fetchRanges,
   loadRegisterCatalogs,
   pointMeta,
   type PointMeta,
@@ -66,6 +66,18 @@ const DAILY_BARS_AFTER_MS = 2 * 24 * 60 * 60 * 1000;
  */
 const MAX_DEVICES = 6;
 
+/**
+ * How long the device picker has to sit still before anything is fetched.
+ *
+ * Picking devices is a burst of clicks in one open dropdown, and every click
+ * changes deviceIds -- which used to cancel and restart the catalog *and*
+ * history load for every device already picked. Choosing six devices therefore
+ * paid for six full reloads, hundreds of requests, nearly all of them aborted
+ * by the next click and logged as failures. Waiting for the burst to settle
+ * turns that back into one load.
+ */
+const SELECT_SETTLE_MS = 400;
+
 function rangeOfHours(hours: number) {
   const to = new Date();
   return { from: new Date(to.getTime() - hours * 3_600_000), to };
@@ -80,6 +92,9 @@ export function EnergyAnalysisPage() {
   const [devices, setDevices] = useState<Device[]>([]);
   const [plantId, setPlantId] = useState("");
   const [deviceIds, setDeviceIds] = useState<string[]>([]);
+  // What the picker shows vs. what has been fetched: everything below the
+  // debounce reads activeDeviceIds, so mid-burst clicks never start a load.
+  const [activeDeviceIds, setActiveDeviceIds] = useState<string[]>([]);
   const [range, setRange] = useState(() => rangeOfHours(24));
   const [compare, setCompare] = useState(false);
   const [analysisView, setAnalysisView] = useState<"trend" | "xy" | "solar">(
@@ -99,12 +114,18 @@ export function EnergyAnalysisPage() {
   const [loading, setLoading] = useState(false);
 
   const plant = plants.find((entry) => entry.id === plantId);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setActiveDeviceIds(deviceIds), SELECT_SETTLE_MS);
+    return () => clearTimeout(timer);
+  }, [deviceIds]);
+
   const selectedDevices = useMemo(
     () =>
-      deviceIds
+      activeDeviceIds
         .map((id) => devices.find((device) => device.id === id))
         .filter((device): device is Device => Boolean(device)),
-    [deviceIds, devices],
+    [activeDeviceIds, devices],
   );
 
   useEffect(() => {
@@ -118,6 +139,10 @@ export function EnergyAnalysisPage() {
 
   useEffect(() => {
     setDeviceIds([]);
+    // Cleared here as well as by the debounce: for those 400ms the old plant's
+    // device ids would otherwise be fetched against the new plant, and every
+    // one of them 404s.
+    setActiveDeviceIds([]);
     setDevices([]);
     if (!plantId) return;
     const controller = new AbortController();
@@ -152,7 +177,7 @@ export function EnergyAnalysisPage() {
   }, [plantId, selectedDevices]);
 
   useEffect(() => {
-    if (!plantId || deviceIds.length === 0) return;
+    if (!plantId || activeDeviceIds.length === 0) return;
     if (range.from >= range.to) {
       setError("ช่วงเวลาไม่ถูกต้อง (start ต้องอยู่ก่อน end)");
       return;
@@ -162,33 +187,34 @@ export function EnergyAnalysisPage() {
     setError("");
     void (async () => {
       try {
-        const pages = await Promise.all(
-          deviceIds.map((id) =>
-            fetchRange(plantId, id, range.from, range.to, controller.signal),
-          ),
+        const pages = await fetchRanges(
+          plantId,
+          activeDeviceIds,
+          range.from,
+          range.to,
+          controller.signal,
         );
         setCurrent({
           byDevice: Object.fromEntries(
-            deviceIds.map((id, index) => [id, toSeries(pages[index].readings)]),
+            activeDeviceIds.map((id, index) => [
+              id,
+              toSeries(pages[index].readings),
+            ]),
           ),
           truncated: pages.some((page) => page.truncated),
         });
         if (compare) {
           const window = previousPeriod(range.from, range.to);
-          const before = await Promise.all(
-            deviceIds.map((id) =>
-              fetchRange(
-                plantId,
-                id,
-                window.from,
-                window.to,
-                controller.signal,
-              ),
-            ),
+          const before = await fetchRanges(
+            plantId,
+            activeDeviceIds,
+            window.from,
+            window.to,
+            controller.signal,
           );
           setBaseline(
             Object.fromEntries(
-              deviceIds.map((id, index) => [
+              activeDeviceIds.map((id, index) => [
                 id,
                 toSeries(before[index].readings),
               ]),
@@ -204,26 +230,26 @@ export function EnergyAnalysisPage() {
       }
     })();
     return () => controller.abort();
-  }, [plantId, deviceIds, range, compare, reloadToken]);
+  }, [plantId, activeDeviceIds, range, compare, reloadToken]);
 
   // One register can appear on several devices; the first catalog that knows it
   // supplies the display name, since they are the same register either way.
   const metaOf = useCallback(
     (key: string) => {
-      for (const id of deviceIds) {
+      for (const id of activeDeviceIds) {
         const meta = catalogs[id]?.[key];
         if (meta) return meta;
       }
       return pointMeta({}, key);
     },
-    [catalogs, deviceIds],
+    [catalogs, activeDeviceIds],
   );
 
   // Union, not intersection: a register only one of the selected devices
   // reports is still worth plotting.
   const availableKeys = useMemo(() => {
     const keys = new Set<string>();
-    for (const id of deviceIds) {
+    for (const id of activeDeviceIds) {
       for (const key of Object.keys(current.byDevice[id] ?? {})) {
         if (catalogs[id]?.[key]?.isEnabled !== false) keys.add(key);
       }
@@ -231,7 +257,7 @@ export function EnergyAnalysisPage() {
     return [...keys].sort((a, b) =>
       metaOf(a).displayName.localeCompare(metaOf(b).displayName),
     );
-  }, [current.byDevice, catalogs, deviceIds, metaOf]);
+  }, [current.byDevice, catalogs, activeDeviceIds, metaOf]);
 
   // Default to whatever can actually be analysed -- a power or energy register
   // -- instead of the alphabetically first key, which is usually a voltage.
@@ -259,19 +285,21 @@ export function EnergyAnalysisPage() {
   const metricByDevice = useMemo(
     () =>
       metricKey
-        ? deviceIds.map((id) => current.byDevice[id]?.[metricKey] ?? [])
+        ? activeDeviceIds.map((id) => current.byDevice[id]?.[metricKey] ?? [])
         : [],
-    [metricKey, deviceIds, current.byDevice],
+    [metricKey, activeDeviceIds, current.byDevice],
   );
   const baseByDevice = useMemo(
     () =>
-      metricKey ? deviceIds.map((id) => baseline[id]?.[metricKey] ?? []) : [],
-    [metricKey, deviceIds, baseline],
+      metricKey
+        ? activeDeviceIds.map((id) => baseline[id]?.[metricKey] ?? [])
+        : [],
+    [metricKey, activeDeviceIds, baseline],
   );
 
   // The scatter views correlate two registers sample-for-sample, which only
   // means anything within one device, so they read the first one selected.
-  const scatterDeviceId = deviceIds[0] ?? "";
+  const scatterDeviceId = activeDeviceIds[0] ?? "";
   const scatterSeries = current.byDevice[scatterDeviceId] ?? {};
   const solarXKey =
     findSignalKey(availableKeys, /irradiance|irradiation|sun/i) ??
@@ -429,7 +457,7 @@ export function EnergyAnalysisPage() {
             <MultiSelect
               value={deviceIds}
               onValueChange={(values) =>
-                setDeviceIds(values.slice(0, devices.length))
+                setDeviceIds(values.slice(0, MAX_DEVICES))
               }
               options={devices.map((entry) => ({
                 label: entry.name,
@@ -440,6 +468,11 @@ export function EnergyAnalysisPage() {
               ariaLabel="เลือก Device"
               disabled={devices.length === 0}
             />
+            {/* The cap is silent otherwise: ticking a seventh device just does
+                nothing, which reads as the picker being broken. */}
+            <small className="muted-text">
+              เลือกได้สูงสุด {MAX_DEVICES} เครื่อง · เลือกหลายเครื่องเพื่อเทียบกัน
+            </small>
           </label>
         </div>
 
@@ -493,7 +526,9 @@ export function EnergyAnalysisPage() {
       </section>
 
       {error && <FormMessage>{error}</FormMessage>}
-      {loading && <div className="analytics-loading" role="status" aria-live="polite"><RefreshCw className="spin" size={20} /> กำลังโหลดข้อมูล...</div>}
+      {/* Also while the picker is still settling, otherwise the 400ms before a
+          fetch starts reads as the click having done nothing. */}
+      {(loading || deviceIds.join() !== activeDeviceIds.join()) && <div className="analytics-loading" role="status" aria-live="polite"><RefreshCw className="spin" size={20} /> กำลังโหลดข้อมูล...</div>}
       {current.truncated && (
         <p className="ts-truncated">
           ข้อมูลในช่วงนี้มากเกินไป แสดงเฉพาะส่วนล่าสุด — ลากบนกราฟเพื่อ zoom
@@ -501,7 +536,10 @@ export function EnergyAnalysisPage() {
         </p>
       )}
 
-      {deviceIds.length === 0 ? (
+      {/* Gated on the settled list, not the picker: keying this off deviceIds
+          flashed "no power parameter found" for the 400ms between a click and
+          its data, which reads as a failure rather than as loading. */}
+      {activeDeviceIds.length === 0 ? (
         <div className="table-state">เลือก Plant และ Device เพื่อดูกราฟ</div>
       ) : (
         <>
