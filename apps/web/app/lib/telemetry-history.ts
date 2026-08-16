@@ -48,33 +48,41 @@ export async function fetchRange(
 }
 
 /**
- * Device history walks allowed in flight at once.
+ * Devices worked on at once, for both the history walks and the catalogs.
  *
- * Each device is its own sequential walk of up to MAX_PAGES requests, so firing
- * every selected device at once both exhausts the browser's six-connection
- * budget for the origin -- starving the register-metadata requests the same
- * page fires alongside these -- and hands the API that many concurrent
- * full-range scans. An eight-device selection came back as eight 502s and a
- * chart that never loaded, which is what this bounds.
+ * There is no cap on how many devices can be selected, so this is the only
+ * thing standing between a big selection and a request storm: each device is
+ * its own sequential walk of up to MAX_PAGES requests, and firing them all at
+ * once both exhausts the browser's six-connection budget for the origin --
+ * starving the register-metadata requests the same page fires alongside these
+ * -- and hands the API that many concurrent full-range scans. An eight-device
+ * selection came back as eight 502s and a chart that never loaded.
  */
 const CONCURRENT_DEVICES = 3;
 
+/**
+ * Promise.all in fixed-size batches, results in input order.
+ *
+ * ponytail: batches, not a rolling pool -- the slowest device in a batch holds
+ * up the next one. Swap for a worker pool if that ever shows up in practice.
+ */
+async function inBatches<T, R>(items: T[], size: number, run: (item: T) => Promise<R>) {
+  const results: R[] = [];
+  for (let index = 0; index < items.length; index += size) {
+    results.push(...(await Promise.all(items.slice(index, index + size).map(run))));
+  }
+  return results;
+}
+
 /** fetchRange for several devices, results in device order, bounded fan-out. */
-export async function fetchRanges(
+export function fetchRanges(
   plantId: string,
   deviceIds: string[],
   from: Date,
   to: Date,
   signal?: AbortSignal,
 ) {
-  const pages: Array<{ readings: LatestTelemetry[]; truncated: boolean }> = [];
-  // ponytail: fixed batches, not a rolling pool -- the slowest device in a
-  // batch holds up the next one. Swap for a worker pool if that ever shows.
-  for (let index = 0; index < deviceIds.length; index += CONCURRENT_DEVICES) {
-    const batch = deviceIds.slice(index, index + CONCURRENT_DEVICES);
-    pages.push(...(await Promise.all(batch.map((id) => fetchRange(plantId, id, from, to, signal)))));
-  }
-  return pages;
+  return inBatches(deviceIds, CONCURRENT_DEVICES, (id) => fetchRange(plantId, id, from, to, signal));
 }
 
 /** What the point picker and the chart need to know about one register. */
@@ -117,10 +125,12 @@ export async function loadRegisterCatalogs(plantId: string, devices: Device[], s
     }
     return tags;
   };
-  const entries = await Promise.all(devices.map(async (device) => {
+  // Batched for the same reason the history walks are: with no cap on how many
+  // devices can be selected, one request per device all at once is a storm.
+  const entries = await inBatches(devices, CONCURRENT_DEVICES, async (device) => {
     const catalog = await buildCatalog(plantId, device, signal, cachedModelTags).catch(() => ({}));
     return [device.id, catalog] as const;
-  }));
+  });
   // Each device swallows its own failure above, and `api` turns an aborted
   // fetch into a 503 rather than a rejection -- so without this a cancelled
   // batch resolves cleanly with empty catalogs and the caller's `.then` writes

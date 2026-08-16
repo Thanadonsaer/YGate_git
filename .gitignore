@@ -1,4 +1,12 @@
-/dist/
+# Build outputs. Every compiled binary and packaged release is produced by
+# `go build` or deploy/manual/build-release.ps1 -- nothing in the build or the
+# deploy reads a copy out of the repository. 153 MB of them had accumulated at
+# HEAD, and because binaries barely delta-compress that was the entire cost of
+# the Jenkins Checkout stage: a shallow clone still transfers every blob at
+# HEAD, so the stage went from seconds to 6-7 minutes.
+dist/
+*.exe
+*.zip
 /.superpowers/
 /docs/middleware_db/
 /modbus-api-middleware/Site/

@@ -59,14 +59,6 @@ const PRESETS = [
 const DAILY_BARS_AFTER_MS = 2 * 24 * 60 * 60 * 1000;
 
 /**
- * Devices chartable at once. Each one is its own paged history walk (up to 20
- * requests over a month), so this is a budget on the request fan-out, not a
- * limit of the chart -- and past half a dozen lines the trend stops being
- * readable anyway.
- */
-const MAX_DEVICES = 6;
-
-/**
  * How long the device picker has to sit still before anything is fetched.
  *
  * Picking devices is a burst of clicks in one open dropdown, and every click
@@ -456,9 +448,7 @@ export function EnergyAnalysisPage() {
             Device{" "}
             <MultiSelect
               value={deviceIds}
-              onValueChange={(values) =>
-                setDeviceIds(values.slice(0, MAX_DEVICES))
-              }
+              onValueChange={setDeviceIds}
               options={devices.map((entry) => ({
                 label: entry.name,
                 value: entry.id,
@@ -468,10 +458,8 @@ export function EnergyAnalysisPage() {
               ariaLabel="เลือก Device"
               disabled={devices.length === 0}
             />
-            {/* The cap is silent otherwise: ticking a seventh device just does
-                nothing, which reads as the picker being broken. */}
             <small className="muted-text">
-              เลือกได้สูงสุด {MAX_DEVICES} เครื่อง · เลือกหลายเครื่องเพื่อเทียบกัน
+              เลือกหลายเครื่องเพื่อเทียบกัน
             </small>
           </label>
         </div>
