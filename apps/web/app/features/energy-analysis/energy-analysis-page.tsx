@@ -304,9 +304,9 @@ export function EnergyAnalysisPage() {
   const analysisPoints =
     analysisXKey && analysisYKey
       ? buildScatterPoints(
-          scatterSeries[analysisXKey] ?? [],
-          scatterSeries[analysisYKey] ?? [],
-        )
+        scatterSeries[analysisXKey] ?? [],
+        scatterSeries[analysisYKey] ?? [],
+      )
       : [];
   const barStep: "hour" | "day" =
     range.to.getTime() - range.from.getTime() > DAILY_BARS_AFTER_MS
@@ -319,15 +319,15 @@ export function EnergyAnalysisPage() {
     () =>
       metric
         ? fillBuckets(
-            sumBuckets(
-              metricByDevice.map((points) =>
-                bucketEnergy(points, metric.unit, barStep),
-              ),
+          sumBuckets(
+            metricByDevice.map((points) =>
+              bucketEnergy(points, metric.unit, barStep),
             ),
-            range.from.getTime(),
-            range.to.getTime(),
-            barStep,
-          )
+          ),
+          range.from.getTime(),
+          range.to.getTime(),
+          barStep,
+        )
         : [],
     [metricByDevice, metric, barStep, range],
   );
@@ -458,9 +458,7 @@ export function EnergyAnalysisPage() {
               ariaLabel="เลือก Device"
               disabled={devices.length === 0}
             />
-            <small className="muted-text">
-              เลือกหลายเครื่องเพื่อเทียบกัน
-            </small>
+
           </label>
         </div>
 
@@ -779,13 +777,13 @@ function KpiRow({
     hint?: string;
     delta?: number | null;
   }> = [
-    {
-      label: "พลังงานรวม",
-      value: `${format(totals.kwh)} kWh`,
-      hint: scope,
-      delta: before ? percentChange(totals.kwh, before.kwh) : undefined,
-    },
-  ];
+      {
+        label: "พลังงานรวม",
+        value: `${format(totals.kwh)} kWh`,
+        hint: scope,
+        delta: before ? percentChange(totals.kwh, before.kwh) : undefined,
+      },
+    ];
   if (isPower) {
     cards.push({
       label: deviceCount > 1 ? "กำลังไฟสูงสุด (รวม)" : "กำลังไฟสูงสุด",

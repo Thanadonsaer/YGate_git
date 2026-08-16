@@ -14,7 +14,7 @@ import type { DashboardPlantStatus, Plant } from "../../lib/types";
 type CommunicationStatus = DashboardPlantStatus["communicationStatus"];
 
 const statusLabel: Record<CommunicationStatus, string> = {
-  ONLINE: "Online", DEGRADED: "Degraded", OFFLINE: "Offline", NO_DEVICES: "No devices", DISABLED: "Disabled",
+  ONLINE: "Online", DEGRADED: "Partial", OFFLINE: "Offline", NO_DEVICES: "No devices", DISABLED: "Disabled",
 };
 
 /** Pin colour per status. The legend reads the same map, so the two can't drift. */

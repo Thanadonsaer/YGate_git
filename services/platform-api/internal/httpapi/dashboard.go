@@ -26,9 +26,11 @@ type dashboardLayoutService interface {
 
 func dashboardOverviewHandler(service dashboardReader) func(http.ResponseWriter, *http.Request, auth.Principal) {
 	return func(w http.ResponseWriter, r *http.Request, principal auth.Principal) {
-		// A device counts as stale -- and its plant reads DEGRADED -- once this long
-		// has passed since its last reading with no new data arriving after the poll
-		// command. Overview and Site map both rely on this default so they agree.
+		// A device counts as stale once this long has passed since the platform last
+		// received data for it from the Middleware (received_at, not the device's own
+		// collectTime). A plant with some devices past it reads DEGRADED; a plant with
+		// nothing inside the window at all reads OFFLINE. Overview and Site map both
+		// rely on this default so they agree.
 		seconds := 600
 		var err error
 		if value := r.URL.Query().Get("staleAfterSeconds"); value != "" {

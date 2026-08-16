@@ -263,9 +263,9 @@ const listDashboardPlantStatus = `-- name: ListDashboardPlantStatus :many
 SELECT p.id AS plant_id, p.code, p.name, p.timezone, p.is_active,
        count(d.id)::bigint AS device_count,
        count(d.id) FILTER (WHERE d.is_active)::bigint AS active_device_count,
-       count(tl.observed_at) FILTER (WHERE d.is_active)::bigint AS reporting_device_count,
-       count(tl.observed_at) FILTER (WHERE d.is_active AND tl.observed_at < $1)::bigint AS stale_device_count,
-       count(d.id) FILTER (WHERE d.is_active AND tl.observed_at IS NULL)::bigint AS offline_device_count,
+       count(tl.received_at) FILTER (WHERE d.is_active AND tl.received_at >= $1)::bigint AS reporting_device_count,
+       count(tl.received_at) FILTER (WHERE d.is_active AND tl.received_at < $1)::bigint AS stale_device_count,
+       count(d.id) FILTER (WHERE d.is_active AND tl.received_at IS NULL)::bigint AS offline_device_count,
        max(tl.observed_at) FILTER (WHERE d.is_active) AS last_observed_at
 FROM plant.plant p
 LEFT JOIN plant.device d ON d.organization_id = p.organization_id AND d.plant_id = p.id

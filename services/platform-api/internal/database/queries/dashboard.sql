@@ -6,9 +6,16 @@
 SELECT p.id AS plant_id, p.code, p.name, p.timezone, p.is_active,
        count(d.id)::bigint AS device_count,
        count(d.id) FILTER (WHERE d.is_active)::bigint AS active_device_count,
-       count(tl.observed_at) FILTER (WHERE d.is_active)::bigint AS reporting_device_count,
-       count(tl.observed_at) FILTER (WHERE d.is_active AND tl.observed_at < sqlc.arg(stale_before))::bigint AS stale_device_count,
-       count(d.id) FILTER (WHERE d.is_active AND tl.observed_at IS NULL)::bigint AS offline_device_count,
+       -- Freshness is measured on received_at -- when the platform's pull from the
+       -- Middleware actually brought the row in -- NOT observed_at, which is the
+       -- device's own collectTime and therefore only as trustworthy as the device
+       -- clock. And "reporting" means reporting *now*: a device whose last delivery
+       -- is older than stale_before counts as stale, not reporting. Without that
+       -- second filter a plant silent for days still had reporting_device_count > 0,
+       -- so it read DEGRADED forever instead of falling through to OFFLINE.
+       count(tl.received_at) FILTER (WHERE d.is_active AND tl.received_at >= sqlc.arg(stale_before))::bigint AS reporting_device_count,
+       count(tl.received_at) FILTER (WHERE d.is_active AND tl.received_at < sqlc.arg(stale_before))::bigint AS stale_device_count,
+       count(d.id) FILTER (WHERE d.is_active AND tl.received_at IS NULL)::bigint AS offline_device_count,
        max(tl.observed_at) FILTER (WHERE d.is_active) AS last_observed_at
 FROM plant.plant p
 LEFT JOIN plant.device d ON d.organization_id = p.organization_id AND d.plant_id = p.id

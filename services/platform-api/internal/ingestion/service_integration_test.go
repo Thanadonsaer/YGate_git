@@ -131,7 +131,11 @@ func TestIngestionAutoOnboardingAndIdempotencyAgainstPostgreSQL(t *testing.T) {
 		t.Fatalf("latest=%+v err=%v", latest, err)
 	}
 	dashboard, err := registry.DashboardOverview(ctx, principal, 5*time.Minute, now)
-	if err != nil || dashboard.PlantCount != 1 || dashboard.ActiveDeviceCount != 1 || dashboard.ReportingDeviceCount != 1 || dashboard.StaleDeviceCount != 1 || dashboard.OfflineDeviceCount != 0 || len(dashboard.Plants) != 1 || dashboard.Plants[0].CommunicationStatus != "DEGRADED" {
+	// The device's own collectTime is 23h old but the reading was delivered just
+	// now, so the received_at clock puts it inside the 5m window: ONLINE. Judging
+	// by observed_at instead would call a healthy plant with a skewed device clock
+	// stale, which is the whole reason the freshness clock is received_at.
+	if err != nil || dashboard.PlantCount != 1 || dashboard.ActiveDeviceCount != 1 || dashboard.ReportingDeviceCount != 1 || dashboard.StaleDeviceCount != 0 || dashboard.OfflineDeviceCount != 0 || len(dashboard.Plants) != 1 || dashboard.Plants[0].CommunicationStatus != "ONLINE" {
 		t.Fatalf("dashboard=%+v err=%v", dashboard, err)
 	}
 	layout, err := registry.DashboardLayout(ctx, principal)

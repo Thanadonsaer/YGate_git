@@ -17,7 +17,7 @@ const CHART_WIDGET_ADD_LABELS: Record<ChartWidgetSlot, string> = { "timeseries-l
 const CHART_WIDGET_REMOVE_LABELS: Record<ChartWidgetSlot, string> = { "timeseries-line": "ลบกราฟ", "energy-line": "ลบกราฟพลังงาน" };
 
 function dashboardStatusLabel(status: DashboardPlantStatus["communicationStatus"]) {
-  return { ONLINE: "Online", DEGRADED: "Degraded", OFFLINE: "Offline", NO_DEVICES: "No devices", DISABLED: "Disabled" }[status];
+  return { ONLINE: "Online", DEGRADED: "Partial", OFFLINE: "Offline", NO_DEVICES: "No devices", DISABLED: "Disabled" }[status];
 }
 
 export function OverviewPage() {
@@ -206,7 +206,7 @@ function DashboardCanvas({ dashboard, dashboardError, onRefresh }: { dashboard: 
             <div className="grid gap-1"><span>{plant.reportingDeviceCount.toLocaleString()}</span><small className="block text-[11px] text-ink-soft">{plant.staleDeviceCount} stale · {plant.offlineDeviceCount} offline</small></div>
           )} />
           <TableColumn field="lastObservedAt" header="ข้อมูลล่าสุด" sortable body={(plant: DashboardPlantStatus) => (
-            <div className="grid gap-1"><span>{plant.lastObservedAt ? formatDate(plant.lastObservedAt) : "-"}</span><small className="block text-[11px] text-ink-soft">เกณฑ์ stale {dashboard?.staleAfterSeconds} วินาที</small></div>
+            <div className="grid gap-1"><span>{plant.lastObservedAt ? formatDate(plant.lastObservedAt) : "-"}</span><small className="block text-[11px] text-ink-soft">ไม่มีข้อมูลเข้าเกิน {Math.round((dashboard?.staleAfterSeconds ?? 0) / 60)} นาที = Offline</small></div>
           )} />
           <TableColumn field="communicationStatus" header="สถานะ" sortable body={(plant: DashboardPlantStatus) => (
             <StatusTag tone={plant.communicationStatus.toLowerCase()}>{dashboardStatusLabel(plant.communicationStatus)}</StatusTag>
