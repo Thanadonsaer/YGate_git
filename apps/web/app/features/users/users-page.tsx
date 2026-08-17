@@ -174,7 +174,7 @@ function UserEditor({ user, roles, organizations, defaultOrganizationId, session
                   name and keep its id in the payload, rather than asking someone
                   to confirm a raw UUID they cannot change anyway. */}
               {organizations.length === 0 ? (
-                <TextInput value={sessionOrganizationName || organizationId} readOnly />
+                <TextInput value={sessionOrganizationName || "Organization ของคุณ"} readOnly />
               ) : (
                 <Select value={organizationId} onValueChange={setOrganizationId}>
                   <SelectTrigger><SelectValue placeholder="เลือก Organization" /></SelectTrigger>

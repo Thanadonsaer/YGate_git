@@ -104,7 +104,10 @@ export function AuthScreen({
         throw new Error(response.status === 401 ? "อีเมล/ชื่อผู้ใช้ หรือรหัสผ่านไม่ถูกต้อง" : "ไม่สามารถเข้าสู่ระบบได้");
       }
       const result = (await response.json()) as { user: User };
-      onLogin(result.user);
+      // Login returns the session user, while /auth/me also resolves the
+      // organization display name used by scoped admin screens.
+      const meResponse = await api("/api/v1/auth/me");
+      onLogin(meResponse.ok ? ((await meResponse.json()) as User) : result.user);
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
