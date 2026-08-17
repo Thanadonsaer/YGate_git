@@ -323,8 +323,22 @@ func resendVerificationHandler(service *auth.Service) http.HandlerFunc {
 			return
 		}
 		if err := service.ResendVerification(r.Context(), request.Identifier, remoteIP(r.RemoteAddr)); err != nil {
-			log.Printf("resend verification failed: %v", err)
+			writeResendVerificationError(w, err)
+			return
 		}
 		w.WriteHeader(http.StatusAccepted)
+	}
+}
+
+func writeResendVerificationError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, auth.ErrRateLimited):
+		w.Header().Set("Retry-After", "900")
+		http.Error(w, "too many verification attempts", http.StatusTooManyRequests)
+	case errors.Is(err, auth.ErrRegistrationUnavailable):
+		http.Error(w, "email verification is unavailable", http.StatusServiceUnavailable)
+	default:
+		log.Printf("resend verification failed: %v", err)
+		http.Error(w, "email verification unavailable", http.StatusServiceUnavailable)
 	}
 }

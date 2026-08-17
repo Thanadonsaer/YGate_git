@@ -136,6 +136,26 @@ func TestForgotPasswordAlwaysAcceptsKnownAndUnknownOutcomes(t *testing.T) {
 	}
 }
 
+func TestResendVerificationDoesNotHideDeliveryFailures(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		err    error
+		status int
+	}{
+		{name: "smtp unavailable", err: auth.ErrRegistrationUnavailable, status: http.StatusServiceUnavailable},
+		{name: "delivery failure", err: errors.New("smtp unavailable"), status: http.StatusServiceUnavailable},
+		{name: "rate limited", err: auth.ErrRateLimited, status: http.StatusTooManyRequests},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			res := httptest.NewRecorder()
+			writeResendVerificationError(res, test.err)
+			if res.Code != test.status {
+				t.Fatalf("status=%d want=%d body=%s", res.Code, test.status, res.Body.String())
+			}
+		})
+	}
+}
+
 func TestResetPasswordMapsSecurityErrorsAndClearsCookies(t *testing.T) {
 	tests := []struct {
 		err    error
