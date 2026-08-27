@@ -82,6 +82,6 @@ INSERT INTO audit_log (
 );
 
 -- name: MiddlewareClientPullConfig :one
-SELECT poll_interval_seconds, api_polling_enabled
+SELECT poll_interval_seconds, command_timeout_seconds, api_polling_enabled
 FROM auth.middleware_client
 WHERE id = sqlc.arg(id);

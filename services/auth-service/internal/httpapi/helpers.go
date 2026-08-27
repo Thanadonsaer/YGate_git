@@ -53,3 +53,12 @@ func remoteIP(remoteAddr string) *netip.Addr {
 	}
 	return &address
 }
+
+func requestIP(r *http.Request) *netip.Addr {
+	if forwarded := strings.TrimSpace(r.Header.Get("X-Real-IP")); forwarded != "" {
+		if address, err := netip.ParseAddr(forwarded); err == nil {
+			return &address
+		}
+	}
+	return remoteIP(r.RemoteAddr)
+}

@@ -7,6 +7,7 @@ import (
 	"chpp/modbus-api-middleware/internal/modbus"
 	"chpp/modbus-api-middleware/internal/realtimeclient"
 	"chpp/modbus-api-middleware/internal/store"
+	"chpp/modbus-api-middleware/internal/updater"
 	webui "chpp/modbus-api-middleware/internal/web"
 	"context"
 	"errors"
@@ -53,7 +54,7 @@ func main() {
 }
 
 func run(ctx context.Context) error {
-	dbPath := flag.String("db", "middleware.db", "SQLite path")
+	dbPath := flag.String("db", store.DefaultPath(), "middleware storage path")
 	listen := flag.String("listen", "127.0.0.1:8081", "web listen address")
 	endpoint := flag.String("endpoint", "", "CHPP readings endpoint")
 	apiKey := flag.String("api-key", "", "gateway API key")
@@ -168,11 +169,12 @@ func run(ctx context.Context) error {
 	// Always started, even with endpoint/key still empty: Client.Run polls the
 	// store for a usable config and reacts to Reload, so saving Endpoint/API
 	// Key from the web UI takes effect immediately -- no restart required.
+	canApplyUpdate := serviceMode || updater.ManagedServiceAvailable()
 	rtClient := &realtimeclient.Client{Store: st, Cache: cache, App: svc,
-		Version: version, CanApplyUpdate: serviceMode || os.Getenv("INVOCATION_ID") != "", Reload: make(chan struct{}, 1)}
+		Version: version, CanApplyUpdate: canApplyUpdate, Reload: make(chan struct{}, 1)}
 	go rtClient.Run(ctx)
 
-	server := &webui.Server{Store: st, App: svc, Cache: cache, GatewayID: cfg.GatewayID, Version: version, CanApplyUpdate: serviceMode || os.Getenv("INVOCATION_ID") != "", LicensePublicKey: publicKey, LicenseFile: *licenseFile, AdminUsername: firstNonEmpty(os.Getenv("CHPP_WEB_USERNAME"), "admin"), AdminPassword: firstNonEmpty(os.Getenv("CHPP_WEB_PASSWORD"), "admin"), RealtimeReload: rtClient.Reload}
+	server := &webui.Server{Store: st, App: svc, Cache: cache, GatewayID: cfg.GatewayID, Version: version, CanApplyUpdate: canApplyUpdate, LicensePublicKey: publicKey, LicenseFile: *licenseFile, AdminUsername: firstNonEmpty(os.Getenv("CHPP_WEB_USERNAME"), "admin"), AdminPassword: firstNonEmpty(os.Getenv("CHPP_WEB_PASSWORD"), "admin"), RealtimeReload: rtClient.Reload}
 	httpServer := &http.Server{Addr: *listen, Handler: server.FullHandler()}
 	errCh := make(chan error, 1)
 	if *gui {

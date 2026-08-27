@@ -4054,7 +4054,7 @@ components:
     MiddlewareGateway:
       type: object
       additionalProperties: false
-      required: [id, organizationId, organizationName, name, siteName, keyPrefix, autoOnboard, isActive, isOnline, configVersion, configAppliedVersion, pollIntervalSeconds, idleHeartbeatSeconds, apiPollingEnabled, createdAt, updatedAt]
+      required: [id, organizationId, organizationName, name, siteName, keyPrefix, autoOnboard, isActive, isOnline, configVersion, configAppliedVersion, pollIntervalSeconds, commandTimeoutSeconds, idleHeartbeatSeconds, apiPollingEnabled, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -4087,6 +4087,12 @@ components:
         pollIntervalSeconds:
           type: integer
           description: How often (seconds) this gateway should poll and send telemetry, pushed to it as part of every config push
+        commandTimeoutSeconds:
+          type: integer
+          minimum: 5
+          maximum: 300
+          default: 60
+          description: Maximum time to wait for this gateway to answer telemetry drain and acknowledgement commands
         idleHeartbeatSeconds:
           type: integer
           description: >-
@@ -4140,6 +4146,11 @@ components:
           minimum: 5
           maximum: 3600
           default: 60
+        commandTimeoutSeconds:
+          type: integer
+          minimum: 5
+          maximum: 300
+          default: 60
         idleHeartbeatSeconds:
           type: integer
           minimum: 60
@@ -4168,6 +4179,10 @@ components:
           type: integer
           minimum: 5
           maximum: 3600
+        commandTimeoutSeconds:
+          type: integer
+          minimum: 5
+          maximum: 300
         idleHeartbeatSeconds:
           type: integer
           minimum: 60

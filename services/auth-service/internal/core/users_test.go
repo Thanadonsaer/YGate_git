@@ -54,6 +54,18 @@ func TestHasRoleMatchesExactBaselineRole(t *testing.T) {
 	}
 }
 
+func TestCanResetUserPasswordRequiresGlobalPermissionForPlatformAdmin(t *testing.T) {
+	if canResetUserPassword([]string{"System Admin"}, false) {
+		t.Fatal("organization-scoped permission must not reset a platform admin password")
+	}
+	if !canResetUserPassword([]string{"System Admin"}, true) {
+		t.Fatal("global reset permission should reset a platform admin password")
+	}
+	if !canResetUserPassword([]string{"Operator"}, false) {
+		t.Fatal("ordinary organization users remain governed by organization permission")
+	}
+}
+
 func TestSelfProfileIncludesRolesInJSON(t *testing.T) {
 	data, err := json.Marshal(SelfProfile{Roles: []string{"Operator"}})
 	if err != nil || string(data) == "{}" || !strings.Contains(string(data), `"roles":["Operator"]`) {

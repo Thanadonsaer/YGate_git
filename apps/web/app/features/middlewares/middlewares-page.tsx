@@ -119,7 +119,11 @@ export function MiddlewaresPage({ defaultOrganizationId }: { defaultOrganization
     const response = await api(`/api/v1/admin/middlewares/${encodeURIComponent(gateway.id)}`, {
       method: "PUT",
       headers: { "X-CSRF-Token": csrfToken() },
-      body: JSON.stringify({ name: gateway.name, siteName: gateway.siteName, autoOnboard: gateway.autoOnboard, isActive }),
+      body: JSON.stringify({
+        name: gateway.name, siteName: gateway.siteName, autoOnboard: gateway.autoOnboard, isActive,
+        pollIntervalSeconds: gateway.pollIntervalSeconds, commandTimeoutSeconds: gateway.commandTimeoutSeconds,
+        idleHeartbeatSeconds: gateway.idleHeartbeatSeconds, apiPollingEnabled: gateway.apiPollingEnabled,
+      }),
     });
     if (response.ok) { toast.success(isActive ? `เปิดใช้งาน "${gateway.name}" แล้ว` : `ปิดใช้งาน "${gateway.name}" แล้ว`); await loadGateways(); }
     else setError(response.status === 403 ? "บัญชีนี้ไม่มีสิทธิ์เปลี่ยนสถานะ Middleware" : "ไม่สามารถเปลี่ยนสถานะ Middleware ได้");
@@ -260,6 +264,7 @@ function MiddlewareEditor({ gateway, defaultOrganizationId, onClose, onSaved }: 
   const [siteName, setSiteName] = useState(gateway?.siteName ?? "");
   const [autoOnboard, setAutoOnboard] = useState(gateway?.autoOnboard ?? true);
   const [pollIntervalMinutes, setPollIntervalMinutes] = useState(gateway ? Math.max(1, Math.round(gateway.pollIntervalSeconds / 60)).toString() : "1");
+  const [commandTimeoutSeconds, setCommandTimeoutSeconds] = useState((gateway?.commandTimeoutSeconds ?? 60).toString());
   const [idleHeartbeatMinutes, setIdleHeartbeatMinutes] = useState(gateway ? Math.max(1, Math.round(gateway.idleHeartbeatSeconds / 60)).toString() : "30");
   const [apiPollingEnabled, setApiPollingEnabled] = useState(gateway?.apiPollingEnabled ?? false);
   const [isActive, setIsActive] = useState(gateway?.isActive ?? true);
@@ -278,8 +283,8 @@ function MiddlewareEditor({ gateway, defaultOrganizationId, onClose, onSaved }: 
         headers: { "X-CSRF-Token": csrfToken() },
         body: JSON.stringify(
           gateway
-            ? { name, siteName, autoOnboard, isActive, pollIntervalSeconds, idleHeartbeatSeconds, apiPollingEnabled }
-            : { organizationId, name, siteName, autoOnboard, pollIntervalSeconds, idleHeartbeatSeconds, apiPollingEnabled },
+            ? { name, siteName, autoOnboard, isActive, pollIntervalSeconds, commandTimeoutSeconds: Number(commandTimeoutSeconds), idleHeartbeatSeconds, apiPollingEnabled }
+            : { organizationId, name, siteName, autoOnboard, pollIntervalSeconds, commandTimeoutSeconds: Number(commandTimeoutSeconds), idleHeartbeatSeconds, apiPollingEnabled },
         ),
       });
       if (!response.ok) throw new Error(response.status === 409 ? "ชื่อ Middleware นี้มีอยู่แล้ว" : response.status === 403 ? "บัญชีนี้ไม่มีสิทธิ์จัดการ Middleware" : "ไม่สามารถบันทึก Middleware ได้");
@@ -303,6 +308,7 @@ function MiddlewareEditor({ gateway, defaultOrganizationId, onClose, onSaved }: 
             <label className="full-field">ชื่อ Site<TextInput value={siteName} onChange={(event) => setSiteName(event.target.value)} maxLength={200} placeholder="เช่น VT1 - Vientiane Solar" /></label>
             {!gateway && <label className="full-field">Organization ID<TextInput value={organizationId} onChange={(event) => setOrganizationId(event.target.value)} required /></label>}
             <label>ส่งข้อมูลทุก (นาที)<TextInput type="number" min="1" max="60" value={pollIntervalMinutes} onChange={(event) => setPollIntervalMinutes(event.target.value)} /></label>
+            <label>Command timeout (วินาที)<TextInput type="number" min="5" max="300" value={commandTimeoutSeconds} onChange={(event) => setCommandTimeoutSeconds(event.target.value)} required /></label>
             <label>บันทึกซ้ำเมื่อค่านิ่ง ทุก (นาที)
               <TextInput type="number" min="1" max="1440" value={idleHeartbeatMinutes} onChange={(event) => setIdleHeartbeatMinutes(event.target.value)} />
               <small className="muted-text">ถ้าค่า register ไม่เปลี่ยน Gateway จะหยุดบันทึก แล้วส่งซ้ำ 1 ครั้งทุกช่วงนี้ เพื่อให้ยังรู้ว่า Device ออนไลน์อยู่</small>

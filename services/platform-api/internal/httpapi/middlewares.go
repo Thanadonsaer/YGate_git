@@ -10,13 +10,14 @@ import (
 )
 
 type createMiddlewareRequest struct {
-	OrganizationID       string `json:"organizationId"`
-	Name                 string `json:"name"`
-	SiteName             string `json:"siteName"`
-	AutoOnboard          bool   `json:"autoOnboard"`
-	PollIntervalSeconds  int32  `json:"pollIntervalSeconds"`
-	IdleHeartbeatSeconds int32  `json:"idleHeartbeatSeconds"`
-	APIPollingEnabled    bool   `json:"apiPollingEnabled"`
+	OrganizationID        string `json:"organizationId"`
+	Name                  string `json:"name"`
+	SiteName              string `json:"siteName"`
+	AutoOnboard           bool   `json:"autoOnboard"`
+	PollIntervalSeconds   int32  `json:"pollIntervalSeconds"`
+	CommandTimeoutSeconds int32  `json:"commandTimeoutSeconds"`
+	IdleHeartbeatSeconds  int32  `json:"idleHeartbeatSeconds"`
+	APIPollingEnabled     bool   `json:"apiPollingEnabled"`
 }
 
 type assignMiddlewarePlantRequest struct {
@@ -24,13 +25,14 @@ type assignMiddlewarePlantRequest struct {
 }
 
 type updateMiddlewareRequest struct {
-	Name                 string `json:"name"`
-	SiteName             string `json:"siteName"`
-	IsActive             *bool  `json:"isActive"`
-	AutoOnboard          bool   `json:"autoOnboard"`
-	PollIntervalSeconds  int32  `json:"pollIntervalSeconds"`
-	IdleHeartbeatSeconds int32  `json:"idleHeartbeatSeconds"`
-	APIPollingEnabled    bool   `json:"apiPollingEnabled"`
+	Name                  string `json:"name"`
+	SiteName              string `json:"siteName"`
+	IsActive              *bool  `json:"isActive"`
+	AutoOnboard           bool   `json:"autoOnboard"`
+	PollIntervalSeconds   int32  `json:"pollIntervalSeconds"`
+	CommandTimeoutSeconds int32  `json:"commandTimeoutSeconds"`
+	IdleHeartbeatSeconds  int32  `json:"idleHeartbeatSeconds"`
+	APIPollingEnabled     bool   `json:"apiPollingEnabled"`
 }
 
 func listMiddlewaresHandler(service *core.Service) func(http.ResponseWriter, *http.Request, auth.Principal) {
@@ -52,7 +54,8 @@ func createMiddlewareHandler(service *core.Service) func(http.ResponseWriter, *h
 		gateway, err := service.CreateMiddleware(r.Context(), principal, core.CreateMiddlewareInput{
 			OrganizationID: request.OrganizationID, Name: request.Name, SiteName: request.SiteName, AutoOnboard: request.AutoOnboard,
 			PollIntervalSeconds: request.PollIntervalSeconds, IdleHeartbeatSeconds: request.IdleHeartbeatSeconds,
-			APIPollingEnabled: request.APIPollingEnabled,
+			CommandTimeoutSeconds: request.CommandTimeoutSeconds,
+			APIPollingEnabled:     request.APIPollingEnabled,
 		}, remoteIP(r.RemoteAddr))
 		if writeMiddlewareError(w, err) {
 			return
@@ -74,7 +77,8 @@ func updateMiddlewareHandler(service *core.Service) func(http.ResponseWriter, *h
 		gateway, err := service.UpdateMiddleware(r.Context(), principal, r.PathValue("middlewareId"), core.UpdateMiddlewareInput{
 			Name: request.Name, SiteName: request.SiteName, IsActive: *request.IsActive, AutoOnboard: request.AutoOnboard,
 			PollIntervalSeconds: request.PollIntervalSeconds, IdleHeartbeatSeconds: request.IdleHeartbeatSeconds,
-			APIPollingEnabled: request.APIPollingEnabled,
+			CommandTimeoutSeconds: request.CommandTimeoutSeconds,
+			APIPollingEnabled:     request.APIPollingEnabled,
 		}, remoteIP(r.RemoteAddr))
 		if writeMiddlewareError(w, err) {
 			return

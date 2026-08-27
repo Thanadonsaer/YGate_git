@@ -24,7 +24,7 @@ import (
 func TestLoginSetsSecureSessionAndCSRFCookiesWithoutReturningTokens(t *testing.T) {
 	expires := time.Now().Add(time.Hour)
 	login := func(_ context.Context, input auth.LoginInput) (auth.LoginResult, error) {
-		if input.Identifier != "operator@example.com" || input.Password != "secret" || input.SourceIP == nil || input.SourceIP.String() != "192.0.2.10" {
+		if input.Identifier != "operator@example.com" || input.Password != "secret" || input.SourceIP == nil || input.SourceIP.String() != "192.0.2.11" {
 			t.Fatalf("input=%+v", input)
 		}
 		return auth.LoginResult{Token: "raw-secret-token", CSRFToken: "raw-csrf-token", ExpiresAt: expires, User: auth.LoginUser{ID: "user-1", Email: input.Identifier}}, nil
@@ -32,6 +32,7 @@ func TestLoginSetsSecureSessionAndCSRFCookiesWithoutReturningTokens(t *testing.T
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(`{"identifier":"operator@example.com","password":"secret"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.RemoteAddr = "192.0.2.10:4321"
+	req.Header.Set("X-Real-IP", "192.0.2.11")
 	res := httptest.NewRecorder()
 	loginHandler(login, true).ServeHTTP(res, req)
 	if res.Code != http.StatusOK || strings.Contains(res.Body.String(), "raw-secret-token") || strings.Contains(res.Body.String(), "raw-csrf-token") {

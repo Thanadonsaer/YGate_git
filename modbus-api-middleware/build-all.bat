@@ -18,6 +18,7 @@ if not exist "build\patches" mkdir "build\patches"
 set "GOCACHE=%CD%\.cache\go-build"
 set "GOMODCACHE=%CD%\.cache\go-mod"
 set "CGO_ENABLED=0"
+set "GOMIPS=softfloat"
 set "GOOS="
 set "GOARCH="
 set "GOARM="
@@ -63,9 +64,25 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "deploy\make-update-zip.ps1"
 echo [4/4] Build Linux Debian amd64 package
 set "GOOS=linux"
 set "GOARCH=amd64"
+set "GOMIPS="
 set "GOARM="
 go build -trimpath -ldflags "%LDFLAGS%" -o "build\linux\build\middleware-linux-amd64" .\cmd\middleware || goto error
 powershell -NoProfile -ExecutionPolicy Bypass -File "deploy\make-update-zip.ps1" -Version "%VERSION%" -TargetOS "linux" -TargetArch "amd64" -Binary "build\linux\build\middleware-linux-amd64" -Out "build\patches\chpp-middleware-v%VERSION%-linux-amd64-update.zip" || goto error
+set "GOARCH=arm"
+set "GOARM=7"
+go build -trimpath -ldflags "%LDFLAGS%" -o "build\linux\build\middleware-linux-armv7" .\cmd\middleware || goto error
+powershell -NoProfile -ExecutionPolicy Bypass -File "deploy\make-update-zip.ps1" -Version "%VERSION%" -TargetOS "linux" -TargetArch "armv7" -Binary "build\linux\build\middleware-linux-armv7" -Out "build\patches\chpp-middleware-v%VERSION%-linux-armv7-update.zip" || goto error
+set "GOARCH=arm64"
+set "GOARM="
+go build -trimpath -ldflags "%LDFLAGS%" -o "build\linux\build\middleware-linux-arm64" .\cmd\middleware || goto error
+powershell -NoProfile -ExecutionPolicy Bypass -File "deploy\make-update-zip.ps1" -Version "%VERSION%" -TargetOS "linux" -TargetArch "arm64" -Binary "build\linux\build\middleware-linux-arm64" -Out "build\patches\chpp-middleware-v%VERSION%-linux-arm64-update.zip" || goto error
+set "GOARCH=mipsle"
+set "GOARM="
+set "GOMIPS=softfloat"
+go build -trimpath -ldflags "%LDFLAGS%" -o "build\linux\build\middleware-linux-mipsle" .\cmd\middleware || goto error
+powershell -NoProfile -ExecutionPolicy Bypass -File "deploy\make-update-zip.ps1" -Version "%VERSION%" -TargetOS "linux" -TargetArch "mipsle" -Binary "build\linux\build\middleware-linux-mipsle" -Out "build\patches\chpp-middleware-v%VERSION%-linux-mipsle-update.zip" || goto error
+set "GOARCH=amd64"
+set "GOARM="
 go build -trimpath -gcflags "all=-l" -ldflags "%BOOTSTRAP_LDFLAGS%" -o "build\linux\build\middleware-v%BOOTSTRAP_VERSION%-linux-amd64" .\cmd\update-bridge || goto error
 powershell -NoProfile -ExecutionPolicy Bypass -File "deploy\make-update-zip.ps1" -Version "%BOOTSTRAP_VERSION%" -TargetOS "linux" -TargetArch "amd64" -Binary "build\linux\build\middleware-v%BOOTSTRAP_VERSION%-linux-amd64" -Out "build\patches\chpp-middleware-v%BOOTSTRAP_VERSION%-linux-amd64-update.zip" || goto error
 copy /Y "deploy\chpp-middleware.service" "build\linux\deploy\chpp-middleware.service" >nul

@@ -1,3 +1,5 @@
+//go:build !mips && !mipsle
+
 package updatebridge
 
 import (

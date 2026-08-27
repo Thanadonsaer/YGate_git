@@ -106,13 +106,22 @@ func (s *Service) LatestTelemetry(ctx context.Context, principal auth.Principal,
 // The register mapping itself is not hand-written -- it is the same
 // telemetry.mapped_data_items() the latest read model and alarm evaluation
 // call, so history can't drift from what the device page shows.
+//
+// display_data_items() is deliberately skipped here (unlike
+// raw_telemetry_latest): it runs a correlated subquery against
+// register_value_mapping per register key, and every history caller
+// (energy-analysis, the dashboard history widget) only reads dataItemMap.
+// Paying that cost per row, per page, per device selected was the dominant
+// cost behind the analysis page hanging when several devices were picked at
+// once. displayItemMap stays in the response shape as an empty object so
+// TelemetryHistoryPage's JSON contract is unchanged.
 func (s *Service) mappedRawTelemetryHistory(ctx context.Context, organizationID, plantID, deviceID pgtype.UUID, input TelemetryHistoryInput, cursor telemetryHistoryCursor, cursorID pgtype.UUID, cursorSet bool, limit int32) ([]telemetryRowFields, error) {
 	rows, err := s.pool.Query(ctx, `
 SELECT raw.id, raw.organization_id, raw.plant_id, raw.device_id,
        device.external_id, device.name, raw.gateway_id, raw.observed_at, raw.received_at,
        mapped.data_item_map,
        (SELECT count(*)::integer FROM jsonb_object_keys(mapped.data_item_map)),
-       telemetry.display_data_items(raw.organization_id, device.device_model_id, raw.register_address_map)
+       '{}'::jsonb
 FROM telemetry.raw_register_reading raw
 JOIN plant.device device ON device.organization_id=raw.organization_id AND device.plant_id=raw.plant_id AND device.id=raw.device_id
 CROSS JOIN LATERAL (

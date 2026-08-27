@@ -15,8 +15,8 @@ import (
 
 func TestGatewayHealthAndProxy(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/auth/me" || r.Header.Get("X-Forwarded-For") == "" {
-			t.Fatalf("path=%s forwarded=%q", r.URL.Path, r.Header.Get("X-Forwarded-For"))
+		if r.URL.Path != "/api/v1/auth/me" || r.Header.Get("X-Forwarded-For") == "" || r.Header.Get("X-Real-IP") != "192.0.2.10" {
+			t.Fatalf("path=%s forwarded=%q real=%q", r.URL.Path, r.Header.Get("X-Forwarded-For"), r.Header.Get("X-Real-IP"))
 		}
 		w.WriteHeader(http.StatusTeapot)
 	}))
@@ -31,6 +31,7 @@ func TestGatewayHealthAndProxy(t *testing.T) {
 	}
 
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil)
+	request.RemoteAddr = "192.0.2.10:4321"
 	request.Header.Set("Origin", "http://localhost:8080")
 	response = httptest.NewRecorder()
 	handler.ServeHTTP(response, request)

@@ -82,12 +82,12 @@ func (s *Service) Authenticate(ctx context.Context, presentedKey string) (Client
 	return Client{ID: row.ID, OrganizationID: row.OrganizationID, Name: row.Name, AutoOnboard: row.AutoOnboard}, nil
 }
 
-func (s *Service) MiddlewareClientPullConfig(ctx context.Context, clientID pgtype.UUID) (pollIntervalSeconds int32, apiPollingEnabled bool, err error) {
+func (s *Service) MiddlewareClientPullConfig(ctx context.Context, clientID pgtype.UUID) (pollIntervalSeconds, commandTimeoutSeconds int32, apiPollingEnabled bool, err error) {
 	row, err := s.queries.MiddlewareClientPullConfig(ctx, clientID)
 	if err != nil {
-		return 0, false, fmt.Errorf("load middleware client pull config: %w", err)
+		return 0, 0, false, fmt.Errorf("load middleware client pull config: %w", err)
 	}
-	return row.PollIntervalSeconds, row.ApiPollingEnabled, nil
+	return row.PollIntervalSeconds, row.CommandTimeoutSeconds, row.ApiPollingEnabled, nil
 }
 
 // RecordMiddlewarePullEvent appends a system audit event for backend-driven Middleware pulls.

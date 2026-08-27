@@ -1,6 +1,8 @@
 // Package updatebridge is the deliberately small recovery client used to
 // replace an old Middleware binary whose patch downloader is limited to 60s.
 // It reads the existing SQLite configuration but never writes to it.
+//go:build !mips && !mipsle
+
 package updatebridge
 
 import (

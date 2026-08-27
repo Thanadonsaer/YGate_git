@@ -481,6 +481,7 @@ export type MiddlewareGateway = {
   configVersion: number;
   configAppliedVersion: number;
   pollIntervalSeconds: number;
+  commandTimeoutSeconds: number;
   /**
    * Longest a device may go without a stored reading while its register values
    * are not moving. The gateway drops readings that repeat the last stored

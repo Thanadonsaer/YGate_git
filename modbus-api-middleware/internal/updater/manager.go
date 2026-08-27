@@ -111,7 +111,7 @@ func (m *Manager) Status() Status {
 	}
 	msg := ""
 	if !m.CanApply {
-		msg = "Upload/stage enabled; Apply requires Windows Service or Linux systemd runtime"
+		msg = "Upload/stage enabled; Apply requires a managed Windows, systemd, or procd service"
 	}
 	lastResult := ""
 	if data, err := os.ReadFile(filepath.Join(m.root(), "run", "last-result.txt")); err == nil {
@@ -202,7 +202,7 @@ func (m *Manager) StageZip(data []byte) (*Manifest, error) {
 // service restart happens a couple seconds later.
 func (m *Manager) Apply() (backupName string, err error) {
 	if !m.CanApply {
-		return "", fmt.Errorf("apply requires Windows Service or Linux systemd runtime")
+		return "", fmt.Errorf("apply requires a managed Windows, systemd, or procd service")
 	}
 	manifest, err := readManifest(filepath.Join(m.root(), "staged", "update-manifest.json"))
 	if err != nil || manifest == nil {
@@ -222,7 +222,7 @@ func (m *Manager) Apply() (backupName string, err error) {
 // recent pre-Apply backup.
 func (m *Manager) Rollback() (backupName string, err error) {
 	if !m.CanApply {
-		return "", fmt.Errorf("rollback requires Windows Service or Linux systemd runtime")
+		return "", fmt.Errorf("rollback requires a managed Windows, systemd, or procd service")
 	}
 	backup, err := latestBackup(filepath.Join(m.root(), "backups"))
 	if err != nil {
@@ -238,7 +238,7 @@ func (m *Manager) Rollback() (backupName string, err error) {
 // (source == destination, so the script's copy step is a no-op overwrite).
 func (m *Manager) RestartOnly() error {
 	if !m.CanApply {
-		return fmt.Errorf("restart requires Windows Service or Linux systemd runtime")
+		return fmt.Errorf("restart requires a managed Windows, systemd, or procd service")
 	}
 	exe, err := os.Executable()
 	if err != nil {
@@ -256,6 +256,19 @@ func (m *Manager) root() string {
 		return "updates"
 	}
 	return filepath.Join(filepath.Dir(exe), "updates")
+}
+
+func ManagedServiceAvailable() bool {
+	return canApplyService(runtime.GOOS, os.Getenv("INVOCATION_ID"), "/etc/init.d/"+AppName)
+}
+
+func canApplyService(goos, invocationID, initScript string) bool {
+	return goos != "windows" && (strings.TrimSpace(invocationID) != "" || fileExists(initScript))
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func validateManifest(m *Manifest) error {
@@ -355,12 +368,26 @@ func (m *Manager) startUpdater(source, expectedVersion string) error {
 		return exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script, "-Source", source, "-Destination", exe, "-ServiceName", AppName, "-ResultFile", result, "-ExpectedVersion", expectedVersion).Start()
 	}
 	script := filepath.Join(scriptDir, "apply-update.sh")
-	body := fmt.Sprintf("#!/bin/sh\nsleep 2\nsystemctl stop %s >/dev/null 2>&1 || true\ninstall -m 0755 %q %q\nsystemctl start %s\n", AppName, source, exe, AppName)
+	useSystemd := os.Getenv("INVOCATION_ID") != "" || !fileExists("/etc/init.d/"+AppName)
+	body := linuxUpdaterScript(AppName, source, exe, useSystemd)
 	if err = os.WriteFile(script, []byte(body), 0755); err != nil {
 		return err
 	}
-	if _, err = exec.LookPath("systemd-run"); err == nil {
-		return exec.Command("systemd-run", "--unit", "chpp-middleware-update", "--collect", "sh", script).Start()
+	if useSystemd {
+		if _, err = exec.LookPath("systemd-run"); err == nil {
+			return exec.Command("systemd-run", "--unit", "chpp-middleware-update", "--collect", "sh", script).Start()
+		}
+	}
+	if _, err = exec.LookPath("setsid"); err == nil {
+		return exec.Command("setsid", "sh", script).Start()
 	}
 	return exec.Command("sh", script).Start()
+}
+
+func linuxUpdaterScript(serviceName, source, destination string, useSystemd bool) string {
+	stop, start := "/etc/init.d/"+serviceName+" stop", "/etc/init.d/"+serviceName+" start"
+	if useSystemd {
+		stop, start = "systemctl stop "+serviceName, "systemctl start "+serviceName
+	}
+	return fmt.Sprintf("#!/bin/sh\nsleep 2\n%s >/dev/null 2>&1 || true\ninstall -m 0755 %q %q\n%s\n", stop, source, destination, start)
 }

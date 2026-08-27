@@ -49,7 +49,7 @@ func loginHandler(login LoginFunc, cookieSecure bool) http.HandlerFunc {
 		result, err := login(r.Context(), auth.LoginInput{
 			Identifier: request.Identifier,
 			Password:   request.Password,
-			SourceIP:   remoteIP(r.RemoteAddr),
+			SourceIP:   requestIP(r),
 			UserAgent:  string(userAgent),
 		})
 		switch {

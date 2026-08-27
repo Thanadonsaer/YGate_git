@@ -1,3 +1,5 @@
+//go:build !mips && !mipsle
+
 package store
 
 func OpenNormalized(path string) (*Store, error) {

@@ -24,6 +24,38 @@ func TestWindowsUpdaterWaitsForServiceAndReportsResult(t *testing.T) {
 	}
 }
 
+func TestLinuxUpdaterUsesProcdServiceCommands(t *testing.T) {
+	script := linuxUpdaterScript("chpp-middleware", "/tmp/staged/middleware", "/tmp/runtime/middleware", false)
+	for _, want := range []string{
+		"/etc/init.d/chpp-middleware stop",
+		"/etc/init.d/chpp-middleware start",
+		"install -m 0755",
+	} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("procd updater script missing %q:\n%s", want, script)
+		}
+	}
+	if strings.Contains(script, "systemctl") {
+		t.Fatal("procd updater script must not call systemctl")
+	}
+}
+
+func TestManagedServiceAvailableRecognizesProcdOrSystemd(t *testing.T) {
+	initScript := filepath.Join(t.TempDir(), "chpp-middleware")
+	if err := os.WriteFile(initScript, []byte("#!/bin/sh\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if !canApplyService("linux", "", initScript) {
+		t.Fatal("expected procd init script to enable managed updates")
+	}
+	if !canApplyService("linux", "1", "") {
+		t.Fatal("expected systemd invocation to enable managed updates")
+	}
+	if canApplyService("linux", "", "") {
+		t.Fatal("expected unmanaged linux process to disable managed updates")
+	}
+}
+
 func binaryName() string {
 	if runtime.GOOS == "windows" {
 		return "middleware.exe"

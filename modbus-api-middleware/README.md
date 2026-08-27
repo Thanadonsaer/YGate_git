@@ -1,6 +1,19 @@
 # CHPP Modbus API Middleware
 
-Go middleware สำหรับอ่าน Modbus TCP ตามตาราง configuration ใน SQLite แล้วส่ง KPI ไปยัง Y-Gate Solar API
+Go middleware สำหรับอ่าน Modbus TCP ตามตาราง configuration แล้วส่ง KPI ไปยัง Y-Gate Solar API โดย Windows ใช้ SQLite และ RUT906/MIPS ใช้ไฟล์ `middleware.store` แบบ atomic
+
+### RUT906 / MIPS
+
+RUT906 ใช้สถาปัตยกรรม MIPS ซึ่งไม่รองรับ SQLite dependency เดิม จึงใช้ backend ไฟล์ที่พฤติกรรมและ config/API เหมือนเดิม แต่ไม่สามารถเปิดไฟล์ `middleware.db` โดยตรงได้
+
+1. เตรียม `license-keys.env` ให้มี `CHPP_LICENSE_PUBLIC_KEY` แล้วรัน `build-all.bat` เพื่อให้ public key ถูกฝังใน binary (ห้ามใช้ `go build` เปล่า ๆ เพราะจะได้ binary ที่ activate license ไม่ได้) หรือ build เองด้วย `GOOS=linux GOARCH=mipsle GOMIPS=softfloat CGO_ENABLED=0 go build -trimpath -ldflags "-X main.licensePublicKey=<PUBLIC_KEY>" -o build/linux/build/middleware-linux-mipsle ./cmd/middleware`
+2. คัดลอก `middleware-linux-mipsle`, `deploy/`, `license.json` และถ้ามี `middleware.store` ไปไว้โฟลเดอร์เดียวกันบน RUT906
+3. บน RUT906 ให้ SSH เป็น `root` (RutOS ไม่มี `sudo`) แล้วรัน `chmod +x deploy/manage-service.sh deploy/install-systemd.sh` และ `./deploy/manage-service.sh`
+4. เลือก `1) Install / Update service` จากนั้น activate license และเลือก `3) Start Service`
+
+บน RUT906 installer จะใช้ OpenWrt `procd` ผ่าน `/etc/init.d/chpp-middleware` และเก็บ runtime ที่โฟลเดอร์ USB เดียวกับชุด deploy เช่น `/tmp/sdb1/linux/runtime/middleware.store` เพราะ `/opt` ของ RutOS อาจเป็น read-only ส่วน Linux ที่มี systemd จะใช้ `/opt/chpp-middleware` และ Windows ยังคงใช้ `middleware.db` เดิม หากต้องย้าย config ระหว่าง Windows กับ RUT906 ให้ใช้เมนู export/import config ของ Web UI ไม่ต้องคัดลอก SQLite database
+
+RUT906 ที่ติดตั้ง service ผ่าน `procd` รองรับ remote Stage/Apply/Rollback/Restart ด้วย binary รุ่นที่ build ใหม่แล้ว โดย patch ต้องระบุ architecture เป็น `mipsle` ให้ตรงกับ `runtime.GOARCH` ของ Go (ชื่อไฟล์ binary ยังคงเป็น `middleware-linux-mipsle`)
 
 ## Pages
 
@@ -177,7 +190,7 @@ POST     /api/read-now/{connectionId}
 
 ## Verify and build
 
-Build ตอนนี้สร้าง Windows exe ไฟล์เดียว และ Linux Debian amd64 package
+Build ตอนนี้สร้าง Windows exe และ Linux binaries สำหรับ `amd64`, `armv7` และ `arm64`
 
 ```bat
 build-all.bat
@@ -188,13 +201,17 @@ build-all.bat
 ```text
 build\middleware-v0.2.6-windows-amd64.exe
 build\linux\build\middleware-linux-amd64
+build\linux\build\middleware-linux-armv7
+build\linux\build\middleware-linux-arm64
 build\linux\deploy\*.sh
 build\patches\chpp-middleware-v0.2.6-windows-amd64-update.zip
 build\patches\chpp-middleware-v0.2.6-linux-amd64-update.zip
+build\patches\chpp-middleware-v0.2.6-linux-armv7-update.zip
+build\patches\chpp-middleware-v0.2.6-linux-arm64-update.zip
 ```
 
 
-`build-all.bat` จะ clean output เก่าแบบ best-effort, รัน `go test ./...`, `go vet ./...` แล้ว build Windows amd64 exe + Linux Debian amd64 ถ้ามี process เก่าล็อกไฟล์ใน `build` ให้ปิดโปรแกรม/service เก่าก่อนแล้วรัน build อีกครั้ง
+`build-all.bat` จะ clean output เก่าแบบ best-effort, รัน `go test ./...`, `go vet ./...` แล้ว build Windows amd64 + Linux amd64/armv7/arm64 ถ้ามี process เก่าล็อกไฟล์ใน `build` ให้ปิดโปรแกรม/service เก่าก่อนแล้วรัน build อีกครั้ง
 
 ## Modbus TCP Simulator
 
@@ -284,29 +301,67 @@ $env:CHPP_LICENSE_PRIVATE_KEY="<PRIVATE_KEY>"
 go run .\cmd\licensegen -customer "Customer Name" -machine-id "<MACHINE_ID>" -expires 2027-12-31
 ```
 
-## Background service on Linux
+## Deploy บน Linux (systemd)
 
-ใช้ systemd เพื่อให้ middleware รันหลัง reboot และไม่ต้องเปิด SSH ค้างไว้ สามารถติดตั้งผ่าน menu ได้เลย:
+ใช้ package จาก `build/linux` ซึ่งประกอบด้วย binary, script deploy และ systemd unit
 
-```bash
-cd ~/Downloads/pack
-sh ./deploy/manage-service.sh
+```text
+build/linux/
+├── build/middleware-linux-amd64
+├── build/middleware-linux-armv7
+├── build/middleware-linux-arm64
+├── deploy/chpp-middleware.service
+├── deploy/install-systemd.sh
+├── deploy/manage-service.sh
+└── README.md
 ```
 
-จากนั้นเลือก `1) Install / Update service` และเลือก `2) Info` เพื่อตรวจ version/path/db/status
+### 1. เตรียมไฟล์บนเครื่อง build
 
-ถ้าต้องการสั่ง installer ตรง ๆ ยังใช้ได้:
-
-```bash
-sh ./deploy/install-systemd.sh
-```
-
-ดูสถานะ/Log แบบ command ตรง:
+หลังจากรัน `build-all.bat` ให้คัดลอก `build/linux` ไปยัง Linux server เช่น:
 
 ```bash
-systemctl status chpp-middleware --no-pager
-journalctl -u chpp-middleware -f
+scp -r build/linux ygate@middleware-host:/tmp/chpp-middleware
 ```
+
+ถ้ามี license แล้ว ให้วาง `license.json` ไว้ที่ package root เดียวกับโฟลเดอร์ `deploy`:
+
+```text
+/tmp/chpp-middleware/license.json
+/tmp/chpp-middleware/build/middleware-linux-<architecture>
+/tmp/chpp-middleware/deploy/manage-service.sh
+```
+
+### 2. Activate license และติดตั้ง service
+
+เข้า server แล้วใช้เมนูเดียวกับ Windows:
+
+```bash
+cd /tmp/chpp-middleware
+chmod +x build/middleware-linux-* deploy/*.sh
+./deploy/manage-service.sh
+```
+
+เมนูมีรายการเดียวกับ Windows:
+
+```text
+1) Install / Update service
+2) Service Status
+3) Start Service
+4) Stop Service
+5) Restart Service
+6) Uninstall Service
+7) Open Web UI
+8) Show Machine ID
+9) Activate License
+0) Exit
+```
+
+สำหรับ installation ใหม่ ให้เลือก `8` เพื่อส่ง Machine ID ให้ผู้ดูแลออก license จากนั้นเลือก `9` แล้ววาง license token ระบบจะบันทึก `license.json` ไว้ใน package และเลือก `1` เพื่อติดตั้ง/อัปเดต service
+
+เมนูต้องใช้สิทธิ์ `sudo` สำหรับติดตั้งและจัดการ systemd service โดยไม่ต้องเปิด shell ค้างไว้หลังติดตั้ง
+
+### 3. ตั้งค่า Gateway
 
 แก้ค่าที่เครื่องปลายทาง:
 
@@ -314,6 +369,45 @@ journalctl -u chpp-middleware -f
 sudo nano /etc/chpp-middleware.env
 sudo systemctl restart chpp-middleware
 ```
+
+ค่าหลักที่ใช้:
+
+```env
+GATEWAY_ID=MOXA-VT1-01
+DB_PATH=/opt/chpp-middleware/middleware.db
+LISTEN_ADDR=0.0.0.0:8081
+CLEANUP_RETENTION_DAYS=30
+```
+
+`middleware.db` และ `license.json` จะถูกเก็บไว้ที่ `/opt/chpp-middleware` และจะไม่ถูกลบเมื่อเลือก `Uninstall Service`
+
+### 4. ตรวจสอบ service และ logs
+
+```bash
+sudo systemctl status chpp-middleware --no-pager
+sudo systemctl is-enabled chpp-middleware
+sudo journalctl -u chpp-middleware -n 100 --no-pager
+sudo journalctl -u chpp-middleware -f
+```
+
+เปิด Web UI จากเครื่องที่เข้าถึง server ได้ที่ `http://<server-ip>:8081/` หรือเลือกเมนู `7` เมื่อมี desktop browser บน Linux server
+
+### Direct commands
+
+ถ้าไม่ใช้เมนู สามารถใช้คำสั่งตรงได้:
+
+```bash
+BIN=/opt/chpp-middleware/middleware
+LICENSE=/opt/chpp-middleware/license.json
+
+"$BIN" -machine-id
+"$BIN" -activate-license "LICENSE_TOKEN" -license-file "$LICENSE"
+"$BIN" -license-status -license-file "$LICENSE"
+sh ./deploy/install-systemd.sh
+sudo systemctl restart chpp-middleware
+```
+
+การติดตั้ง service จะตรวจว่ามี license ที่ใช้งานได้ใน package หรือที่ `/opt/chpp-middleware/license.json` ก่อนเริ่ม service
 
 Cleanup ทำงานในตัว service เอง ค่า default คือเก็บ log/queue ที่จบแล้ว 30 วัน:
 
@@ -323,5 +417,3 @@ Cleanup ทำงานในตัว service เอง ค่า default ค�
 ```
 
 ระบบจะไม่ลบ queue สถานะ PENDING/RETRYING เพื่อกันข้อมูลที่ยังไม่ได้ส่งหาย
-
-

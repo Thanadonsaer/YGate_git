@@ -22,7 +22,6 @@ import (
 
 const (
 	drainBatchSize      = 500
-	commandTimeout      = 15 * time.Second
 	defaultPullInterval = 60 * time.Second
 )
 
@@ -30,7 +29,7 @@ const (
 // as an interface so tests can stub it out without a real database.
 type Ingester interface {
 	IngestRaw(ctx context.Context, client ingestion.Client, idempotencyKey string, raw []byte, batch ingestion.RawBatch, now time.Time) (ingestion.Result, error)
-	MiddlewareClientPullConfig(ctx context.Context, clientID pgtype.UUID) (pollIntervalSeconds int32, apiPollingEnabled bool, err error)
+	MiddlewareClientPullConfig(ctx context.Context, clientID pgtype.UUID) (pollIntervalSeconds, commandTimeoutSeconds int32, apiPollingEnabled bool, err error)
 	RecordMiddlewarePullEvent(ctx context.Context, client ingestion.Client, action string, details map[string]any) error
 }
 
@@ -46,7 +45,7 @@ type Ingester interface {
 func Run(ctx context.Context, hub *gatewayhub.Hub, ingest Ingester, client ingestion.Client, gatewayID string) {
 	for {
 		interval := defaultPullInterval
-		pollIntervalSeconds, apiPollingEnabled, err := ingest.MiddlewareClientPullConfig(ctx, client.ID)
+		pollIntervalSeconds, commandTimeoutSeconds, apiPollingEnabled, err := ingest.MiddlewareClientPullConfig(ctx, client.ID)
 		if pollIntervalSeconds > 0 {
 			interval = time.Duration(pollIntervalSeconds) * time.Second
 		}
@@ -69,7 +68,7 @@ func Run(ctx context.Context, hub *gatewayhub.Hub, ingest Ingester, client inges
 		if !waitForPullSchedule(ctx, nextScheduledPull(time.Now(), interval)) {
 			return
 		}
-		pullOnce(ctx, hub, ingest, client, gatewayID)
+		pullOnce(ctx, hub, ingest, client, gatewayID, time.Duration(commandTimeoutSeconds)*time.Second)
 	}
 }
 
@@ -153,7 +152,7 @@ type drainedBatch struct {
 	Readings []json.RawMessage `json:"readings"`
 }
 
-func pullOnce(ctx context.Context, hub *gatewayhub.Hub, ingest Ingester, client ingestion.Client, gatewayID string) {
+func pullOnce(ctx context.Context, hub *gatewayhub.Hub, ingest Ingester, client ingestion.Client, gatewayID string, commandTimeout time.Duration) {
 	started := time.Now()
 	audit := func(action string, details map[string]any) {
 		details["gatewayId"] = gatewayID

@@ -159,9 +159,9 @@ func TestIngestionAutoOnboardingAndIdempotencyAgainstPostgreSQL(t *testing.T) {
 		layout.Layouts[breakpoint] = append(layout.Layouts[breakpoint], item)
 	}
 	layout.WidgetConfigs["timeseries-line"] = core.DashboardWidgetConfig{
-		Version: 1,
+		Version:     1,
 		DataBinding: core.DashboardWidgetDataBinding{PlantID: uuidString(plantID), DeviceID: registered[0].ID, PointKey: powerKey, TimeRangeHours: 24},
-		Display: core.DashboardWidgetDisplay{Unit: "kW", Decimals: 1},
+		Display:     core.DashboardWidgetDisplay{Unit: "kW", Decimals: 1},
 	}
 	savedLayout, err := registry.SaveDashboardLayout(ctx, principal, core.UpdateDashboardLayoutInput{Version: layout.Version, Layouts: layout.Layouts, WidgetConfigs: layout.WidgetConfigs}, nil)
 	if err != nil || savedLayout.ID == nil || savedLayout.Version != 1 || savedLayout.Layouts["lg"][0].I != "active-device-count" || savedLayout.WidgetConfigs["timeseries-line"].DataBinding.PointKey != powerKey {
@@ -237,12 +237,15 @@ func TestMiddlewareClientPullConfigReadsPollIntervalAndApiPolling(t *testing.T) 
 	}
 
 	service := New(pool, nil)
-	pollIntervalSeconds, apiPollingEnabled, err := service.MiddlewareClientPullConfig(ctx, clientID)
+	pollIntervalSeconds, commandTimeoutSeconds, apiPollingEnabled, err := service.MiddlewareClientPullConfig(ctx, clientID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if pollIntervalSeconds < 5 || pollIntervalSeconds > 3600 {
 		t.Fatalf("pollIntervalSeconds=%d out of the DB CHECK constraint range", pollIntervalSeconds)
+	}
+	if commandTimeoutSeconds != 60 {
+		t.Fatalf("commandTimeoutSeconds=%d, want default 60", commandTimeoutSeconds)
 	}
 	_ = apiPollingEnabled
 }

@@ -10,8 +10,9 @@ Environment=GATEWAY_ID=MOXA-VT1-01
 Environment=DB_PATH=/opt/chpp-middleware/middleware.db
 Environment=LISTEN_ADDR=0.0.0.0:8081
 Environment=CLEANUP_RETENTION_DAYS=30
+Environment=LICENSE_FILE=/opt/chpp-middleware/license.json
 EnvironmentFile=-/etc/chpp-middleware.env
-ExecStart=/opt/chpp-middleware/middleware -gateway-id ${GATEWAY_ID} -db ${DB_PATH} -listen ${LISTEN_ADDR} -cleanup-retention-days ${CLEANUP_RETENTION_DAYS}
+ExecStart=/opt/chpp-middleware/middleware -run -gateway-id ${GATEWAY_ID} -db ${DB_PATH} -listen ${LISTEN_ADDR} -cleanup-retention-days ${CLEANUP_RETENTION_DAYS} -require-license -license-file ${LICENSE_FILE}
 Restart=always
 RestartSec=5
 

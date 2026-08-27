@@ -41,9 +41,10 @@ type stubIngester struct {
 	auditCalls []string
 	result     ingestion.Result
 
-	pollIntervalSeconds int32
-	apiPollingEnabled   bool
-	pullConfigErr       error
+	pollIntervalSeconds   int32
+	commandTimeoutSeconds int32
+	apiPollingEnabled     bool
+	pullConfigErr         error
 }
 
 func (s *stubIngester) RecordMiddlewarePullEvent(ctx context.Context, client ingestion.Client, action string, details map[string]any) error {
@@ -62,8 +63,27 @@ func (s *stubIngester) IngestRaw(ctx context.Context, client ingestion.Client, i
 	return ingestion.Result{Status: "accepted", AcceptedCount: int32(len(batch.Data))}, nil
 }
 
-func (s *stubIngester) MiddlewareClientPullConfig(ctx context.Context, clientID pgtype.UUID) (int32, bool, error) {
-	return s.pollIntervalSeconds, s.apiPollingEnabled, s.pullConfigErr
+func (s *stubIngester) MiddlewareClientPullConfig(ctx context.Context, clientID pgtype.UUID) (int32, int32, bool, error) {
+	return s.pollIntervalSeconds, s.commandTimeoutSeconds, s.apiPollingEnabled, s.pullConfigErr
+}
+
+func TestPullOnceUsesGatewayCommandTimeout(t *testing.T) {
+	hub := gatewayhub.New()
+	out, _, unregister := hub.Register("gw-1")
+	defer unregister()
+
+	go func() { <-out }() // receive the drain but deliberately never reply
+	ingest := &stubIngester{}
+	client := ingestion.Client{ID: pgtype.UUID{Bytes: [16]byte{1}, Valid: true}, OrganizationID: pgtype.UUID{Bytes: [16]byte{2}, Valid: true}}
+	started := time.Now()
+	pullOnce(context.Background(), hub, ingest, client, "gw-1", 25*time.Millisecond)
+
+	if elapsed := time.Since(started); elapsed > 250*time.Millisecond {
+		t.Fatalf("pullOnce elapsed=%s, want configured timeout near 25ms", elapsed)
+	}
+	if !slices.Equal(ingest.auditCalls, []string{"middleware.pull.failed"}) {
+		t.Fatalf("auditCalls=%v, want timeout failure", ingest.auditCalls)
+	}
 }
 
 func TestPullOnceDrainsIngestsThenAcks(t *testing.T) {
@@ -103,7 +123,7 @@ func TestPullOnceDrainsIngestsThenAcks(t *testing.T) {
 
 	ingest := &stubIngester{}
 	client := ingestion.Client{ID: pgtype.UUID{Bytes: [16]byte{1}, Valid: true}, OrganizationID: pgtype.UUID{Bytes: [16]byte{2}, Valid: true}}
-	pullOnce(context.Background(), hub, ingest, client, "gw-1")
+	pullOnce(context.Background(), hub, ingest, client, "gw-1", time.Second)
 
 	if len(ingest.calls) != 1 || len(ingest.calls[0].Data) != 1 {
 		t.Fatalf("ingest.calls = %+v, want exactly 1 call with 1 reading", ingest.calls)
@@ -140,7 +160,7 @@ func TestPullOnceDoesNotAckWhenAllReadingsRejected(t *testing.T) {
 
 	ingest := &stubIngester{result: ingestion.Result{Status: "accepted", RejectedCount: 1, Errors: []ingestion.RecordError{{Code: "UNKNOWN_DEVICE", Message: "device is not registered"}}}}
 	client := ingestion.Client{ID: pgtype.UUID{Bytes: [16]byte{1}, Valid: true}, OrganizationID: pgtype.UUID{Bytes: [16]byte{2}, Valid: true}}
-	pullOnce(context.Background(), hub, ingest, client, "gw-1")
+	pullOnce(context.Background(), hub, ingest, client, "gw-1", time.Second)
 	if !slices.Equal(ingest.auditCalls, []string{"middleware.pull.failed"}) {
 		t.Fatalf("auditCalls = %v, want failed", ingest.auditCalls)
 	}
@@ -149,7 +169,7 @@ func TestPullOnceSkipsSilentlyWhenGatewayOffline(t *testing.T) {
 	hub := gatewayhub.New()
 	ingest := &stubIngester{}
 	client := ingestion.Client{ID: pgtype.UUID{Bytes: [16]byte{1}, Valid: true}, OrganizationID: pgtype.UUID{Bytes: [16]byte{2}, Valid: true}}
-	pullOnce(context.Background(), hub, ingest, client, "gw-offline") // must not panic or block
+	pullOnce(context.Background(), hub, ingest, client, "gw-offline", time.Second) // must not panic or block
 	if len(ingest.calls) != 0 {
 		t.Fatalf("ingest.calls = %+v, want none for an offline gateway", ingest.calls)
 	}
@@ -190,7 +210,7 @@ func TestPullOnceSkipsAckWhenIngestErrors(t *testing.T) {
 
 	ingest := &stubIngester{err: errors.New("simulated ingest failure")}
 	client := ingestion.Client{ID: pgtype.UUID{Bytes: [16]byte{1}, Valid: true}, OrganizationID: pgtype.UUID{Bytes: [16]byte{2}, Valid: true}}
-	pullOnce(context.Background(), hub, ingest, client, "gw-1")
+	pullOnce(context.Background(), hub, ingest, client, "gw-1", time.Second)
 
 	if len(ingest.calls) != 1 {
 		t.Fatalf("ingest.calls = %+v, want exactly 1 call", ingest.calls)
@@ -207,7 +227,7 @@ func TestRunPullsOnNextAlignedScheduleOnceEnabled(t *testing.T) {
 		"collectTime": time.Now().UnixMilli(), "registerAddressMap": map[string]float64{"40001": 1},
 	})
 
-	ingest := &stubIngester{apiPollingEnabled: true, pollIntervalSeconds: 1} // one-second schedule keeps the aligned-slot test fast
+	ingest := &stubIngester{apiPollingEnabled: true, pollIntervalSeconds: 1, commandTimeoutSeconds: 1} // one-second schedule keeps the aligned-slot test fast
 	client := ingestion.Client{ID: pgtype.UUID{Bytes: [16]byte{1}, Valid: true}, OrganizationID: pgtype.UUID{Bytes: [16]byte{2}, Valid: true}}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

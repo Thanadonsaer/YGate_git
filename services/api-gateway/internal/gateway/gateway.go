@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"log"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -64,6 +65,10 @@ func newProxy(target *url.URL) *httputil.ReverseProxy {
 		Rewrite: func(request *httputil.ProxyRequest) {
 			request.SetURL(target)
 			request.SetXForwarded()
+			request.Out.Header.Del("X-Real-IP")
+			if host, _, err := net.SplitHostPort(request.In.RemoteAddr); err == nil {
+				request.Out.Header.Set("X-Real-IP", host)
+			}
 		},
 		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
 			log.Printf("proxy to %s failed: %v", target, err)

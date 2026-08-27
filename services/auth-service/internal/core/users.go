@@ -387,6 +387,15 @@ func (s *Service) ResetUserPassword(ctx context.Context, principal auth.Principa
 	if err = s.requireOrganizationPermission(ctx, q, principal, "reset_password", "user", organizationID); err != nil {
 		return err
 	}
+	if hasRole(before.Roles, systemAdminRoleName) {
+		global, err := hasGlobalPermissionQuery(ctx, tx, principal, "reset_password", "user")
+		if err != nil {
+			return fmt.Errorf("check global reset user permission: %w", err)
+		}
+		if !canResetUserPassword(before.Roles, global) {
+			return ErrForbidden
+		}
+	}
 	if _, err = tx.Exec(ctx, `UPDATE auth.app_user SET password_hash=$2, password_changed_at=now(), failed_login_count=0, locked_until=NULL, updated_at=now() WHERE id=$1`, id, passwordHash); err != nil {
 		return mapUserWriteError(err)
 	}
@@ -649,6 +658,10 @@ func hasRole(roles []string, name string) bool {
 		}
 	}
 	return false
+}
+
+func canResetUserPassword(targetRoles []string, actorHasGlobalPermission bool) bool {
+	return !hasRole(targetRoles, systemAdminRoleName) || actorHasGlobalPermission
 }
 
 func isLastActivePlatformAdmin(ctx context.Context, tx pgx.Tx, excludedUserID pgtype.UUID) (bool, error) {
