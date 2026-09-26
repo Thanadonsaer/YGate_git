@@ -310,11 +310,21 @@ func (q *Queries) OnboardDevice(ctx context.Context, arg OnboardDeviceParams) (O
 }
 
 const onboardDeviceModel = `-- name: OnboardDeviceModel :one
+WITH new_profile AS (
+    INSERT INTO plant.register_profile (id, organization_id, name, manufacturer)
+    SELECT $1, $2, left('Middleware ' || $3::text, 200), 'Middleware'
+    WHERE NOT EXISTS (
+        SELECT 1 FROM plant.device_model existing
+        WHERE existing.organization_id = $2
+          AND existing.manufacturer = 'Middleware' AND existing.model = $3
+    )
+    RETURNING id
+)
 INSERT INTO plant.device_model (
-    id, organization_id, manufacturer, model, device_type, source_type_id
+    id, organization_id, manufacturer, model, device_type, source_type_id, register_profile_id
 ) VALUES (
     $1, $2, 'Middleware', $3,
-    $4, $5
+    $4, $5, $1
 )
 ON CONFLICT (organization_id, manufacturer, model) DO UPDATE SET model = EXCLUDED.model
 RETURNING id, organization_id, manufacturer, model, device_type, source_type_id,
@@ -340,6 +350,10 @@ type OnboardDeviceModelRow struct {
 	Created        bool
 }
 
+// device_model.register_profile_id is NOT NULL (000050): a newly discovered
+// model gets its own empty profile, id shared with the model like
+// core.CreateDeviceModel does. An existing model keeps its profile (the
+// conflict branch never touches register_profile_id).
 func (q *Queries) OnboardDeviceModel(ctx context.Context, arg OnboardDeviceModelParams) (OnboardDeviceModelRow, error) {
 	row := q.db.QueryRow(ctx, onboardDeviceModel,
 		arg.ID,

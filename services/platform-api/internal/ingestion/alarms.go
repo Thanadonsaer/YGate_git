@@ -161,7 +161,7 @@ WHERE r.organization_id=$1 AND r.device_id=$2 AND r.is_active`, organizationID, 
 			err = tx.QueryRow(ctx, `
 INSERT INTO alarm.alarm_event (organization_id, plant_id, device_id, alarm_rule_id, severity, condition_snapshot, breached_at)
 VALUES ($1,$2,$3,$4,$5,$6,$7)
-ON CONFLICT (alarm_rule_id) WHERE cleared_at IS NULL DO NOTHING
+ON CONFLICT (alarm_rule_id) WHERE cleared_at IS NULL AND source_type = 'RULE' DO NOTHING
 RETURNING id`,
 				organizationID, plantID, deviceID, r.id, r.severity, snapshotJSON, observedAt).Scan(&openedID)
 			if err != nil && err != pgx.ErrNoRows {

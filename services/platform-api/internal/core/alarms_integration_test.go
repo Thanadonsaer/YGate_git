@@ -38,7 +38,10 @@ func TestAlarmRuleAndEventLifecycleAgainstPostgreSQL(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO plant.plant(id,organization_id,code,name,timezone) VALUES($1,$2,'ALARM-PLANT','Alarm Plant','UTC')`, plantID, orgID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = pool.Exec(ctx, `INSERT INTO plant.device_model(id,organization_id,manufacturer,model,device_type) VALUES($1,$2,'Test','Model-1','INVERTER')`, deviceModelID, orgID); err != nil {
+	if _, err = pool.Exec(ctx, `INSERT INTO plant.register_profile(id,organization_id,name) VALUES($1,$2,'Test Model-1')`, deviceModelID, orgID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO plant.device_model(id,organization_id,manufacturer,model,device_type,register_profile_id) VALUES($1,$2,'Test','Model-1','INVERTER',$1)`, deviceModelID, orgID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = pool.Exec(ctx, `INSERT INTO plant.device(id,organization_id,plant_id,device_model_id,external_id,name) VALUES($1,$2,$3,$4,'INV-1','Inverter 1')`, deviceID, orgID, plantID, deviceModelID); err != nil {

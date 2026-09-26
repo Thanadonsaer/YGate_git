@@ -96,7 +96,7 @@ func TestPlantAuthorizationLifecycleAgainstPostgreSQL(t *testing.T) {
 		t.Fatalf("duplicate create error = %v", err)
 	}
 
-	updated, err := service.UpdatePlant(ctx, admin, plantB.ID, UpdatePlantInput{Code: plantB.Code, Name: "Plant B Disabled", Timezone: "UTC", IsActive: false}, nil)
+	updated, err := service.UpdatePlant(ctx, admin, plantB.ID, UpdatePlantInput{Code: plantB.Code, Name: "Plant B Disabled", Timezone: "UTC", LifecycleStatus: PlantLifecycleOperational, IsActive: false}, nil)
 	if err != nil || updated.IsActive || updated.Name != "Plant B Disabled" {
 		t.Fatalf("updated plant = %+v, err = %v", updated, err)
 	}

@@ -52,11 +52,25 @@ ON CONFLICT (organization_id, code) DO UPDATE SET code = EXCLUDED.code
 RETURNING id, organization_id, code, name, is_active, (xmax = 0) AS created;
 
 -- name: OnboardDeviceModel :one
+-- device_model.register_profile_id is NOT NULL (000050): a newly discovered
+-- model gets its own empty profile, id shared with the model like
+-- core.CreateDeviceModel does. An existing model keeps its profile (the
+-- conflict branch never touches register_profile_id).
+WITH new_profile AS (
+    INSERT INTO plant.register_profile (id, organization_id, name, manufacturer)
+    SELECT sqlc.arg(id), sqlc.arg(organization_id), left('Middleware ' || sqlc.arg(model)::text, 200), 'Middleware'
+    WHERE NOT EXISTS (
+        SELECT 1 FROM plant.device_model existing
+        WHERE existing.organization_id = sqlc.arg(organization_id)
+          AND existing.manufacturer = 'Middleware' AND existing.model = sqlc.arg(model)
+    )
+    RETURNING id
+)
 INSERT INTO plant.device_model (
-    id, organization_id, manufacturer, model, device_type, source_type_id
+    id, organization_id, manufacturer, model, device_type, source_type_id, register_profile_id
 ) VALUES (
     sqlc.arg(id), sqlc.arg(organization_id), 'Middleware', sqlc.arg(model),
-    sqlc.arg(device_type), sqlc.arg(source_type_id)
+    sqlc.arg(device_type), sqlc.arg(source_type_id), sqlc.arg(id)
 )
 ON CONFLICT (organization_id, manufacturer, model) DO UPDATE SET model = EXCLUDED.model
 RETURNING id, organization_id, manufacturer, model, device_type, source_type_id,

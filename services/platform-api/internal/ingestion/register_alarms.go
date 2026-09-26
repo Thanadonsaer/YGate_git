@@ -151,7 +151,7 @@ ORDER BY address.address_key, mapping.bit_index NULLS FIRST, mapping.id`, organi
 		err = tx.QueryRow(ctx, `
 INSERT INTO alarm.alarm_event (organization_id, plant_id, device_id, alarm_rule_id, point_key, severity, value, condition_snapshot, breached_at, source_type, register_mapping_source_id, register_snapshot)
 VALUES ($1,$2,$3,NULL,$4,$5,$6,'[]'::jsonb,$7,'REGISTER',$8,$9)
-			ON CONFLICT (device_id, register_mapping_source_id) WHERE cleared_at IS NULL DO NOTHING
+			ON CONFLICT (device_id, register_mapping_source_id) WHERE cleared_at IS NULL AND source_type = 'REGISTER' DO NOTHING
 		RETURNING id`, organizationID, plantID, deviceID, signal.AddressKey, signal.Severity, signal.NumericValue, observedAt, registerUUID(signal.MappingSourceID), snapshot).Scan(&openedID)
 		if err != nil && err != pgx.ErrNoRows {
 			return nil, fmt.Errorf("open register alarm: %w", err)

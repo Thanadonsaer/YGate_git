@@ -114,9 +114,11 @@ INSERT INTO plant.plant(id,organization_id,code,name,timezone)
 VALUES ('40000000-0000-4000-8000-000000000003','40000000-0000-4000-8000-000000000001',
         'RET-PLANT','Retention Plant','Asia/Bangkok');
 
-INSERT INTO plant.device_model(id,organization_id,manufacturer,model,device_type)
+INSERT INTO plant.register_profile(id,organization_id,name)
+VALUES ('40000000-0000-4000-8000-000000000004','40000000-0000-4000-8000-000000000001','Test RET-1');
+INSERT INTO plant.device_model(id,organization_id,manufacturer,model,device_type,register_profile_id)
 VALUES ('40000000-0000-4000-8000-000000000004','40000000-0000-4000-8000-000000000001',
-        'Test','RET-1','Inverter');
+        'Test','RET-1','Inverter','40000000-0000-4000-8000-000000000004');
 
 INSERT INTO plant.device(id,organization_id,plant_id,device_model_id,external_id,name)
 VALUES ('40000000-0000-4000-8000-000000000005','40000000-0000-4000-8000-000000000001',

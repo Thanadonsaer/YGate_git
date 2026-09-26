@@ -42,6 +42,9 @@ func (s *Service) HardDeletePlant(ctx context.Context, principal auth.Principal,
 	}
 	for _, statement := range []string{
 		`DELETE FROM telemetry.raw_register_reading WHERE organization_id=$1 AND plant_id=$2`,
+		// event_logbook's device FK is RESTRICT; detach first (the plant
+		// delete below cascades the entries themselves).
+		`UPDATE alarm.event_logbook SET device_id=NULL WHERE organization_id=$1 AND plant_id=$2 AND device_id IS NOT NULL`,
 		`DELETE FROM plant.device WHERE organization_id=$1 AND plant_id=$2`,
 		`DELETE FROM plant.plant WHERE organization_id=$1 AND id=$2`,
 	} {
@@ -84,6 +87,9 @@ func (s *Service) HardDeleteDevice(ctx context.Context, principal auth.Principal
 	}
 	for _, statement := range []string{
 		`DELETE FROM telemetry.raw_register_reading WHERE organization_id=$1 AND plant_id=$2 AND device_id=$3`,
+		// event_logbook's device FK is RESTRICT. The entries are Plant
+		// history, so they stay -- as plant-level entries.
+		`UPDATE alarm.event_logbook SET device_id=NULL WHERE organization_id=$1 AND plant_id=$2 AND device_id=$3`,
 		`DELETE FROM plant.device WHERE organization_id=$1 AND plant_id=$2 AND id=$3`,
 	} {
 		if _, err = tx.Exec(ctx, statement, organizationID, plantUUID, deviceUUID); err != nil {
