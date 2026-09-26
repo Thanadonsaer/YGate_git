@@ -3,9 +3,7 @@
 package store
 
 import (
-	"chpp/modbus-api-middleware/internal/decoder"
 	"chpp/modbus-api-middleware/internal/domain"
-	"chpp/modbus-api-middleware/internal/profile"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -180,110 +178,6 @@ func (s *Store) Brands() ([]domain.Brand, error) {
 	}
 	return r, nil
 }
-func normalizeDeviceSet(v domain.DeviceSet) domain.DeviceSet {
-	v.DevType = strings.TrimSpace(v.DevType)
-	v.DevModel = strings.TrimSpace(v.DevModel)
-	if v.DevType == "" && v.DevTypeID > 0 {
-		v.DevType = devTypeName(v.DevTypeID)
-	}
-	if v.DevTypeID <= 0 {
-		v.DevTypeID = devTypeID(v.DevType)
-	}
-	if v.AddressMode == "" {
-		v.AddressMode = "ZERO_BASED"
-	}
-	if m, e := profile.CanonicalAddressMode(v.AddressMode); e == nil {
-		v.AddressMode = m
-	} else {
-		v.AddressMode = strings.ToUpper(strings.TrimSpace(v.AddressMode))
-	}
-	if v.ByteOrder == "" {
-		v.ByteOrder = "BIG_ENDIAN"
-	}
-	if v.WordOrder == "" {
-		v.WordOrder = "HIGH_LOW"
-	}
-	v.ByteOrder = strings.ToUpper(strings.TrimSpace(v.ByteOrder))
-	v.WordOrder = strings.ToUpper(strings.TrimSpace(v.WordOrder))
-	if v.MaxBlockSize < 1 {
-		v.MaxBlockSize = 30
-	}
-	return v
-}
-func normalizeAddress(a domain.Address, mode string) (domain.Address, error) {
-	a.Description = strings.TrimSpace(a.Description)
-	a.DataType = strings.ToUpper(strings.TrimSpace(a.DataType))
-	a.SourceUnit = strings.TrimSpace(a.SourceUnit)
-	a.CanonicalUnit = strings.TrimSpace(a.CanonicalUnit)
-	a.Remark = strings.TrimSpace(a.Remark)
-	if mode == "ZERO_BASED" {
-		a.FunctionCode, a.Register = normalizeRegister(a.FunctionCode, a.Register)
-	}
-	if a.Factor == 0 {
-		a.Factor = 1
-	}
-	if strings.TrimSpace(a.CanonicalKey) == "" {
-		a.CanonicalKey = fmt.Sprintf("%d:%d", a.FunctionCode, a.Register)
-	}
-	if a.SourceTag == "" {
-		a.SourceTag = a.Description
-	}
-	if a.Length == 0 {
-		a.Length = decoder.RegisterCount(a.DataType)
-	}
-	a.WordOrder = strings.ToUpper(strings.TrimSpace(a.WordOrder))
-	if !a.EnabledSet {
-		a.Enabled = true
-	}
-	return a, nil
-}
-func normalizeRegister(fc, r int) (int, int) {
-	switch {
-	case r >= 30000 && r < 40000:
-		return 3, r - 30000
-	case r >= 40000 && r < 50000:
-		return 4, r - 40000
-	default:
-		return fc, r
-	}
-}
-func oneOf(v string, a ...string) bool {
-	for _, x := range a {
-		if v == x {
-			return true
-		}
-	}
-	return false
-}
-func validateAddress(a domain.Address, mode string) error {
-	if a.FunctionCode != 3 && a.FunctionCode != 4 {
-		return fmt.Errorf("functionCode must be 3 or 4")
-	}
-	if a.Register < 0 || a.Register > 65535 {
-		return fmt.Errorf("register must be 0..65535")
-	}
-	if a.Description == "" || a.DataType == "" {
-		return fmt.Errorf("description and dataType are required")
-	}
-	if decoder.RegisterCount(a.DataType) == 0 {
-		return fmt.Errorf("unsupported dataType %q", a.DataType)
-	}
-	if a.Length < 1 || a.Length > 4 {
-		return fmt.Errorf("length must be 1..4")
-	}
-	if a.WordOrder != "" && !oneOf(a.WordOrder, "HIGH_LOW", "LOW_HIGH") {
-		return fmt.Errorf("wordOrder must be HIGH_LOW or LOW_HIGH")
-	}
-	_, err := profile.ResolveModbusAddress(mode, domain.RegisterDefinition{Key: a.Description, FunctionCode: a.FunctionCode, RegisterAddress: a.Register, Length: a.Length})
-	return err
-}
-func addressIDList(a []domain.Address) []int64 {
-	r := make([]int64, 0, len(a))
-	for _, v := range a {
-		r = append(r, v.AddressID)
-	}
-	return r
-}
 func (s *Store) SaveDeviceSet(v domain.DeviceSet) (domain.DeviceSet, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -355,53 +249,6 @@ func (s *Store) Addresses(id int64) ([]domain.Address, error) {
 	return v.Addresses, e
 }
 
-func normalizeConnection(v domain.ConnectionConfig) domain.ConnectionConfig {
-	v.ConnectionName = strings.TrimSpace(v.ConnectionName)
-	v.Host = strings.TrimSpace(v.Host)
-	if v.UnitID <= 0 && v.SlaveID > 0 {
-		v.UnitID = v.SlaveID
-	}
-	if v.UnitID <= 0 {
-		v.UnitID = 1
-	}
-	v.SlaveID = v.UnitID
-	if v.DevDn == "" {
-		v.DevDn = v.ConnectionName
-	}
-	if v.DeviceName == "" {
-		v.DeviceName = v.ConnectionName
-	}
-	if v.PlantCode == "" {
-		v.PlantCode = plantFromConnectionName(v.ConnectionName)
-	}
-	if v.PlantName == "" {
-		v.PlantName = v.PlantCode
-	}
-	if v.ConnectionID == 0 {
-		v.Enabled = true
-	}
-	return v
-}
-func plantFromConnectionName(v string) string {
-	h, _, ok := strings.Cut(strings.TrimSpace(v), "-")
-	if !ok || strings.TrimSpace(h) == "" {
-		return "DEFAULT"
-	}
-	return strings.ToUpper(strings.TrimSpace(h))
-}
-func devTypeID(v string) int {
-	v = strings.ToLower(v)
-	if strings.Contains(v, "grid") || strings.Contains(v, "meter") {
-		return 17
-	}
-	return 1
-}
-func devTypeName(id int) string {
-	if id == 17 {
-		return "Grid-Meter"
-	}
-	return "Inverter"
-}
 func (s *Store) SaveConnection(v domain.ConnectionConfig) (domain.ConnectionConfig, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -772,14 +619,36 @@ func (s *Store) CurrentConfigVersion() (int64, error) {
 	}
 	return v, nil
 }
+// ApplyConfigSnapshot runs the shared normalizeConfigSnapshot (normalize.go,
+// the same rules the SQLite build applies) and leaves the store untouched if
+// any entry fails.
+//
+// An earlier version here just assigned snap.* into state as-is. That
+// skipped normalizeConnection, so a Connection pushed with only legacy
+// slaveId set (unitId 0/absent) kept UnitID at 0 -- Modbus unit/slave id 0
+// is the broadcast address, which a real device never answers a read on.
+// The SQLite build never had this bug because config_history.go always ran
+// normalizeConnection on the same push. Root cause, not the RUT906 network
+// path: same central push, same payload, only the mips store skipped
+// normalization.
 func (s *Store) ApplyConfigSnapshot(version int64, snap domain.ConfigSnapshot) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	snap.Version = version
-	s.state.Brands = snap.Brands
-	s.state.DeviceSets = snap.DeviceSets
-	s.state.Connections = snap.Connections
-	s.state.Plants = snap.Plants
+	normalized, err := normalizeConfigSnapshot(snap)
+	status, reason := "APPLIED", ""
+	if err != nil {
+		status, reason = "FAILED", err.Error()
+	}
+	b, _ := json.Marshal(snap)
+	s.state.History = append(s.state.History, fileHistory{Version: version, Status: status, Reason: reason, Snapshot: string(b), AppliedAt: time.Now().UnixMilli()})
+	if err != nil {
+		return s.saveLocked()
+	}
+	s.state.Brands = normalized.Brands
+	s.state.DeviceSets = normalized.DeviceSets
+	s.state.Connections = normalized.Connections
+	s.state.Plants = normalized.Plants
 	for _, b := range s.state.Brands {
 		if b.BrandID >= s.state.NextID {
 			s.state.NextID = b.BrandID + 1
@@ -795,19 +664,10 @@ func (s *Store) ApplyConfigSnapshot(version int64, snap domain.ConfigSnapshot) e
 			s.state.NextID = c.ConnectionID + 1
 		}
 	}
-	b, _ := json.Marshal(snap)
-	s.state.History = append(s.state.History, fileHistory{Version: version, Status: "APPLIED", Snapshot: string(b), AppliedAt: time.Now().UnixMilli()})
 	return s.saveLocked()
 }
 
-func first(v ...string) string {
-	for _, x := range v {
-		if strings.TrimSpace(x) != "" {
-			return strings.TrimSpace(x)
-		}
-	}
-	return ""
-}
+
 func min(a, b int) int {
 	if a < b {
 		return a

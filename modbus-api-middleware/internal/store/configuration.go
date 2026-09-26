@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"chpp/modbus-api-middleware/internal/decoder"
 	"chpp/modbus-api-middleware/internal/domain"
-	"chpp/modbus-api-middleware/internal/profile"
 )
 
 const configurationSchema = `
@@ -202,100 +200,9 @@ func (s *Store) SaveDeviceSet(v domain.DeviceSet) (domain.DeviceSet, error) {
 	return v, nil
 }
 
-func normalizeDeviceSet(v domain.DeviceSet) domain.DeviceSet {
-	v.DevType = strings.TrimSpace(v.DevType)
-	v.DevModel = strings.TrimSpace(v.DevModel)
-	if v.DevType == "" && v.DevTypeID > 0 {
-		v.DevType = devTypeName(v.DevTypeID)
-	}
-	if v.DevTypeID <= 0 {
-		v.DevTypeID = devTypeID(v.DevType)
-	}
-	if v.AddressMode == "" {
-		v.AddressMode = "ZERO_BASED"
-	}
-	if mode, err := profile.CanonicalAddressMode(v.AddressMode); err == nil {
-		v.AddressMode = mode
-	} else {
-		v.AddressMode = strings.ToUpper(strings.TrimSpace(v.AddressMode))
-	}
-	if v.ByteOrder == "" {
-		v.ByteOrder = "BIG_ENDIAN"
-	}
-	if v.WordOrder == "" {
-		v.WordOrder = "HIGH_LOW"
-	}
-	v.ByteOrder = strings.ToUpper(strings.TrimSpace(v.ByteOrder))
-	v.WordOrder = strings.ToUpper(strings.TrimSpace(v.WordOrder))
-	if v.MaxBlockSize < 1 {
-		v.MaxBlockSize = 30
-	}
-	return v
-}
 
-func normalizeAddress(a domain.Address, addressMode string) (domain.Address, error) {
-	a.Description = strings.TrimSpace(a.Description)
-	a.DataType = strings.ToUpper(strings.TrimSpace(a.DataType))
-	a.SourceUnit = strings.TrimSpace(a.SourceUnit)
-	a.CanonicalUnit = strings.TrimSpace(a.CanonicalUnit)
-	a.Remark = strings.TrimSpace(a.Remark)
-	if addressMode == "ZERO_BASED" {
-		a.FunctionCode, a.Register = normalizeRegister(a.FunctionCode, a.Register)
-	}
-	if a.Factor == 0 {
-		a.Factor = 1
-	}
-	if strings.TrimSpace(a.CanonicalKey) == "" {
-		a.CanonicalKey = fmt.Sprintf("%d:%d", a.FunctionCode, a.Register)
-	}
-	if a.SourceTag == "" {
-		a.SourceTag = a.Description
-	}
-	if a.Length == 0 {
-		a.Length = decoder.RegisterCount(a.DataType)
-	}
-	a.WordOrder = strings.ToUpper(strings.TrimSpace(a.WordOrder))
-	if !a.EnabledSet {
-		a.Enabled = true
-	}
-	return a, nil
-}
 
-func normalizeRegister(fc, register int) (int, int) {
-	switch {
-	case register >= 30000 && register < 40000:
-		return 3, register - 30000
-	case register >= 40000 && register < 50000:
-		return 4, register - 40000
-	default:
-		return fc, register
-	}
-}
 
-func validateAddress(a domain.Address, addressMode string) error {
-	if a.FunctionCode != 3 && a.FunctionCode != 4 {
-		return fmt.Errorf("functionCode must be 3 or 4")
-	}
-	if a.Register < 0 || a.Register > 65535 {
-		return fmt.Errorf("register must be 0..65535")
-	}
-	if a.Description == "" || a.DataType == "" {
-		return fmt.Errorf("description and dataType are required")
-	}
-	if decoder.RegisterCount(a.DataType) == 0 {
-		return fmt.Errorf("unsupported dataType %q", a.DataType)
-	}
-	if a.Length < 1 || a.Length > 4 {
-		return fmt.Errorf("length must be 1..4")
-	}
-	if a.WordOrder != "" && !oneOf(a.WordOrder, "HIGH_LOW", "LOW_HIGH") {
-		return fmt.Errorf("wordOrder must be HIGH_LOW or LOW_HIGH")
-	}
-	if _, err := profile.ResolveModbusAddress(addressMode, domain.RegisterDefinition{Key: a.Description, FunctionCode: a.FunctionCode, RegisterAddress: a.Register, Length: a.Length}); err != nil {
-		return err
-	}
-	return nil
-}
 
 func scanDeviceSet(row interface{ Scan(...any) error }) (domain.DeviceSet, error) {
 	var v domain.DeviceSet
@@ -376,33 +283,6 @@ func (s *Store) SaveConnection(v domain.ConnectionConfig) (domain.ConnectionConf
 	return v, nil
 }
 
-func normalizeConnection(v domain.ConnectionConfig) domain.ConnectionConfig {
-	v.ConnectionName = strings.TrimSpace(v.ConnectionName)
-	v.Host = strings.TrimSpace(v.Host)
-	if v.UnitID <= 0 && v.SlaveID > 0 {
-		v.UnitID = v.SlaveID
-	}
-	if v.UnitID <= 0 {
-		v.UnitID = 1
-	}
-	v.SlaveID = v.UnitID
-	if strings.TrimSpace(v.DevDn) == "" {
-		v.DevDn = v.ConnectionName
-	}
-	if strings.TrimSpace(v.DeviceName) == "" {
-		v.DeviceName = v.ConnectionName
-	}
-	if strings.TrimSpace(v.PlantCode) == "" {
-		v.PlantCode = plantFromConnectionName(v.ConnectionName)
-	}
-	if strings.TrimSpace(v.PlantName) == "" {
-		v.PlantName = v.PlantCode
-	}
-	if v.ConnectionID == 0 {
-		v.Enabled = true
-	}
-	return v
-}
 
 func scanConnection(row interface{ Scan(...any) error }) (domain.ConnectionConfig, error) {
 	var v domain.ConnectionConfig
@@ -450,51 +330,8 @@ func (s *Store) intList(query string, args ...any) ([]int64, error) {
 	return out, rows.Err()
 }
 
-func addressIDList(addresses []domain.Address) []int64 {
-	out := make([]int64, 0, len(addresses))
-	for _, a := range addresses {
-		out = append(out, a.AddressID)
-	}
-	return out
-}
 
-func devTypeID(value string) int {
-	v := strings.ToLower(strings.TrimSpace(value))
-	if strings.Contains(v, "grid") || strings.Contains(v, "meter") {
-		return 17
-	}
-	return 1
-}
 
-func devTypeName(id int) string {
-	if id == 17 {
-		return "Grid-Meter"
-	}
-	return "Inverter"
-}
 
-func plantFromConnectionName(value string) string {
-	head, _, ok := strings.Cut(strings.TrimSpace(value), "-")
-	if !ok || strings.TrimSpace(head) == "" {
-		return "DEFAULT"
-	}
-	return strings.ToUpper(strings.TrimSpace(head))
-}
 
-func first(values ...string) string {
-	for _, v := range values {
-		if strings.TrimSpace(v) != "" {
-			return strings.TrimSpace(v)
-		}
-	}
-	return ""
-}
 
-func oneOf(value string, allowed ...string) bool {
-	for _, candidate := range allowed {
-		if value == candidate {
-			return true
-		}
-	}
-	return false
-}
