@@ -4,7 +4,7 @@ import { CheckCircle2, ImageIcon, Palette, Save, Trash2, Upload } from "lucide-r
 import { FormMessage, TextInput } from "../../components/ui/form";
 import { ChangeEvent, FormEvent, useState } from "react";
 import { usePlatformSession } from "../../components/platform-shell";
-import { api, errorMessage, assetURL, csrfToken } from "../../lib/api";
+import { api, apiJson, errorMessage, assetURL, csrfToken } from "../../lib/api";
 import { ACCENT_PRESETS } from "../../lib/theme";
 import type { AccentColor, SiteSettings } from "../../lib/types";
 import { toast } from "../../components/ui/sonner";
@@ -25,13 +25,11 @@ export function SiteSettingsPage() {
     setPending(true);
     setError("");
     try {
-      const response = await api("/api/v1/site-settings", {
+      updateSiteSettings(await apiJson<SiteSettings>("/api/v1/site-settings", {
         method: "PUT",
-        headers: { "X-CSRF-Token": csrfToken() },
-        body: JSON.stringify({ siteName, accentColor }),
-      });
-      if (!response.ok) throw new Error(response.status === 403 ? "เฉพาะ Platform Admin เท่านั้นที่แก้ไข Site Branding ได้" : "ไม่สามารถบันทึก Site Branding ได้");
-      updateSiteSettings((await response.json()) as SiteSettings);
+        body: { siteName, accentColor },
+        messages: { 403: "เฉพาะ Platform Admin เท่านั้นที่แก้ไข Site Branding ได้", default: "ไม่สามารถบันทึก Site Branding ได้" },
+      }));
       toast.success("บันทึก Site Branding แล้ว");
     } catch (cause) {
       setError(errorMessage(cause));
@@ -68,12 +66,7 @@ export function SiteSettingsPage() {
     setLogoPending(true);
     setError("");
     try {
-      const response = await api("/api/v1/site-settings/logo", {
-        method: "DELETE",
-        headers: { "X-CSRF-Token": csrfToken() },
-      });
-      if (!response.ok) throw new Error("ลบ logo ไม่สำเร็จ");
-      updateSiteSettings((await response.json()) as SiteSettings);
+      updateSiteSettings(await apiJson<SiteSettings>("/api/v1/site-settings/logo", { method: "DELETE", messages: { default: "ลบ logo ไม่สำเร็จ" } }));
       toast.success("ลบ logo แล้ว");
     } catch (cause) {
       setError(errorMessage(cause));

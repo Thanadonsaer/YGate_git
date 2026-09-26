@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../../components/ui/select";
 import { toast } from "../../components/ui/sonner";
 import { iconButtonClass, inputClass, labelClass, primaryButtonClass, secondaryButtonClass } from "../../components/ui";
-import { api, errorMessage, csrfToken, downloadBlob } from "../../lib/api";
+import { api, apiJson, errorMessage, csrfToken, downloadBlob } from "../../lib/api";
 import { MIDDLEWARE_DATA_TYPES, type DeviceModelOption, type DeviceModelRegisterMetadata, type RegisterProfile, type RegisterValueMapping } from "../../lib/types";
 import { usePlatformSession } from "../../components/platform-shell";
 import { can } from "../../lib/permissions";
@@ -29,10 +29,7 @@ export function RegisterMetadataPage() {
     setLoading(true);
     setError("");
     try {
-      const response = await api("/api/v1/device-models");
-      if (response.status === 403) throw new Error("บัญชีนี้ไม่มีสิทธิ์ดู Device Model");
-      if (!response.ok) throw new Error("ไม่สามารถโหลด Device Model ได้");
-      setModels((await response.json()) as DeviceModelOption[]);
+      setModels(await apiJson<DeviceModelOption[]>("/api/v1/device-models", { messages: { 403: "บัญชีนี้ไม่มีสิทธิ์ดู Device Model", default: "ไม่สามารถโหลด Device Model ได้" } }));
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -41,8 +38,8 @@ export function RegisterMetadataPage() {
   }, []);
 
   const loadProfiles = useCallback(async () => {
-    const response = await api("/api/v1/register-profiles");
-    if (response.ok) setProfiles((await response.json()) as RegisterProfile[]);
+    const profiles = await apiJson<RegisterProfile[]>("/api/v1/register-profiles").catch(() => undefined);
+    if (profiles) setProfiles(profiles);
   }, []);
 
   const loadItems = useCallback(async (modelId: string) => {
@@ -53,9 +50,7 @@ export function RegisterMetadataPage() {
     setLoading(true);
     setError("");
     try {
-      const response = await api(`/api/v1/device-models/${encodeURIComponent(modelId)}/register-metadata`);
-      if (!response.ok) throw new Error(response.status === 404 ? "ไม่พบ Device Model" : "ไม่สามารถโหลด Address Metadata ได้");
-      setItems((await response.json()) as DeviceModelRegisterMetadata[]);
+      setItems(await apiJson<DeviceModelRegisterMetadata[]>(`/api/v1/device-models/${encodeURIComponent(modelId)}/register-metadata`, { messages: { 404: "ไม่พบ Device Model", default: "ไม่สามารถโหลด Address Metadata ได้" } }));
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -132,29 +127,25 @@ export function RegisterMetadataPage() {
   async function removeAddress(item: DeviceModelRegisterMetadata) {
     if (!selectedModel || !window.confirm(`ลบ Address ${item.addressKey} จาก Model ${selectedModel.model}?`)) return;
     setError("");
-    const response = await api(
-      `/api/v1/device-models/${encodeURIComponent(selectedModel.id)}/register-metadata/${encodeURIComponent(item.addressKey)}`,
-      { method: "DELETE", headers: { "X-CSRF-Token": csrfToken() } },
-    );
-    if (response.ok) {
-      setItems((current) => current.filter((entry) => entry.addressKey !== item.addressKey));
-      toast.success(`ลบ Address ${item.addressKey} แล้ว`);
-    } else {
-      setError(response.status === 404 ? "ไม่พบ Address Metadata" : "ไม่สามารถลบ Address Metadata ได้");
-    }
+    try {
+      await apiJson(
+        `/api/v1/device-models/${encodeURIComponent(selectedModel.id)}/register-metadata/${encodeURIComponent(item.addressKey)}`,
+        { method: "DELETE", messages: { 404: "ไม่พบ Address Metadata", default: "ไม่สามารถลบ Address Metadata ได้" } },
+      );
+    } catch (cause) { setError(errorMessage(cause)); return; }
+    setItems((current) => current.filter((entry) => entry.addressKey !== item.addressKey));
+    toast.success(`ลบ Address ${item.addressKey} แล้ว`);
   }
 
   async function assignProfile(profileId: string) {
     if (!selectedModel || profileId === selectedModel.registerProfileId) return;
-    const response = await api(`/api/v1/device-models/${encodeURIComponent(selectedModel.id)}/register-profile`, {
-      method: "PUT",
-      headers: { "X-CSRF-Token": csrfToken() },
-      body: JSON.stringify({ profileId }),
-    });
-    if (!response.ok) {
-      setError(response.status === 403 ? "บัญชีนี้ไม่มีสิทธิ์เปลี่ยน Register Profile" : "ไม่สามารถเปลี่ยน Register Profile ได้");
-      return;
-    }
+    try {
+      await apiJson(`/api/v1/device-models/${encodeURIComponent(selectedModel.id)}/register-profile`, {
+        method: "PUT",
+        body: { profileId },
+        messages: { 403: "บัญชีนี้ไม่มีสิทธิ์เปลี่ยน Register Profile", default: "ไม่สามารถเปลี่ยน Register Profile ได้" },
+      });
+    } catch (cause) { setError(errorMessage(cause)); return; }
     setModels((current) => current.map((model) => model.id === selectedModel.id ? { ...model, registerProfileId: profileId } : model));
     await loadItems(selectedModel.id);
     toast.success("เปลี่ยน Register Profile แล้ว");
@@ -163,18 +154,17 @@ export function RegisterMetadataPage() {
   async function hardDeleteModel(model: DeviceModelOption) {
     const expected = "DELETE";
     if (window.prompt(`คำสั่งนี้จะลบ Model, Device ที่ใช้ Model นี้, Metadata และ normalized telemetry ถาวร\nพิมพ์ ${expected}`) !== expected) return;
-    const response = await api(`/api/v1/device-models/${encodeURIComponent(model.id)}`, {
-      method: "DELETE",
-      headers: { "X-CSRF-Token": csrfToken(), "X-Hard-Delete-Confirm": expected },
-    });
-    if (response.ok) {
-      setSelectedModelId("");
-      setItems([]);
-      await loadModels();
-      toast.success(`ลบ Model ${model.manufacturer} ${model.model} ถาวรแล้ว`);
-    } else {
-      setError(response.status === 403 ? "เฉพาะ Platform Admin เท่านั้นที่ลบ Device Model ถาวรได้" : "ไม่สามารถลบ Device Model ถาวรได้");
-    }
+    try {
+      await apiJson(`/api/v1/device-models/${encodeURIComponent(model.id)}`, {
+        method: "DELETE",
+        headers: { "X-Hard-Delete-Confirm": expected },
+        messages: { 403: "เฉพาะ Platform Admin เท่านั้นที่ลบ Device Model ถาวรได้", default: "ไม่สามารถลบ Device Model ถาวรได้" },
+      });
+    } catch (cause) { setError(errorMessage(cause)); return; }
+    setSelectedModelId("");
+    setItems([]);
+    await loadModels();
+    toast.success(`ลบ Model ${model.manufacturer} ${model.model} ถาวรแล้ว`);
   }
 
   const rows = selectedModel ? filteredItems : filteredModels;
@@ -328,16 +318,14 @@ function DeviceModelDialog({ model, models, onClose, onSaved }: { model: DeviceM
     setPending(true);
     setError("");
     try {
-      const response = await api(model ? `/api/v1/device-models/${encodeURIComponent(model.id)}` : "/api/v1/device-models", {
+      onSaved(await apiJson<DeviceModelOption>(model ? `/api/v1/device-models/${encodeURIComponent(model.id)}` : "/api/v1/device-models", {
         method: model ? "PUT" : "POST",
-        headers: { "X-CSRF-Token": csrfToken() },
         // sourceTypeId is written by middleware auto-onboarding only (the gateway's
         // devTypeId) and is not editable here -- resend the stored value so an edit
         // through this form cannot wipe it.
-        body: JSON.stringify({ manufacturer, deviceType, model: modelName, sourceTypeId: model?.sourceTypeId ?? null, isActive }),
-      });
-      if (!response.ok) throw new Error(response.status === 409 ? "Brand/ชนิด/รุ่นนี้มีอยู่แล้ว" : "ไม่สามารถบันทึก Device Model ได้");
-      onSaved((await response.json()) as DeviceModelOption);
+        body: { manufacturer, deviceType, model: modelName, sourceTypeId: model?.sourceTypeId ?? null, isActive },
+        messages: { 409: "Brand/ชนิด/รุ่นนี้มีอยู่แล้ว", default: "ไม่สามารถบันทึก Device Model ได้" },
+      }));
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -411,10 +399,9 @@ function AddressMetadataDialog({ model, item, onClose, onSaved }: { model: Devic
     setPending(true);
     setError("");
     try {
-      const response = await api(`/api/v1/device-models/${encodeURIComponent(model.id)}/register-metadata`, {
+      onSaved(await apiJson<DeviceModelRegisterMetadata>(`/api/v1/device-models/${encodeURIComponent(model.id)}/register-metadata`, {
         method: "PUT",
-        headers: { "X-CSRF-Token": csrfToken() },
-        body: JSON.stringify({
+        body: {
           addressKey, displayName, unit, dataType, scale: Number(scale), offset: Number(offset), decimals: Number(decimals), isEnabled, notes,
           modbusFunctionCode: modbusFunctionCode === "" ? null : Number(modbusFunctionCode),
           modbusRegister: modbusRegister === "" ? null : Number(modbusRegister),
@@ -427,10 +414,9 @@ function AddressMetadataDialog({ model, item, onClose, onSaved }: { model: Devic
             alarmState: isAlarm ? (mapping.alarmState || null) : null,
             severity: isAlarm ? (mapping.severity || null) : null,
           })),
-        }),
-      });
-      if (!response.ok) throw new Error(response.status === 404 ? "ไม่พบ Device Model" : "Address Metadata ไม่ถูกต้องหรือไม่สามารถบันทึกได้");
-      onSaved((await response.json()) as DeviceModelRegisterMetadata);
+        },
+        messages: { 404: "ไม่พบ Device Model", default: "Address Metadata ไม่ถูกต้องหรือไม่สามารถบันทึกได้" },
+      }));
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {

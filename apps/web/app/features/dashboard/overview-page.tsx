@@ -4,8 +4,11 @@ import { Building2, ChartLine, Cpu, GripVertical, Pencil, RefreshCw, RotateCcw, 
 import { FormMessage, StatusTag, TextInput } from "../../components/ui/form";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { Responsive, useContainerWidth, type Layout, type ResponsiveLayouts } from "react-grid-layout";
-import { api, errorMessage, csrfToken, formatDate } from "../../lib/api";
-import type { DashboardLayout, DashboardLayoutItem, DashboardLayouts, DashboardOverview, DashboardPlantStatus, DashboardWidget, DashboardWidgetConfigs, Device, LatestTelemetry, Plant, PublishedDashboardLayout, TelemetryHistoryPage, TimeseriesWidgetConfig } from "../../lib/types";
+import { api, apiJson, errorMessage, csrfToken, formatDate } from "../../lib/api";
+import { usePlantTelemetry } from "../../lib/realtime";
+import { fetchRange } from "../../lib/telemetry-history";
+import { downsample, toSeries, type Point } from "../../lib/telemetry-math";
+import type { DashboardLayout, DashboardLayoutItem, DashboardLayouts, DashboardOverview, DashboardPlantStatus, DashboardWidget, DashboardWidgetConfigs, Plant, PublishedDashboardLayout, TimeseriesWidgetConfig } from "../../lib/types";
 import { usePlatformSession } from "../../components/platform-shell";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody } from "../../components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../../components/ui/select";
@@ -29,9 +32,7 @@ export function OverviewPage() {
     try {
       // No staleAfterSeconds override: the server default (10 min) is the single
       // source of truth, so Overview and Site map can't drift on what DEGRADED means.
-      const response = await api("/api/v1/dashboard/overview");
-      if (!response.ok) throw new Error(response.status === 403 ? "บัญชีนี้ไม่มีสิทธิ์ดูข้อมูล Device" : "ไม่สามารถโหลดภาพรวมระบบได้");
-      setDashboard((await response.json()) as DashboardOverview);
+      setDashboard(await apiJson<DashboardOverview>("/api/v1/dashboard/overview", { messages: { 403: "บัญชีนี้ไม่มีสิทธิ์ดูข้อมูล Device", default: "ไม่สามารถโหลดภาพรวมระบบได้" } }));
       setDashboardError("");
     } catch (cause) {
       setDashboardError(errorMessage(cause));
@@ -75,13 +76,11 @@ function DashboardCanvas({ dashboard, dashboardError, onRefresh }: { dashboard: 
   const { width, containerRef } = useContainerWidth({ initialWidth: 1100 });
 
   const loadLayouts = useCallback(async () => {
-    const [draftResponse, publishedResponse] = await Promise.all([
-      api("/api/v1/dashboard/layout"),
-      api("/api/v1/dashboard/layout/published"),
+    const messages = { 403: "บัญชีนี้ไม่มีสิทธิ์ดู Dashboard", default: "ไม่สามารถโหลด Dashboard layout ได้" };
+    const [draft, live] = await Promise.all([
+      apiJson<DashboardLayout>("/api/v1/dashboard/layout", { messages }),
+      apiJson<PublishedDashboardLayout>("/api/v1/dashboard/layout/published", { messages }),
     ]);
-    if (!draftResponse.ok || !publishedResponse.ok) throw new Error(draftResponse.status === 403 || publishedResponse.status === 403 ? "บัญชีนี้ไม่มีสิทธิ์ดู Dashboard" : "ไม่สามารถโหลด Dashboard layout ได้");
-    const draft = (await draftResponse.json()) as DashboardLayout;
-    const live = (await publishedResponse.json()) as PublishedDashboardLayout;
     setSaved(draft);
     setPublished(live);
     setLayouts(normalizeDashboardLayouts(live.layouts));
@@ -298,7 +297,8 @@ function addTimeseriesLayout(layouts: DashboardLayouts, slot: ChartWidgetSlot): 
 }
 
 function TimeseriesWidget({ config, refreshKey, editing, onConfigure }: { config?: TimeseriesWidgetConfig; refreshKey?: string; editing: boolean; onConfigure: () => void }) {
-  const [values, setValues] = useState<Array<{ at: string; value: number }>>([]);
+  const [values, setValues] = useState<Point[]>([]);
+  const [truncated, setTruncated] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -310,15 +310,13 @@ function TimeseriesWidget({ config, refreshKey, editing, onConfigure }: { config
     void (async () => {
       const to = new Date();
       const from = new Date(to.getTime() - config.dataBinding.timeRangeHours * 60 * 60 * 1000);
-      const query = new URLSearchParams({ from: from.toISOString(), to: to.toISOString(), limit: "500" });
       try {
-        const response = await api(`/api/v1/plants/${encodeURIComponent(config.dataBinding.plantId)}/devices/${encodeURIComponent(config.dataBinding.deviceId)}/telemetry/history?${query}`, { signal: controller.signal });
-        if (!response.ok) throw new Error(response.status === 404 ? "ไม่พบ Plant หรือ Device ที่ผูกไว้" : "ไม่สามารถโหลดข้อมูลกราฟได้");
-        const page = (await response.json()) as TelemetryHistoryPage;
-        setValues(page.data.flatMap((reading) => {
-          const value = reading.dataItemMap[config.dataBinding.pointKey];
-          return Number.isFinite(value) ? [{ at: reading.observedAt, value }] : [];
-        }).reverse());
+        // fetchRange follows the history cursor: one 500-row page is only ~8h of
+        // 1-minute telemetry, so a single request silently charted part of a 24h/7d window.
+        const page = await fetchRange(config.dataBinding.plantId, config.dataBinding.deviceId, from, to, controller.signal);
+        if (controller.signal.aborted) return;
+        setValues(toSeries(page.readings)[config.dataBinding.pointKey] ?? []);
+        setTruncated(page.truncated);
         setError("");
       } catch (cause) {
         if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "ไม่สามารถโหลดข้อมูลกราฟได้");
@@ -328,16 +326,17 @@ function TimeseriesWidget({ config, refreshKey, editing, onConfigure }: { config
   }, [config, refreshKey]);
 
   if (!config) return <div className="timeseries-empty"><ChartLine size={24} /><span>ยังไม่ได้ตั้งค่ากราฟ</span>{editing && <Button variant="secondary" compact onClick={onConfigure}><Settings2 size={16} /> ตั้งค่า</Button>}</div>;
-  const numbers = values.map((point) => point.value);
+  const numbers = values.map((point) => point.v);
   const minimum = numbers.length ? Math.min(...numbers) : 0;
   const maximum = numbers.length ? Math.max(...numbers) : 0;
   const range = maximum - minimum || 1;
-  const polyline = values.map((point, index) => `${values.length === 1 ? 50 : index * 100 / (values.length - 1)},${36 - (point.value - minimum) * 32 / range}`).join(" ");
+  const plotted = downsample(values);
+  const polyline = plotted.map((point, index) => `${plotted.length === 1 ? 50 : index * 100 / (plotted.length - 1)},${36 - (point.v - minimum) * 32 / range}`).join(" ");
   const format = (value: number) => `${value.toFixed(config.display.decimals)}${config.display.unit ? ` ${config.display.unit}` : ""}`;
 
   return <div className="dashboard-widget-body timeseries-widget-body">
     <div className="timeseries-meta">
-      <div><strong>{config.dataBinding.pointKey}</strong><small>{config.dataBinding.timeRangeHours}h · {values.length} points</small></div>
+      <div><strong>{config.dataBinding.pointKey}</strong><small>{config.dataBinding.timeRangeHours}h · {values.length} points{truncated ? " · ข้อมูลไม่ครบช่วง" : ""}</small></div>
       {editing && <Button variant="icon" onClick={onConfigure} title="ตั้งค่ากราฟ" aria-label="ตั้งค่ากราฟ"><Settings2 size={17} /></Button>}
     </div>
     {error ? <FormMessage>{error}</FormMessage> : values.length ? <>
@@ -345,16 +344,15 @@ function TimeseriesWidget({ config, refreshKey, editing, onConfigure }: { config
         <line x1="0" y1="36" x2="100" y2="36" />
         <polyline points={polyline} />
       </svg>
-      <div className="timeseries-stats"><span>Min <strong>{format(minimum)}</strong></span><span>Max <strong>{format(maximum)}</strong></span><span>Latest <strong>{format(values[values.length - 1].value)}</strong></span></div>
+      <div className="timeseries-stats"><span>Min <strong>{format(minimum)}</strong></span><span>Max <strong>{format(maximum)}</strong></span><span>Latest <strong>{format(values[values.length - 1].v)}</strong></span></div>
     </> : <div className="table-state">ไม่มีค่า {config.dataBinding.pointKey} ในช่วงเวลานี้</div>}
   </div>;
 }
 
 function TimeseriesConfigEditor({ initial, slot, onClose, onSave }: { initial?: TimeseriesWidgetConfig; slot: ChartWidgetSlot; onClose: () => void; onSave: (config: TimeseriesWidgetConfig) => void }) {
   const [plants, setPlants] = useState<Plant[]>([]);
-  const [devices, setDevices] = useState<Device[]>([]);
-  const [latest, setLatest] = useState<LatestTelemetry[]>([]);
   const [plantId, setPlantId] = useState(initial?.dataBinding.plantId ?? "");
+  const { devices, latestByDevice, error: telemetryError } = usePlantTelemetry(plantId || undefined);
   const [deviceId, setDeviceId] = useState(initial?.dataBinding.deviceId ?? "");
   const [pointKey, setPointKey] = useState(initial?.dataBinding.pointKey ?? "");
   const [timeRangeHours, setTimeRangeHours] = useState<1 | 6 | 24 | 168>(initial?.dataBinding.timeRangeHours ?? 24);
@@ -363,34 +361,10 @@ function TimeseriesConfigEditor({ initial, slot, onClose, onSave }: { initial?: 
   const [error, setError] = useState("");
 
   useEffect(() => {
-    void api("/api/v1/plants").then(async (response) => {
-      if (!response.ok) throw new Error("ไม่สามารถโหลด Plant ได้");
-      setPlants((await response.json()) as Plant[]);
-    }).catch((cause: unknown) => setError(cause instanceof Error ? cause.message : "ไม่สามารถโหลด Plant ได้"));
+    void apiJson<Plant[]>("/api/v1/plants", { messages: { default: "ไม่สามารถโหลด Plant ได้" } }).then(setPlants).catch((cause: unknown) => setError(errorMessage(cause)));
   }, []);
 
-  useEffect(() => {
-    if (!plantId) {
-      setDevices([]);
-      setLatest([]);
-      return;
-    }
-    const controller = new AbortController();
-    void Promise.all([
-      api(`/api/v1/plants/${encodeURIComponent(plantId)}/devices`, { signal: controller.signal }),
-      api(`/api/v1/plants/${encodeURIComponent(plantId)}/telemetry/latest`, { signal: controller.signal }),
-    ]).then(async ([deviceResponse, latestResponse]) => {
-      if (!deviceResponse.ok || !latestResponse.ok) throw new Error("ไม่สามารถโหลด Device หรือ point ได้");
-      setDevices((await deviceResponse.json()) as Device[]);
-      setLatest((await latestResponse.json()) as LatestTelemetry[]);
-      setError("");
-    }).catch((cause: unknown) => {
-      if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "ไม่สามารถโหลด Device หรือ point ได้");
-    });
-    return () => controller.abort();
-  }, [plantId]);
-
-  const pointOptions = Object.keys(latest.find((reading) => reading.deviceId === deviceId)?.dataItemMap ?? {}).sort();
+  const pointOptions = Object.keys(latestByDevice[deviceId]?.dataItemMap ?? {}).sort();
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -438,7 +412,7 @@ function TimeseriesConfigEditor({ initial, slot, onClose, onSave }: { initial?: 
             </label>
             <label className="grid gap-1.5 text-xs font-bold text-ink">Unit<TextInput className="h-10 rounded-[var(--radius-sm)] border border-line px-3 text-sm" value={unit} onChange={(event) => setUnit(event.target.value)} maxLength={20} placeholder="kW" /></label>
             <label className="grid gap-1.5 text-xs font-bold text-ink">Decimals<TextInput className="h-10 rounded-[var(--radius-sm)] border border-line px-3 text-sm" type="number" min="0" max="6" value={String(decimals)} onChange={(event) => setDecimals(Number(event.target.value))} required /></label>
-            {error && <FormMessage className="col-span-2">{error}</FormMessage>}
+            {(error || telemetryError) && <FormMessage className="col-span-2">{error || telemetryError}</FormMessage>}
             <div className="col-span-2 flex justify-end gap-2"><Button type="button" variant="secondary" onClick={onClose}>ยกเลิก</Button><Button><Save size={17} /> บันทึกการตั้งค่า</Button></div>
           </form>
         </DialogBody>

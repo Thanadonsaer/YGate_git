@@ -3,7 +3,7 @@
 import { Eye, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { Checkbox, FormMessage, StatusTag, TextInput } from "../../components/ui/form";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { api, errorMessage, csrfToken } from "../../lib/api";
+import { apiJson, errorMessage } from "../../lib/api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody } from "../../components/ui/dialog";
 import { toast } from "../../components/ui/sonner";
 import { Button } from "../../components/ui/button";
@@ -33,13 +33,12 @@ export function RolesPage({ defaultOrganizationId }: { defaultOrganizationId?: s
     setLoading(true);
     setError("");
     try {
-      const [roleResponse, permissionResponse] = await Promise.all([api("/api/v1/admin/roles"), api("/api/v1/admin/permissions")]);
-      if (roleResponse.status === 403 || permissionResponse.status === 403) throw new Error("บัญชีนี้ไม่มีสิทธิ์ดูข้อมูล Role");
-      if (!roleResponse.ok || !permissionResponse.ok) throw new Error("ไม่สามารถโหลดข้อมูล Role ได้");
-      setRoles((await roleResponse.json()) as Role[]);
-      setPermissions((await permissionResponse.json()) as Permission[]);
-      const response = await api("/api/v1/admin/organizations");
-      if (response.ok) setOrganizations((await response.json()) as Organization[]);
+      const messages = { 403: "บัญชีนี้ไม่มีสิทธิ์ดูข้อมูล Role", default: "ไม่สามารถโหลดข้อมูล Role ได้" };
+      const [roles, permissions] = await Promise.all([apiJson<Role[]>("/api/v1/admin/roles", { messages }), apiJson<Permission[]>("/api/v1/admin/permissions", { messages })]);
+      setRoles(roles);
+      setPermissions(permissions);
+      const organizations = await apiJson<Organization[]>("/api/v1/admin/organizations").catch(() => undefined);
+      if (organizations) setOrganizations(organizations);
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -51,14 +50,13 @@ export function RolesPage({ defaultOrganizationId }: { defaultOrganizationId?: s
 
   async function deleteRole(role: Role) {
     if (!window.confirm(`ลบ Role "${role.name}"? คำสั่งนี้ทำย้อนกลับไม่ได้`)) return;
-    const response = await api(`/api/v1/admin/roles/${encodeURIComponent(role.id)}`, {
-      method: "DELETE",
-      headers: { "X-CSRF-Token": csrfToken() },
-    });
-    if (response.ok) { toast.success(`ลบ Role "${role.name}" แล้ว`); await loadRoles(); return; }
-    if (response.status === 409) setError(`ไม่สามารถลบ "${role.name}" ได้ เพราะยังมีผู้ใช้ถูก assign role นี้อยู่`);
-    else if (response.status === 403) setError("บัญชีนี้ไม่มีสิทธิ์ลบ Role นี้");
-    else setError("ไม่สามารถลบ Role ได้");
+    try {
+      await apiJson(`/api/v1/admin/roles/${encodeURIComponent(role.id)}`, {
+        method: "DELETE",
+        messages: { 409: `ไม่สามารถลบ "${role.name}" ได้ เพราะยังมีผู้ใช้ถูก assign role นี้อยู่`, 403: "บัญชีนี้ไม่มีสิทธิ์ลบ Role นี้", default: "ไม่สามารถลบ Role ได้" },
+      });
+    } catch (cause) { setError(errorMessage(cause)); return; }
+    toast.success(`ลบ Role "${role.name}" แล้ว`); await loadRoles();
   }
 
   // Every role the user could actually be assigned, matching what the user
@@ -155,9 +153,8 @@ function RoleEditor({ role, permissions, defaultOrganizationId, readOnly = false
   useEffect(() => {
     if (!role) return;
     void (async () => {
-      const response = await api(`/api/v1/admin/roles/${encodeURIComponent(role.id)}`);
-      if (response.ok) {
-        const loaded = (await response.json()) as RoleDetail;
+      const loaded = await apiJson<RoleDetail>(`/api/v1/admin/roles/${encodeURIComponent(role.id)}`).catch(() => undefined);
+      if (loaded) {
         setName(loaded.name);
         setDescription(loaded.description);
         setPermissionIds(loaded.permissionIds);
@@ -204,14 +201,11 @@ function RoleEditor({ role, permissions, defaultOrganizationId, readOnly = false
       const body = role
         ? { name, description, permissionIds }
         : { global: false, organizationId: defaultOrganizationId ?? "", name, description, permissionIds };
-      const response = await api(role ? `/api/v1/admin/roles/${encodeURIComponent(role.id)}` : "/api/v1/admin/roles", {
+      await apiJson(role ? `/api/v1/admin/roles/${encodeURIComponent(role.id)}` : "/api/v1/admin/roles", {
         method: role ? "PUT" : "POST",
-        headers: { "X-CSRF-Token": csrfToken() },
-        body: JSON.stringify(body),
+        body,
+        messages: { 403: "บัญชีนี้ไม่มีสิทธิ์บันทึก Role นี้", 409: "ชื่อ Role นี้ถูกใช้งานแล้วในขอบเขตเดียวกัน", default: "ข้อมูลไม่ถูกต้องหรือไม่สามารถบันทึกได้" },
       });
-      if (response.status === 403) throw new Error("บัญชีนี้ไม่มีสิทธิ์บันทึก Role นี้");
-      if (response.status === 409) throw new Error("ชื่อ Role นี้ถูกใช้งานแล้วในขอบเขตเดียวกัน");
-      if (!response.ok) throw new Error("ข้อมูลไม่ถูกต้องหรือไม่สามารถบันทึกได้");
       onSaved();
     } catch (cause) {
       setError(errorMessage(cause));

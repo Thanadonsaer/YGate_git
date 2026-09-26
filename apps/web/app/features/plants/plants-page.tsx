@@ -25,13 +25,14 @@ import {
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import {
   api,
+  apiJson,
   errorMessage,
   assetURL,
   csrfToken,
   downloadBlob,
   formatDate,
 } from "../../lib/api";
-import { useRealtimeSocket } from "../../lib/realtime";
+import { usePlantTelemetry } from "../../lib/realtime";
 import type {
   Device,
   DeviceModelOption,
@@ -86,11 +87,14 @@ export function PlantsPage({
     setError("");
     setPlants([]);
     try {
-      const response = await api("/api/v1/plants");
-      if (response.status === 403)
-        throw new Error("บัญชีนี้ไม่มีสิทธิ์ดูข้อมูลโรงไฟฟ้า");
-      if (!response.ok) throw new Error("ไม่สามารถโหลดข้อมูลโรงไฟฟ้าได้");
-      setPlants((await response.json()) as Plant[]);
+      setPlants(
+        await apiJson<Plant[]>("/api/v1/plants", {
+          messages: {
+            403: "บัญชีนี้ไม่มีสิทธิ์ดูข้อมูลโรงไฟฟ้า",
+            default: "ไม่สามารถโหลดข้อมูลโรงไฟฟ้าได้",
+          },
+        }),
+      );
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -103,9 +107,9 @@ export function PlantsPage({
   }, [loadPlants]);
 
   useEffect(() => {
-    void api("/api/v1/admin/organizations").then(async (response) => {
-      if (response.ok) setOrganizations((await response.json()) as Organization[]);
-    });
+    void apiJson<Organization[]>("/api/v1/admin/organizations")
+      .then(setOrganizations)
+      .catch(() => undefined);
   }, []);
 
   // Deep-link from Site Map ("ดูรายละเอียดโรงไฟฟ้า" -> /plants?open=<id>) straight
@@ -126,25 +130,28 @@ export function PlantsPage({
       )
     )
       return;
-    const response = await api(`/api/v1/plants/${plant.id}`, {
-      method: "PUT",
-      headers: { "X-CSRF-Token": csrfToken() },
-      body: JSON.stringify({
-        code: plant.code,
-        name: plant.name,
-        timezone: plant.timezone,
-        latitude: plant.latitude,
-        longitude: plant.longitude,
-        installedDcKw: plant.installedDcKw,
-        installedAcKw: plant.installedAcKw,
-        lifecycleStatus: "OFFLINE",
-        isActive: false,
-      }),
-    });
-    if (response.ok) {
-      toast.success(`ปิดใช้งานโรงไฟฟ้า "${plant.name}" แล้ว`);
-      void loadPlants();
-    } else setError("ไม่สามารถปิดใช้งานโรงไฟฟ้าได้");
+    try {
+      await apiJson(`/api/v1/plants/${plant.id}`, {
+        method: "PUT",
+        body: {
+          code: plant.code,
+          name: plant.name,
+          timezone: plant.timezone,
+          latitude: plant.latitude,
+          longitude: plant.longitude,
+          installedDcKw: plant.installedDcKw,
+          installedAcKw: plant.installedAcKw,
+          lifecycleStatus: "OFFLINE",
+          isActive: false,
+        },
+        messages: { default: "ไม่สามารถปิดใช้งานโรงไฟฟ้าได้" },
+      });
+    } catch (cause) {
+      setError(errorMessage(cause));
+      return;
+    }
+    toast.success(`ปิดใช้งานโรงไฟฟ้า "${plant.name}" แล้ว`);
+    void loadPlants();
   }
 
   async function hardDeletePlant(plant: Plant) {
@@ -155,25 +162,21 @@ export function PlantsPage({
       ) !== expected
     )
       return;
-    const response = await api(
-      `/api/v1/plants/${encodeURIComponent(plant.id)}`,
-      {
+    try {
+      await apiJson(`/api/v1/plants/${encodeURIComponent(plant.id)}`, {
         method: "DELETE",
-        headers: {
-          "X-CSRF-Token": csrfToken(),
-          "X-Hard-Delete-Confirm": expected,
+        headers: { "X-Hard-Delete-Confirm": expected },
+        messages: {
+          403: "เฉพาะ Platform Admin เท่านั้นที่ลบ Plant ถาวรได้",
+          default: "ไม่สามารถลบ Plant ถาวรได้",
         },
-      },
-    );
-    if (response.ok) {
-      toast.success(`ลบโรงไฟฟ้า "${plant.name}" ถาวรแล้ว`);
-      await loadPlants();
-    } else
-      setError(
-        response.status === 403
-          ? "เฉพาะ Platform Admin เท่านั้นที่ลบ Plant ถาวรได้"
-          : "ไม่สามารถลบ Plant ถาวรได้",
-      );
+      });
+    } catch (cause) {
+      setError(errorMessage(cause));
+      return;
+    }
+    toast.success(`ลบโรงไฟฟ้า "${plant.name}" ถาวรแล้ว`);
+    await loadPlants();
   }
 
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -515,11 +518,14 @@ function DeviceManagement({
   const canCreateDevice = can(user, "device", "create");
   const canUpdateDevice = can(user, "device", "update");
   const canHardDeleteDevice = can(user, "device", "hard_delete");
-  const [devices, setDevices] = useState<Device[]>([]);
-  const [latestByDevice, setLatestByDevice] = useState<
-    Record<string, LatestTelemetry>
-  >({});
-  const [loading, setLoading] = useState(true);
+  const {
+    devices,
+    latestByDevice,
+    loading,
+    error: loadError,
+    reload,
+    liveState,
+  } = usePlantTelemetry(plant.id);
   const [error, setError] = useState("");
   const [editor, setEditor] = useState<Device | "create" | null>(null);
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
@@ -532,45 +538,10 @@ function DeviceManagement({
     collectTime?: number;
   } | null>(null);
 
-  const loadDevices = useCallback(async () => {
-    setLoading(true);
+  function loadDevices() {
     setError("");
-    try {
-      const [deviceResponse, telemetryResponse] = await Promise.all([
-        api(`/api/v1/plants/${plant.id}/devices`),
-        api(`/api/v1/plants/${plant.id}/telemetry/latest`),
-      ]);
-      if (deviceResponse.status === 404 || telemetryResponse.status === 404)
-        throw new Error("ไม่พบโรงไฟฟ้าหรือบัญชีนี้ไม่มีสิทธิ์เข้าถึง Device");
-      if (!deviceResponse.ok || !telemetryResponse.ok)
-        throw new Error("ไม่สามารถโหลดข้อมูล Device ได้");
-      setDevices((await deviceResponse.json()) as Device[]);
-      const readings = (await telemetryResponse.json()) as LatestTelemetry[];
-      setLatestByDevice(
-        Object.fromEntries(
-          readings.map((reading) => [reading.deviceId, reading]),
-        ),
-      );
-    } catch (cause) {
-      setError(errorMessage(cause));
-    } finally {
-      setLoading(false);
-    }
-  }, [plant.id]);
-
-  useEffect(() => {
-    void loadDevices();
-  }, [loadDevices]);
-
-  const liveState = useRealtimeSocket(plant.id, (message) => {
-    if (message.type === "telemetry.snapshot") {
-      setLatestByDevice(
-        Object.fromEntries(
-          message.data.map((reading) => [reading.deviceId, reading]),
-        ),
-      );
-    }
-  });
+    reload();
+  }
 
   async function decommissionDevice(device: Device) {
     if (
@@ -579,25 +550,25 @@ function DeviceManagement({
       )
     )
       return;
-    const response = await api(
-      `/api/v1/plants/${plant.id}/devices/${device.id}`,
-      {
+    try {
+      await apiJson(`/api/v1/plants/${plant.id}/devices/${device.id}`, {
         method: "PUT",
-        headers: { "X-CSRF-Token": csrfToken() },
-        body: JSON.stringify({
+        body: {
           name: device.name,
           deviceModelId: device.deviceModelId,
           modbusHost: device.modbusHost ?? "",
           modbusPort: device.modbusPort ?? null,
           modbusUnitId: device.modbusUnitId,
           isActive: false,
-        }),
-      },
-    );
-    if (response.ok) {
-      toast.success(`ปิดใช้งาน Device "${device.name}" แล้ว`);
-      void loadDevices();
-    } else setError("ไม่สามารถปิดใช้งาน Device ได้");
+        },
+        messages: { default: "ไม่สามารถปิดใช้งาน Device ได้" },
+      });
+    } catch (cause) {
+      setError(errorMessage(cause));
+      return;
+    }
+    toast.success(`ปิดใช้งาน Device "${device.name}" แล้ว`);
+    loadDevices();
   }
 
   async function hardDeleteDevice(device: Device) {
@@ -608,25 +579,24 @@ function DeviceManagement({
       ) !== expected
     )
       return;
-    const response = await api(
-      `/api/v1/plants/${encodeURIComponent(plant.id)}/devices/${encodeURIComponent(device.id)}`,
-      {
-        method: "DELETE",
-        headers: {
-          "X-CSRF-Token": csrfToken(),
-          "X-Hard-Delete-Confirm": expected,
+    try {
+      await apiJson(
+        `/api/v1/plants/${encodeURIComponent(plant.id)}/devices/${encodeURIComponent(device.id)}`,
+        {
+          method: "DELETE",
+          headers: { "X-Hard-Delete-Confirm": expected },
+          messages: {
+            403: "เฉพาะ Platform Admin เท่านั้นที่ลบ Device ถาวรได้",
+            default: "ไม่สามารถลบ Device ถาวรได้",
+          },
         },
-      },
-    );
-    if (response.ok) {
-      toast.success(`ลบ Device "${device.name}" ถาวรแล้ว`);
-      await loadDevices();
-    } else
-      setError(
-        response.status === 403
-          ? "เฉพาะ Platform Admin เท่านั้นที่ลบ Device ถาวรได้"
-          : "ไม่สามารถลบ Device ถาวรได้",
       );
+    } catch (cause) {
+      setError(errorMessage(cause));
+      return;
+    }
+    toast.success(`ลบ Device "${device.name}" ถาวรแล้ว`);
+    loadDevices();
   }
 
   async function runCommand(
@@ -635,19 +605,7 @@ function DeviceManagement({
   ) {
     setTestOutcomes((prev) => ({ ...prev, [device.id]: { pending: true } }));
     try {
-      const response = await api(
-        `/api/v1/plants/${plant.id}/devices/${device.id}/${kind}`,
-        {
-          method: "POST",
-          headers: { "X-CSRF-Token": csrfToken() },
-        },
-      );
-      if (response.status === 503)
-        throw new Error("ไม่มี Middleware ดูแล Plant นี้อยู่ หรือออฟไลน์อยู่");
-      if (response.status === 504)
-        throw new Error("Middleware ไม่ตอบสนองภายในเวลาที่กำหนด");
-      if (!response.ok) throw new Error("ทดสอบไม่สำเร็จ");
-      const data = (await response.json()) as {
+      const data = await apiJson<{
         ok?: boolean;
         error?: string;
         data?: {
@@ -656,7 +614,14 @@ function DeviceManagement({
             collectTime?: number;
           };
         };
-      };
+      }>(`/api/v1/plants/${plant.id}/devices/${device.id}/${kind}`, {
+        method: "POST",
+        messages: {
+          503: "ไม่มี Middleware ดูแล Plant นี้อยู่ หรือออฟไลน์อยู่",
+          504: "Middleware ไม่ตอบสนองภายในเวลาที่กำหนด",
+          default: "ทดสอบไม่สำเร็จ",
+        },
+      });
       setTestOutcomes((prev) => ({ ...prev, [device.id]: { pending: false } }));
       if (data.ok === false) {
         toast.error(data.error || "ทดสอบไม่สำเร็จ");
@@ -744,7 +709,7 @@ function DeviceManagement({
           </Button>}
         </div>
       </div>
-      {error && <FormMessage>{error}</FormMessage>}
+      {(error || loadError) && <FormMessage>{error || loadError}</FormMessage>}
       <section
         className="grid gap-px overflow-hidden rounded-md border border-slate-200 bg-slate-200 sm:grid-cols-2 xl:grid-cols-4"
         aria-label="Plant summary"
@@ -798,7 +763,7 @@ function DeviceManagement({
           rows={20}
           emptyMessage={
             <div className="table-state">
-              {error
+              {error || loadError
                 ? ""
                 : "ยังไม่มี Device กดเพิ่ม Device หรือให้ Middleware auto onboard เมื่อส่งข้อมูลเข้ามา"}
             </div>
@@ -1176,9 +1141,10 @@ function DeviceEditor({
 
   useEffect(() => {
     void (async () => {
-      const response = await api("/api/v1/device-models");
-      if (response.ok) {
-        const list = (await response.json()) as DeviceModelOption[];
+      const list = await apiJson<DeviceModelOption[]>(
+        "/api/v1/device-models",
+      ).catch(() => undefined);
+      if (list) {
         setModels(list);
         if (!deviceModelId && list.length > 0) setDeviceModelId(list[0].id);
       }
@@ -1387,9 +1353,9 @@ function PlantEditor({
 
   useEffect(() => {
     if (!plant) return;
-    void api(`/api/v1/plants/${plant.id}/alarms/notify-roles`).then(async (response) => {
-      if (response.ok) setNotifyRoles((await response.json()) as AlarmNotifyRole[]);
-    });
+    void apiJson<AlarmNotifyRole[]>(`/api/v1/plants/${plant.id}/alarms/notify-roles`)
+      .then(setNotifyRoles)
+      .catch(() => undefined);
   }, [plant]);
 
   function optionalNumber(value: string) {
@@ -1465,11 +1431,10 @@ function PlantEditor({
     setImagePending(true);
     setError("");
     try {
-      const response = await api("/api/v1/plants/" + plant.id + "/image", {
+      await apiJson("/api/v1/plants/" + plant.id + "/image", {
         method: "DELETE",
-        headers: { "X-CSRF-Token": csrfToken() },
+        messages: { default: "ไม่สามารถลบรูปโรงไฟฟ้าได้" },
       });
-      if (!response.ok) throw new Error("ไม่สามารถลบรูปโรงไฟฟ้าได้");
       setImagePreview(null);
     } catch (cause) {
       setError(errorMessage(cause));
@@ -1502,20 +1467,15 @@ function PlantEditor({
       ...(plant ? { isActive } : {}),
     };
     try {
-      const response = await api(
-        plant ? `/api/v1/plants/${plant.id}` : "/api/v1/plants",
-        {
-          method: plant ? "PUT" : "POST",
-          headers: { "X-CSRF-Token": csrfToken() },
-          body: JSON.stringify(body),
+      await apiJson(plant ? `/api/v1/plants/${plant.id}` : "/api/v1/plants", {
+        method: plant ? "PUT" : "POST",
+        body,
+        messages: {
+          403: "บัญชีนี้ไม่มีสิทธิ์เปลี่ยนข้อมูลโรงไฟฟ้า",
+          409: "รหัสโรงไฟฟ้านี้ถูกใช้งานแล้วในองค์กร",
+          default: "ข้อมูลไม่ถูกต้องหรือไม่สามารถบันทึกได้",
         },
-      );
-      if (response.status === 403)
-        throw new Error("บัญชีนี้ไม่มีสิทธิ์เปลี่ยนข้อมูลโรงไฟฟ้า");
-      if (response.status === 409)
-        throw new Error("รหัสโรงไฟฟ้านี้ถูกใช้งานแล้วในองค์กร");
-      if (!response.ok)
-        throw new Error("ข้อมูลไม่ถูกต้องหรือไม่สามารถบันทึกได้");
+      });
       onSaved();
     } catch (cause) {
       setError(errorMessage(cause));

@@ -4,7 +4,7 @@ import { KeyRound, Pencil, Save, UserRound } from "lucide-react";
 import { FormMessage, PasswordInput, TextInput } from "../../components/ui/form";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { usePlatformSession } from "../../components/platform-shell";
-import { api, csrfToken } from "../../lib/api";
+import { apiJson, errorMessage } from "../../lib/api";
 import type { SelfProfile } from "../../lib/types";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody } from "../../components/ui/dialog";
 import { toast } from "../../components/ui/sonner";
@@ -18,12 +18,11 @@ export function ProfilePage() {
   const [loadError, setLoadError] = useState("");
 
   const loadProfile = useCallback(async () => {
-    const response = await api("/api/v1/auth/profile");
-    if (!response.ok) {
-      setLoadError("ไม่สามารถโหลดข้อมูลโปรไฟล์ได้");
-      return;
+    try {
+      setProfile(await apiJson<SelfProfile>("/api/v1/auth/profile", { messages: { default: "ไม่สามารถโหลดข้อมูลโปรไฟล์ได้" } }));
+    } catch (cause) {
+      setLoadError(errorMessage(cause));
     }
-    setProfile((await response.json()) as SelfProfile);
   }, []);
 
   useEffect(() => { void loadProfile(); }, [loadProfile]);
@@ -77,13 +76,15 @@ function EditProfileDialog({ profile, onClose, onSaved }: { profile: SelfProfile
     event.preventDefault();
     setPending(true);
     setError("");
-    const response = await api("/api/v1/auth/profile", {
-      method: "PUT",
-      headers: { "X-CSRF-Token": csrfToken() },
-      body: JSON.stringify({ email, username, displayName }),
-    });
-    if (response.ok) onSaved((await response.json()) as SelfProfile);
-    else setError(response.status === 409 ? "อีเมลหรือ username นี้มีผู้ใช้งานแล้ว" : "ข้อมูลไม่ถูกต้องหรือไม่สามารถบันทึกได้");
+    try {
+      onSaved(await apiJson<SelfProfile>("/api/v1/auth/profile", {
+        method: "PUT",
+        body: { email, username, displayName },
+        messages: { 409: "อีเมลหรือ username นี้มีผู้ใช้งานแล้ว", default: "ข้อมูลไม่ถูกต้องหรือไม่สามารถบันทึกได้" },
+      }));
+    } catch (cause) {
+      setError(errorMessage(cause));
+    }
     setPending(false);
   }
 
@@ -120,16 +121,16 @@ function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
       return;
     }
     setPending(true);
-    const response = await api("/api/v1/auth/change-password", {
-      method: "POST",
-      headers: { "X-CSRF-Token": csrfToken() },
-      body: JSON.stringify({ currentPassword, newPassword }),
-    });
-    if (response.ok) {
+    try {
+      await apiJson("/api/v1/auth/change-password", {
+        method: "POST",
+        body: { currentPassword, newPassword },
+        messages: { default: "รหัสผ่านปัจจุบันไม่ถูกต้อง หรือรหัสผ่านใหม่ไม่ผ่านนโยบาย (อย่างน้อย 12 ตัวอักษร)" },
+      });
       toast.success("เปลี่ยนรหัสผ่านแล้ว เซสชันอื่นถูกยกเลิกเรียบร้อย");
       onClose();
-    } else {
-      setError("รหัสผ่านปัจจุบันไม่ถูกต้อง หรือรหัสผ่านใหม่ไม่ผ่านนโยบาย (อย่างน้อย 12 ตัวอักษร)");
+    } catch (cause) {
+      setError(errorMessage(cause));
     }
     setPending(false);
   }

@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "../../components/ui/sonner";
 import { Button } from "../../components/ui/button";
 import { DataTable, TableColumn } from "../../components/ui/data-table";
-import { api, errorMessage, csrfToken, formatDate } from "../../lib/api";
+import { apiJson, errorMessage, formatDate } from "../../lib/api";
 import type { AuditEvent } from "../../lib/types";
 
 export function AuditPage() {
@@ -19,10 +19,7 @@ export function AuditPage() {
     setLoading(true);
     setError("");
     try {
-      const response = await api("/api/v1/admin/audit?limit=100");
-      if (response.status === 403) throw new Error("บัญชีนี้ไม่มีสิทธิ์ดู Audit Log");
-      if (!response.ok) throw new Error("ไม่สามารถโหลด Audit Log ได้");
-      setEvents((await response.json()) as AuditEvent[]);
+      setEvents(await apiJson<AuditEvent[]>("/api/v1/admin/audit?limit=100", { messages: { 403: "บัญชีนี้ไม่มีสิทธิ์ดู Audit Log", default: "ไม่สามารถโหลด Audit Log ได้" } }));
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -37,12 +34,14 @@ export function AuditPage() {
   async function clearAudit() {
     const expected = "DELETE";
     if (window.prompt(`พิมพ์ ${expected} เพื่อ clear รายการ Audit ที่แสดง (หลักฐานต้นทางยังคงเป็น append-only)`) !== expected) return;
-    const response = await api("/api/v1/admin/audit", {
-      method: "DELETE",
-      headers: { "X-CSRF-Token": csrfToken(), "X-Hard-Delete-Confirm": expected },
-    });
-    if (response.ok) { toast.success("Clear Audit Log แล้ว"); await loadEvents(); }
-    else setError(response.status === 403 ? "เฉพาะ Platform Admin เท่านั้นที่ clear Audit view ได้" : "ไม่สามารถ clear Audit Log ได้");
+    try {
+      await apiJson("/api/v1/admin/audit", {
+        method: "DELETE",
+        headers: { "X-Hard-Delete-Confirm": expected },
+        messages: { 403: "เฉพาะ Platform Admin เท่านั้นที่ clear Audit view ได้", default: "ไม่สามารถ clear Audit Log ได้" },
+      });
+    } catch (cause) { setError(errorMessage(cause)); return; }
+    toast.success("Clear Audit Log แล้ว"); await loadEvents();
   }
 
   return <div className="content audit-content">

@@ -86,9 +86,9 @@ import {
   type Guide,
 } from "../../lib/canvas-geometry";
 import { FormMessage, StatusTag, TextInput } from "../../components/ui/form";
-import { api, errorMessage, csrfToken, formatDate } from "../../lib/api";
+import { api, apiJson, errorMessage, csrfToken, formatDate } from "../../lib/api";
 import { sameSelection } from "../../lib/selection";
-import { useRealtimeSocket } from "../../lib/realtime";
+import { usePlantTelemetry } from "../../lib/realtime";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody } from "../../components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../../components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "../../components/ui/tabs";
@@ -108,7 +108,7 @@ import type {
   ScadaScreenSummary,
   ScadaScreenVersion,
 } from "../../lib/types";
-import { loadRegisterCatalogs, pointMeta, type PointMeta } from "../../lib/telemetry-history";
+import { pointMeta, type PointMeta } from "../../lib/telemetry-history";
 import { usePlatformSession } from "../../components/platform-shell";
 import { can } from "../../lib/permissions";
 
@@ -170,9 +170,6 @@ export function ScadaPage() {
   const [screens, setScreens] = useState<ScadaScreenSummary[]>([]);
   const [screen, setScreen] = useState<ScadaScreen | null>(null);
   const [versions, setVersions] = useState<ScadaScreenVersion[]>([]);
-  const [devices, setDevices] = useState<Device[]>([]);
-  const [latestByDevice, setLatestByDevice] = useState<Record<string, LatestTelemetry>>({});
-  const [catalogs, setCatalogs] = useState<Record<string, Record<string, PointMeta>>>({});
   const [published, setPublished] = useState<PublishedScadaScreen | null>(null);
   const [draftDesign, setDraftDesign] = useState<ScadaDesign | null>(null);
   const [draftName, setDraftName] = useState("");
@@ -187,19 +184,21 @@ export function ScadaPage() {
   const revisionRef = useRef(0);
   const savingRef = useRef(false);
   const [retryTick, setRetryTick] = useState(0);
+  // Register display names feed the inspector's Parameter picker; best effort,
+  // it falls back to raw address keys.
+  const { devices, latestByDevice, catalogs, error: telemetryError } = usePlantTelemetry(screen?.plantId, { catalogs: true });
 
   const loadLibrary = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const [plantResponse, screenResponse] = await Promise.all([api("/api/v1/plants"), api("/api/v1/scada/screens")]);
-      if (!plantResponse.ok) throw new Error("ไม่สามารถโหลด Plant สำหรับ SCADA ได้");
-      if (screenResponse.status === 403) throw new Error("บัญชีนี้ไม่มีสิทธิ์ดู SCADA Screen");
-      if (!screenResponse.ok) throw new Error("ไม่สามารถโหลด SCADA Screen ได้");
-      const nextPlants = (await plantResponse.json()) as Plant[];
+      const [nextPlants, nextScreens] = await Promise.all([
+        apiJson<Plant[]>("/api/v1/plants", { messages: { default: "ไม่สามารถโหลด Plant สำหรับ SCADA ได้" } }),
+        apiJson<ScadaScreenSummary[]>("/api/v1/scada/screens", { messages: { 403: "บัญชีนี้ไม่มีสิทธิ์ดู SCADA Screen", default: "ไม่สามารถโหลด SCADA Screen ได้" } }),
+      ]);
       setPlants(nextPlants);
       setCreatePlantID((current) => current || nextPlants[0]?.id || "");
-      setScreens((await screenResponse.json()) as ScadaScreenSummary[]);
+      setScreens(nextScreens);
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -213,33 +212,14 @@ export function ScadaPage() {
     setLoading(true);
     setError("");
     try {
-      const response = await api(`/api/v1/scada/screens/${encodeURIComponent(screenID)}`);
-      if (!response.ok) throw new Error(response.status === 404 ? "ไม่พบ SCADA Screen หรืออยู่นอกขอบเขตสิทธิ์" : "ไม่สามารถโหลด SCADA Screen ได้");
-      const next = (await response.json()) as ScadaScreen;
-      const [deviceResponse, telemetryResponse, versionResponse] = await Promise.all([
-        api(`/api/v1/plants/${encodeURIComponent(next.plantId)}/devices`),
-        api(`/api/v1/plants/${encodeURIComponent(next.plantId)}/telemetry/latest`),
-        api(`/api/v1/scada/screens/${encodeURIComponent(next.id)}/versions`),
-      ]);
+      const next = await apiJson<ScadaScreen>(`/api/v1/scada/screens/${encodeURIComponent(screenID)}`, { messages: { 404: "ไม่พบ SCADA Screen หรืออยู่นอกขอบเขตสิทธิ์", default: "ไม่สามารถโหลด SCADA Screen ได้" } });
+      const nextVersions = await apiJson<ScadaScreenVersion[]>(`/api/v1/scada/screens/${encodeURIComponent(next.id)}/versions`).catch(() => []);
       setScreen(next);
       setDraftName(next.name);
       setDraftDesign(next.design);
-      const screenDevices = deviceResponse.ok ? (await deviceResponse.json()) as Device[] : [];
-      setDevices(screenDevices);
-      // Register display names for the inspector's Parameter picker. Best
-      // effort and deliberately not awaited into the critical path: without it
-      // the picker falls back to raw address keys.
-      void loadRegisterCatalogs(next.plantId, screenDevices).then(setCatalogs).catch(() => setCatalogs({}));
-      if (telemetryResponse.ok) {
-        const readings = (await telemetryResponse.json()) as LatestTelemetry[];
-        setLatestByDevice(Object.fromEntries(readings.map((reading) => [reading.deviceId, reading])));
-      } else setLatestByDevice({});
-      setVersions(versionResponse.ok ? (await versionResponse.json()) as ScadaScreenVersion[] : []);
+      setVersions(nextVersions);
       if (next.canEdit) setPublished(null);
-      else {
-        const publishedResponse = await api(`/api/v1/scada/screens/${encodeURIComponent(next.id)}/published`);
-        setPublished(publishedResponse.ok ? (await publishedResponse.json()) as PublishedScadaScreen : null);
-      }
+      else setPublished(await apiJson<PublishedScadaScreen>(`/api/v1/scada/screens/${encodeURIComponent(next.id)}/published`).catch(() => null));
       setMode(next.canEdit ? "edit" : "published");
       setSaveState("saved");
       revisionRef.current = 0;
@@ -251,12 +231,6 @@ export function ScadaPage() {
       setLoading(false);
     }
   }, []);
-
-  useRealtimeSocket(screen?.plantId, (message) => {
-    if (message.type === "telemetry.snapshot") {
-      setLatestByDevice(Object.fromEntries(message.data.map((reading) => [reading.deviceId, reading])));
-    }
-  }, Boolean(screen));
 
   useEffect(() => {
     if (!screen || !draftDesign || !screen.canEdit || saveState !== "dirty") return;
@@ -308,16 +282,14 @@ export function ScadaPage() {
   async function createScreen(event: FormEvent) {
     event.preventDefault();
     setError("");
-    const response = await api("/api/v1/scada/screens", {
-      method: "POST",
-      headers: { "X-CSRF-Token": csrfToken() },
-      body: JSON.stringify({ plantId: createPlantID, name: createName }),
-    });
-    if (!response.ok) {
-      setError(response.status === 409 ? "ชื่อ Screen นี้มีอยู่แล้วใน Plant" : response.status === 403 || response.status === 404 ? "บัญชีนี้ไม่มีสิทธิ์สร้าง Screen ใน Plant นี้" : "ไม่สามารถสร้าง SCADA Screen ได้");
-      return;
-    }
-    const next = (await response.json()) as ScadaScreen;
+    let next: ScadaScreen;
+    try {
+      next = await apiJson<ScadaScreen>("/api/v1/scada/screens", {
+        method: "POST",
+        body: { plantId: createPlantID, name: createName },
+        messages: { 409: "ชื่อ Screen นี้มีอยู่แล้วใน Plant", 403: "บัญชีนี้ไม่มีสิทธิ์สร้าง Screen ใน Plant นี้", 404: "บัญชีนี้ไม่มีสิทธิ์สร้าง Screen ใน Plant นี้", default: "ไม่สามารถสร้าง SCADA Screen ได้" },
+      });
+    } catch (cause) { setError(errorMessage(cause)); return; }
     setCreateOpen(false);
     setCreateName("");
     setScreens((current) => [next, ...current]);
@@ -328,26 +300,24 @@ export function ScadaPage() {
     if (!screen) return;
     setMode("published");
     setError("");
-    const response = await api(`/api/v1/scada/screens/${encodeURIComponent(screen.id)}/published`);
-    if (response.ok) setPublished((await response.json()) as PublishedScadaScreen);
-    else {
+    try {
+      setPublished(await apiJson<PublishedScadaScreen>(`/api/v1/scada/screens/${encodeURIComponent(screen.id)}/published`, { messages: { default: "Screen นี้ยังไม่มี Published version" } }));
+    } catch (cause) {
       setPublished(null);
-      setError("Screen นี้ยังไม่มี Published version");
+      setError(errorMessage(cause));
     }
   }
 
   async function publishScreen() {
     if (!screen || saveState !== "saved") return;
-    const response = await api(`/api/v1/scada/screens/${encodeURIComponent(screen.id)}/publish`, {
-      method: "POST",
-      headers: { "X-CSRF-Token": csrfToken() },
-      body: JSON.stringify({ draftVersion: screen.draftVersion, publishedVersion: screen.publishedVersion }),
-    });
-    if (!response.ok) {
-      setError(response.status === 409 ? "Draft หรือ Published version เปลี่ยนแล้ว กรุณาโหลดใหม่" : "ไม่สามารถ Publish Screen ได้");
-      return;
-    }
-    const result = (await response.json()) as PublishedScadaScreen;
+    let result: PublishedScadaScreen;
+    try {
+      result = await apiJson<PublishedScadaScreen>(`/api/v1/scada/screens/${encodeURIComponent(screen.id)}/publish`, {
+        method: "POST",
+        body: { draftVersion: screen.draftVersion, publishedVersion: screen.publishedVersion },
+        messages: { 409: "Draft หรือ Published version เปลี่ยนแล้ว กรุณาโหลดใหม่", default: "ไม่สามารถ Publish Screen ได้" },
+      });
+    } catch (cause) { setError(errorMessage(cause)); return; }
     setScreen({ ...screen, publishedVersion: result.publishedVersion });
     setPublished(result);
     setMode("published");
@@ -355,22 +325,20 @@ export function ScadaPage() {
   }
 
   async function reloadVersions(screenID: string) {
-    const response = await api(`/api/v1/scada/screens/${encodeURIComponent(screenID)}/versions`);
-    if (response.ok) setVersions((await response.json()) as ScadaScreenVersion[]);
+    const next = await apiJson<ScadaScreenVersion[]>(`/api/v1/scada/screens/${encodeURIComponent(screenID)}/versions`).catch(() => undefined);
+    if (next) setVersions(next);
   }
 
   async function rollback(version: ScadaScreenVersion) {
     if (!screen || !window.confirm(`Rollback Published Viewer ไป Version ${version.version}? Draft ปัจจุบันจะไม่ถูกแก้ไข`)) return;
-    const response = await api(`/api/v1/scada/screens/${encodeURIComponent(screen.id)}/rollback`, {
-      method: "POST",
-      headers: { "X-CSRF-Token": csrfToken() },
-      body: JSON.stringify({ targetVersion: version.version, publishedVersion: screen.publishedVersion }),
-    });
-    if (!response.ok) {
-      setError(response.status === 409 ? "Published version เปลี่ยนแล้ว กรุณาโหลดใหม่" : "ไม่สามารถ Rollback ได้");
-      return;
-    }
-    const result = (await response.json()) as PublishedScadaScreen;
+    let result: PublishedScadaScreen;
+    try {
+      result = await apiJson<PublishedScadaScreen>(`/api/v1/scada/screens/${encodeURIComponent(screen.id)}/rollback`, {
+        method: "POST",
+        body: { targetVersion: version.version, publishedVersion: screen.publishedVersion },
+        messages: { 409: "Published version เปลี่ยนแล้ว กรุณาโหลดใหม่", default: "ไม่สามารถ Rollback ได้" },
+      });
+    } catch (cause) { setError(errorMessage(cause)); return; }
     setScreen({ ...screen, publishedVersion: result.publishedVersion });
     setPublished(result);
     setMode("published");
@@ -381,14 +349,13 @@ export function ScadaPage() {
     if (!screen) return;
     const expected = "DELETE";
     if (window.prompt(`คำสั่งนี้จะลบ Draft และ Published history ทั้งหมดถาวร\nพิมพ์ ${expected}`) !== expected) return;
-    const response = await api(`/api/v1/scada/screens/${encodeURIComponent(screen.id)}`, {
-      method: "DELETE",
-      headers: { "X-CSRF-Token": csrfToken(), "X-Hard-Delete-Confirm": expected },
-    });
-    if (!response.ok) {
-      setError(response.status === 403 ? "เฉพาะ Platform Admin เท่านั้นที่ลบ Screen ถาวรได้" : "ไม่สามารถลบ Screen ได้");
-      return;
-    }
+    try {
+      await apiJson(`/api/v1/scada/screens/${encodeURIComponent(screen.id)}`, {
+        method: "DELETE",
+        headers: { "X-Hard-Delete-Confirm": expected },
+        messages: { 403: "เฉพาะ Platform Admin เท่านั้นที่ลบ Screen ถาวรได้", default: "ไม่สามารถลบ Screen ได้" },
+      });
+    } catch (cause) { setError(errorMessage(cause)); return; }
     setScreen(null);
     setDraftDesign(null);
     await loadLibrary();
@@ -419,7 +386,7 @@ export function ScadaPage() {
         {screen.canHardDelete && <Button variant="icon" danger onClick={() => void hardDelete()} title="ลบ Screen ถาวร" aria-label="ลบ Screen ถาวร"><Trash2 size={17} /></Button>}
       </div>
     </div>
-    {error && <FormMessage>{error}</FormMessage>}
+    {(error || telemetryError) && <FormMessage>{error || telemetryError}</FormMessage>}
     {saveState === "conflict" && <div className="scada-conflict"><strong>Draft มีการแก้ไขจากที่อื่น</strong><span>โหลดเวอร์ชันล่าสุดก่อนแก้ต่อเพื่อป้องกันข้อมูลหาย</span><Button variant="secondary" compact onClick={() => void loadScreen(screen.id)}><RefreshCw size={16} /> โหลดใหม่</Button></div>}
     {activeDesign ? <ScadaCanvas key={`${screen.id}-${canvasEpoch}-${mode}`} screenId={screen.id} design={activeDesign} editable={editable} devices={devices} latestByDevice={latestByDevice} catalogs={catalogs} versions={versions} canPublish={screen.canPublish} onDesignChange={markDesign} onRollback={rollback} /> : <div className="table-state">ยังไม่มี Published version</div>}
   </div>;

@@ -272,3 +272,22 @@ export function previousPeriod(from: Date, to: Date) {
   const span = to.getTime() - from.getTime();
   return { from: new Date(from.getTime() - span), to: new Date(from.getTime()) };
 }
+
+/** Latest-telemetry rows keyed by device id -- the shape every live view reads. */
+export function latestByDeviceId<T extends { deviceId: string }>(readings: T[]): Record<string, T> {
+  return Object.fromEntries(readings.map((reading) => [reading.deviceId, reading]));
+}
+
+/**
+ * Apply a realtime `telemetry.snapshot`. The server sends the plant's full
+ * latest set (same as GET /telemetry/latest), so it replaces rather than
+ * merges; a snapshot for another plant (a late frame from the socket the view
+ * just switched away from) is ignored.
+ */
+export function applyTelemetrySnapshot<T extends { deviceId: string }>(
+  current: Record<string, T>,
+  snapshot: { plantId: string; data: T[] },
+  plantId: string | undefined,
+): Record<string, T> {
+  return snapshot.plantId === plantId ? latestByDeviceId(snapshot.data) : current;
+}

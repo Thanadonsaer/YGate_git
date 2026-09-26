@@ -3,7 +3,7 @@
 import { CheckCircle2, KeyRound, Pencil, Plus, RefreshCw, RotateCcw, Save, Trash2, UserX } from "lucide-react";
 import { Checkbox, FormMessage, PasswordInput, StatusTag, TextInput } from "../../components/ui/form";
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { api, errorMessage, csrfToken, formatDate } from "../../lib/api";
+import { apiJson, errorMessage, formatDate } from "../../lib/api";
 import type { ManagedUser, Organization, Role } from "../../lib/types";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody } from "../../components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../../components/ui/select";
@@ -27,12 +27,15 @@ export function UsersPage({ currentUserId, defaultOrganizationId }: { currentUse
     setLoading(true);
     setError("");
     try {
-      const [userResponse, roleResponse, organizationResponse] = await Promise.all([api("/api/v1/admin/users"), api("/api/v1/admin/roles"), api("/api/v1/admin/organizations")]);
-      if (userResponse.status === 403 || roleResponse.status === 403) throw new Error("บัญชีนี้ไม่มีสิทธิ์จัดการผู้ใช้");
-      if (!userResponse.ok || !roleResponse.ok) throw new Error("ไม่สามารถโหลดข้อมูลผู้ใช้ได้");
-      setUsers((await userResponse.json()) as ManagedUser[]);
-      setRoles((await roleResponse.json()) as Role[]);
-      setOrganizations(organizationResponse.ok ? ((await organizationResponse.json()) as Organization[]) : []);
+      const messages = { 403: "บัญชีนี้ไม่มีสิทธิ์จัดการผู้ใช้", default: "ไม่สามารถโหลดข้อมูลผู้ใช้ได้" };
+      const [users, roles, organizations] = await Promise.all([
+        apiJson<ManagedUser[]>("/api/v1/admin/users", { messages }),
+        apiJson<Role[]>("/api/v1/admin/roles", { messages }),
+        apiJson<Organization[]>("/api/v1/admin/organizations").catch(() => []),
+      ]);
+      setUsers(users);
+      setRoles(roles);
+      setOrganizations(organizations);
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -44,33 +47,34 @@ export function UsersPage({ currentUserId, defaultOrganizationId }: { currentUse
 
   async function setUserActive(target: ManagedUser, isActive: boolean) {
     if (!isActive && !window.confirm(`ปิดใช้งาน “${target.email}” และ revoke ทุก session?`)) return;
-    const response = await api(`/api/v1/admin/users/${encodeURIComponent(target.id)}/status`, {
-      method: "POST",
-      headers: { "X-CSRF-Token": csrfToken() },
-      body: JSON.stringify({ isActive }),
-    });
-    if (response.ok) { toast.success(isActive ? `เปิดใช้งาน ${target.displayName} แล้ว` : `ปิดใช้งาน ${target.displayName} แล้ว`); await loadUsers(); }
-    else setError(response.status === 403 ? "บัญชีนี้ไม่มีสิทธิ์เปลี่ยนสถานะผู้ใช้" : response.status === 400 ? "ต้องยืนยันอีเมลและกำหนด Role ก่อนเปิดใช้งาน User" : "ไม่สามารถเปลี่ยนสถานะผู้ใช้ได้");
+    try {
+      await apiJson(`/api/v1/admin/users/${encodeURIComponent(target.id)}/status`, {
+        method: "POST",
+        body: { isActive },
+        messages: { 403: "บัญชีนี้ไม่มีสิทธิ์เปลี่ยนสถานะผู้ใช้", 400: "ต้องยืนยันอีเมลและกำหนด Role ก่อนเปิดใช้งาน User", default: "ไม่สามารถเปลี่ยนสถานะผู้ใช้ได้" },
+      });
+    } catch (cause) { setError(errorMessage(cause)); return; }
+    toast.success(isActive ? `เปิดใช้งาน ${target.displayName} แล้ว` : `ปิดใช้งาน ${target.displayName} แล้ว`); await loadUsers();
   }
 
   async function unlockUser(target: ManagedUser) {
-    const response = await api(`/api/v1/admin/users/${encodeURIComponent(target.id)}/unlock`, {
-      method: "POST",
-      headers: { "X-CSRF-Token": csrfToken() },
-    });
-    if (response.ok) { toast.success(`ปลดล็อก ${target.displayName} แล้ว`); await loadUsers(); }
-    else setError(response.status === 403 ? "บัญชีนี้ไม่มีสิทธิ์ปลดล็อกผู้ใช้" : "ไม่สามารถปลดล็อกผู้ใช้ได้");
+    try {
+      await apiJson(`/api/v1/admin/users/${encodeURIComponent(target.id)}/unlock`, { method: "POST", messages: { 403: "บัญชีนี้ไม่มีสิทธิ์ปลดล็อกผู้ใช้", default: "ไม่สามารถปลดล็อกผู้ใช้ได้" } });
+    } catch (cause) { setError(errorMessage(cause)); return; }
+    toast.success(`ปลดล็อก ${target.displayName} แล้ว`); await loadUsers();
   }
 
   async function hardDeleteUser(target: ManagedUser) {
     const expected = "DELETE";
     if (window.prompt(`ลบ User และข้อมูลที่เป็นเจ้าของแบบถาวร\nพิมพ์ ${expected} เพื่อยืนยัน`) !== expected) return;
-    const response = await api(`/api/v1/admin/users/${encodeURIComponent(target.id)}`, {
-      method: "DELETE",
-      headers: { "X-CSRF-Token": csrfToken(), "X-Hard-Delete-Confirm": expected },
-    });
-    if (response.ok) await loadUsers();
-    else setError(response.status === 403 ? "เฉพาะ Platform Admin ที่มีสิทธิ์ Hard Delete" : response.status === 400 ? "ไม่สามารถลบตัวเองหรือ Platform Admin คนสุดท้ายได้" : "ไม่สามารถ Hard Delete User ได้");
+    try {
+      await apiJson(`/api/v1/admin/users/${encodeURIComponent(target.id)}`, {
+        method: "DELETE",
+        headers: { "X-Hard-Delete-Confirm": expected },
+        messages: { 403: "เฉพาะ Platform Admin ที่มีสิทธิ์ Hard Delete", 400: "ไม่สามารถลบตัวเองหรือ Platform Admin คนสุดท้ายได้", default: "ไม่สามารถ Hard Delete User ได้" },
+      });
+    } catch (cause) { setError(errorMessage(cause)); return; }
+    await loadUsers();
   }
 
   const canCreate = can(currentUser, "user", "create") && can(currentUser, "role", "assign");
@@ -143,12 +147,11 @@ function UserEditor({ user, roles, organizations, defaultOrganizationId, session
     setError("");
     try {
       if (!organizationId || !roleId) throw new Error("กรุณาระบุ Organization ID และ Role");
-      const response = await api(user ? `/api/v1/admin/users/${encodeURIComponent(user.id)}` : "/api/v1/admin/users", {
+      await apiJson(user ? `/api/v1/admin/users/${encodeURIComponent(user.id)}` : "/api/v1/admin/users", {
         method: user ? "PUT" : "POST",
-        headers: { "X-CSRF-Token": csrfToken() },
-        body: JSON.stringify(user ? { organizationId, email, username, displayName, roleId, isActive } : { organizationId, email, username, displayName, password, roleId }),
+        body: user ? { organizationId, email, username, displayName, roleId, isActive } : { organizationId, email, username, displayName, password, roleId },
+        messages: { 409: "อีเมลหรือ username นี้มีอยู่แล้ว", 403: "บัญชีนี้ไม่มีสิทธิ์จัดการ User/Role", default: "ไม่สามารถบันทึกผู้ใช้ได้" },
       });
-      if (!response.ok) throw new Error(response.status === 409 ? "อีเมลหรือ username นี้มีอยู่แล้ว" : response.status === 403 ? "บัญชีนี้ไม่มีสิทธิ์จัดการ User/Role" : "ไม่สามารถบันทึกผู้ใช้ได้");
       onSaved();
     } catch (cause) {
       setError(errorMessage(cause));
@@ -208,8 +211,7 @@ function PasswordResetDialog({ user, onClose, onSaved }: { user: ManagedUser; on
     setPending(true);
     setError("");
     try {
-      const response = await api(`/api/v1/admin/users/${encodeURIComponent(user.id)}/reset-password`, { method: "POST", headers: { "X-CSRF-Token": csrfToken() }, body: JSON.stringify({ newPassword: password }) });
-      if (!response.ok) throw new Error(response.status === 403 ? "บัญชีนี้ไม่มีสิทธิ์ Reset Password" : "รหัสผ่านไม่ผ่าน policy หรือบันทึกไม่สำเร็จ");
+      await apiJson(`/api/v1/admin/users/${encodeURIComponent(user.id)}/reset-password`, { method: "POST", body: { newPassword: password }, messages: { 403: "บัญชีนี้ไม่มีสิทธิ์ Reset Password", default: "รหัสผ่านไม่ผ่าน policy หรือบันทึกไม่สำเร็จ" } });
       onSaved();
     } catch (cause) {
       setError(errorMessage(cause));

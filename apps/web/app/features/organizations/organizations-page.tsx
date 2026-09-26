@@ -3,7 +3,7 @@
 import { Pencil, Plus, RefreshCw } from "lucide-react";
 import { Checkbox, FormMessage, StatusTag, TextInput } from "../../components/ui/form";
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { api, errorMessage, csrfToken, formatDate } from "../../lib/api";
+import { apiJson, errorMessage, formatDate } from "../../lib/api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody } from "../../components/ui/dialog";
 import { toast } from "../../components/ui/sonner";
 import { Button } from "../../components/ui/button";
@@ -23,10 +23,7 @@ export function OrganizationsPage() {
     setLoading(true);
     setError("");
     try {
-      const response = await api("/api/v1/admin/organizations");
-      if (response.status === 403) throw new Error("บัญชีนี้ไม่มีสิทธิ์ดูข้อมูล Organization");
-      if (!response.ok) throw new Error("ไม่สามารถโหลดข้อมูล Organization ได้");
-      setOrganizations((await response.json()) as Organization[]);
+      setOrganizations(await apiJson<Organization[]>("/api/v1/admin/organizations", { messages: { 403: "บัญชีนี้ไม่มีสิทธิ์ดูข้อมูล Organization", default: "ไม่สามารถโหลดข้อมูล Organization ได้" } }));
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -88,14 +85,11 @@ function OrganizationEditor({ organization, onClose, onSaved }: { organization?:
     setPending(true);
     setError("");
     try {
-      const response = await api(organization ? `/api/v1/admin/organizations/${encodeURIComponent(organization.id)}` : "/api/v1/admin/organizations", {
+      await apiJson(organization ? `/api/v1/admin/organizations/${encodeURIComponent(organization.id)}` : "/api/v1/admin/organizations", {
         method: organization ? "PUT" : "POST",
-        headers: { "X-CSRF-Token": csrfToken() },
-        body: JSON.stringify({ code, name, isActive }),
+        body: { code, name, isActive },
+        messages: { 403: "บัญชีนี้ไม่มีสิทธิ์บันทึก Organization นี้", 409: "รหัส Organization นี้ถูกใช้งานแล้ว", default: "ข้อมูลไม่ถูกต้องหรือไม่สามารถบันทึกได้" },
       });
-      if (response.status === 403) throw new Error("บัญชีนี้ไม่มีสิทธิ์บันทึก Organization นี้");
-      if (response.status === 409) throw new Error("รหัส Organization นี้ถูกใช้งานแล้ว");
-      if (!response.ok) throw new Error("ข้อมูลไม่ถูกต้องหรือไม่สามารถบันทึกได้");
       toast.success(organization ? `บันทึก "${name}" แล้ว` : `เพิ่ม "${name}" แล้ว`);
       onSaved();
     } catch (cause) {

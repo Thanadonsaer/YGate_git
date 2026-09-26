@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  applyTelemetrySnapshot,
   bucketEnergy,
   classifyUnit,
   downsample,
   fillBuckets,
+  latestByDeviceId,
   nearestIndex,
   previousPeriod,
   seriesToCSV,
@@ -208,4 +210,14 @@ test("previousPeriod mirrors the window immediately before it", () => {
   const previous = previousPeriod(from, to);
   assert.equal(previous.to.getTime(), from.getTime());
   assert.equal(previous.to.getTime() - previous.from.getTime(), to.getTime() - from.getTime());
+});
+
+test("latest telemetry is keyed by device and replaced by same-plant snapshots only", () => {
+  const initial = latestByDeviceId([{ deviceId: "a", v: 1 }, { deviceId: "b", v: 2 }]);
+  assert.deepEqual(initial, { a: { deviceId: "a", v: 1 }, b: { deviceId: "b", v: 2 } });
+
+  const next = applyTelemetrySnapshot(initial, { plantId: "p1", data: [{ deviceId: "a", v: 3 }] }, "p1");
+  assert.deepEqual(next, { a: { deviceId: "a", v: 3 } }, "a snapshot is the plant's full latest set");
+
+  assert.equal(applyTelemetrySnapshot(initial, { plantId: "p2", data: [] }, "p1"), initial, "another plant's frame is ignored");
 });

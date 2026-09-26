@@ -4,7 +4,7 @@ import { ChartLine, Download, RefreshCw } from "lucide-react";
 import { Checkbox, FormMessage, TextInput } from "../../components/ui/form";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  api,
+  apiJson,
   downloadBlob,
   errorMessage,
   toDatetimeLocal,
@@ -121,11 +121,8 @@ export function EnergyAnalysisPage() {
   );
 
   useEffect(() => {
-    void api("/api/v1/plants")
-      .then(async (response) => {
-        if (!response.ok) throw new Error("ไม่สามารถโหลด Plant ได้");
-        setPlants((await response.json()) as Plant[]);
-      })
+    void apiJson<Plant[]>("/api/v1/plants", { messages: { default: "ไม่สามารถโหลด Plant ได้" } })
+      .then(setPlants)
       .catch((cause: unknown) => setError(errorMessage(cause)));
   }, []);
 
@@ -138,12 +135,11 @@ export function EnergyAnalysisPage() {
     setDevices([]);
     if (!plantId) return;
     const controller = new AbortController();
-    void api(`/api/v1/plants/${encodeURIComponent(plantId)}/devices`, {
+    void apiJson<Device[]>(`/api/v1/plants/${encodeURIComponent(plantId)}/devices`, {
       signal: controller.signal,
+      messages: { default: "ไม่สามารถโหลด Device ได้" },
     })
-      .then(async (response) => {
-        if (!response.ok) throw new Error("ไม่สามารถโหลด Device ได้");
-        const list = (await response.json()) as Device[];
+      .then((list) => {
         setDevices(list);
         // Land on the first device rather than an empty chart, the way the
         // single-select version did.

@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "../../components/ui/sonner";
 import { Button } from "../../components/ui/button";
 import { DataTable, TableColumn } from "../../components/ui/data-table";
-import { api, errorMessage, csrfToken, formatDate } from "../../lib/api";
+import { apiJson, errorMessage, formatDate } from "../../lib/api";
 import type { Session } from "../../lib/types";
 
 export function SessionsPage() {
@@ -18,9 +18,7 @@ export function SessionsPage() {
     setLoading(true);
     setError("");
     try {
-      const response = await api("/api/v1/auth/sessions");
-      if (!response.ok) throw new Error("ไม่สามารถโหลดเซสชันได้");
-      setSessions((await response.json()) as Session[]);
+      setSessions(await apiJson<Session[]>("/api/v1/auth/sessions", { messages: { default: "ไม่สามารถโหลดเซสชันได้" } }));
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -31,23 +29,19 @@ export function SessionsPage() {
   useEffect(() => { void loadSessions(); }, [loadSessions]);
 
   async function revokeSession(session: Session) {
-    const response = await api(`/api/v1/auth/sessions/${encodeURIComponent(session.id)}`, {
-      method: "DELETE",
-      headers: { "X-CSRF-Token": csrfToken() },
-    });
-    if (response.ok) { toast.success("ยกเลิกเซสชันแล้ว"); await loadSessions(); }
-    else setError("ไม่สามารถยกเลิกเซสชันได้");
+    try {
+      await apiJson(`/api/v1/auth/sessions/${encodeURIComponent(session.id)}`, { method: "DELETE", messages: { default: "ไม่สามารถยกเลิกเซสชันได้" } });
+    } catch (cause) { setError(errorMessage(cause)); return; }
+    toast.success("ยกเลิกเซสชันแล้ว"); await loadSessions();
   }
 
   async function clearSessions() {
     const expected = "DELETE";
     if (window.prompt(`พิมพ์ ${expected} เพื่อลบประวัติเซสชันทั้งหมด รวมถึงเซสชันนี้`) !== expected) return;
-    const response = await api("/api/v1/auth/sessions", {
-      method: "DELETE",
-      headers: { "X-CSRF-Token": csrfToken(), "X-Hard-Delete-Confirm": expected },
-    });
-    if (response.ok) window.location.assign("/");
-    else setError("ไม่สามารถ clear เซสชันได้");
+    try {
+      await apiJson("/api/v1/auth/sessions", { method: "DELETE", headers: { "X-Hard-Delete-Confirm": expected }, messages: { default: "ไม่สามารถ clear เซสชันได้" } });
+    } catch (cause) { setError(errorMessage(cause)); return; }
+    window.location.assign("/");
   }
 
   return (

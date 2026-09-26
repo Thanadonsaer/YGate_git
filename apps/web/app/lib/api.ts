@@ -56,6 +56,71 @@ export async function api(path: string, init?: RequestInit) {
   }
 }
 
+/** Per-call wording keyed by HTTP status, plus `default` for any other failure. */
+export type ApiErrorMessages = Partial<Record<number | "default", string>>;
+
+const defaultApiErrorMessages: Record<number, string> = {
+  401: "เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่",
+  403: "บัญชีนี้ไม่มีสิทธิ์ทำรายการนี้",
+  404: "ไม่พบข้อมูล หรือบัญชีนี้ไม่มีสิทธิ์เข้าถึง",
+  409: "ข้อมูลซ้ำหรือถูกแก้ไขจาก session อื่น กรุณาโหลดใหม่",
+  503: "ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้",
+};
+
+/**
+ * The Thai text a page shows for a failed request: the page's own wording for
+ * that status wins, then its catch-all, then a generic per-status message, and
+ * only then whatever the server said (platform-api errors are mostly terse
+ * English `http.Error` text, so it is the last resort, not the first).
+ */
+export function apiErrorMessage(status: number, serverMessage = "", messages: ApiErrorMessages = {}) {
+  return messages[status] ?? messages.default ?? defaultApiErrorMessages[status] ?? (serverMessage || "เกิดข้อผิดพลาด");
+}
+
+export class ApiError extends Error {
+  readonly status: number;
+  /** `message`/`error` from a JSON error body, else the plain-text body, trimmed. */
+  readonly serverMessage: string;
+
+  constructor(status: number, serverMessage: string, messages?: ApiErrorMessages) {
+    super(apiErrorMessage(status, serverMessage, messages));
+    this.name = "ApiError";
+    this.status = status;
+    this.serverMessage = serverMessage;
+  }
+}
+
+function serverErrorText(body: string) {
+  try {
+    const parsed = JSON.parse(body) as { message?: unknown; error?: unknown };
+    const text = parsed.message ?? parsed.error;
+    if (typeof text === "string") return text;
+  } catch {}
+  return body.trim();
+}
+
+/**
+ * JSON request through `api`: sends the CSRF token on anything but GET,
+ * JSON-encodes `body`, and throws an `ApiError` (whose `message` is already the
+ * user-facing Thai text, so `errorMessage(cause)` just works) on a non-2xx.
+ * Resolves to `undefined` for 204 / empty bodies.
+ */
+export async function apiJson<T = unknown>(
+  path: string,
+  options: { method?: string; body?: unknown; signal?: AbortSignal; headers?: Record<string, string>; messages?: ApiErrorMessages } = {},
+): Promise<T> {
+  const method = options.method ?? "GET";
+  const response = await api(path, {
+    method,
+    signal: options.signal,
+    headers: { ...(method === "GET" ? {} : { "X-CSRF-Token": csrfToken() }), ...options.headers },
+    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+  });
+  const text = await response.text();
+  if (!response.ok) throw new ApiError(response.status, serverErrorText(text), options.messages);
+  return (text ? JSON.parse(text) : undefined) as T;
+}
+
 export function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");

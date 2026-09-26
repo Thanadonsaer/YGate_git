@@ -8,7 +8,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { FormMessage } from "../../components/ui/form";
 import { cn } from "../../lib/cn";
-import { api, errorMessage, assetURL } from "../../lib/api";
+import { apiJson, errorMessage, assetURL } from "../../lib/api";
 import type { DashboardPlantStatus, Plant } from "../../lib/types";
 
 type CommunicationStatus = DashboardPlantStatus["communicationStatus"];
@@ -111,16 +111,12 @@ export function SiteMapPage() {
       // just to color pins by communication status) needs device:read on top of
       // that — a role can legitimately have one without the other, so its
       // failure must not block the map itself, only the status coloring.
-      const [plantResponse, overviewResponse] = await Promise.all([api("/api/v1/plants"), api("/api/v1/dashboard/overview")]);
-      if (plantResponse.status === 403) throw new Error("บัญชีนี้ไม่มีสิทธิ์ดูข้อมูลโรงไฟฟ้า");
-      if (!plantResponse.ok) throw new Error("ไม่สามารถโหลดข้อมูลแผนที่ได้");
-      setPlants((await plantResponse.json()) as Plant[]);
-      if (overviewResponse.ok) {
-        const overview = (await overviewResponse.json()) as { plants: DashboardPlantStatus[] };
-        setStatusByPlant(Object.fromEntries(overview.plants.map((item) => [item.plantId, item])));
-      } else {
-        setStatusByPlant({});
-      }
+      const [plants, overview] = await Promise.all([
+        apiJson<Plant[]>("/api/v1/plants", { messages: { 403: "บัญชีนี้ไม่มีสิทธิ์ดูข้อมูลโรงไฟฟ้า", default: "ไม่สามารถโหลดข้อมูลแผนที่ได้" } }),
+        apiJson<{ plants: DashboardPlantStatus[] }>("/api/v1/dashboard/overview").catch(() => undefined),
+      ]);
+      setPlants(plants);
+      setStatusByPlant(overview ? Object.fromEntries(overview.plants.map((item) => [item.plantId, item])) : {});
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {

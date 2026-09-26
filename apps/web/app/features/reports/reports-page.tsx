@@ -2,7 +2,7 @@
 
 import { Download, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
-import { api, downloadBlob, errorMessage, toDatetimeLocal } from "../../lib/api";
+import { apiJson, downloadBlob, errorMessage, toDatetimeLocal } from "../../lib/api";
 import { fetchRange, loadRegisterCatalogs } from "../../lib/telemetry-history";
 import { calculatedReportCSV, type CalculatedReportRow } from "../../lib/calculated-report-csv";
 import { toSeries, totalEnergyKWh } from "../../lib/telemetry-math";
@@ -23,20 +23,13 @@ export function ReportsPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    void api("/api/v1/plants").then(async (response) => {
-      if (!response.ok) throw new Error("ไม่สามารถโหลดรายชื่อโรงไฟฟ้าได้");
-      setPlants((await response.json()) as Plant[]);
-    }).catch((cause) => setError(errorMessage(cause)));
+    void apiJson<Plant[]>("/api/v1/plants", { messages: { default: "ไม่สามารถโหลดรายชื่อโรงไฟฟ้าได้" } }).then(setPlants).catch((cause) => setError(errorMessage(cause)));
   }, []);
 
   useEffect(() => {
     setDeviceIds([]);
     if (plantIds.length === 0) { setDevices([]); return; }
-    void Promise.all(plantIds.map(async (plantId) => {
-      const response = await api(`/api/v1/plants/${encodeURIComponent(plantId)}/devices`);
-      if (!response.ok) throw new Error("ไม่สามารถโหลด Device ได้");
-      return (await response.json()) as Device[];
-    })).then((groups) => setDevices(groups.flat())).catch((cause) => setError(errorMessage(cause)));
+    void Promise.all(plantIds.map((plantId) => apiJson<Device[]>(`/api/v1/plants/${encodeURIComponent(plantId)}/devices`, { messages: { default: "ไม่สามารถโหลด Device ได้" } }))).then((groups) => setDevices(groups.flat())).catch((cause) => setError(errorMessage(cause)));
   }, [plantIds]);
 
   async function exportReport() {

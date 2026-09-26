@@ -3,7 +3,7 @@
 import { Check, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { Checkbox, FormMessage, StatusTag, TextInput } from "../../components/ui/form";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { api, errorMessage, csrfToken, formatDate } from "../../lib/api";
+import { apiJson, errorMessage, formatDate } from "../../lib/api";
 import { loadRegisterCatalog, loadRegisterCatalogs, pointMeta, pointOptions, type PointMeta } from "../../lib/telemetry-history";
 import { useRealtimeSocket } from "../../lib/realtime";
 import type { AlarmEvent, AlarmNotifyRole, AlarmRule, AlarmRuleCondition, ConditionLogic, Device, EventLogbookEntry, Plant } from "../../lib/types";
@@ -37,9 +37,8 @@ export function AlarmsPage() {
   const [editor, setEditor] = useState<AlarmRule | "create" | null>(null);
 
   const loadPlants = useCallback(async () => {
-    const response = await api("/api/v1/plants");
-    if (response.ok) {
-      const list = (await response.json()) as Plant[];
+    const list = await apiJson<Plant[]>("/api/v1/plants").catch(() => undefined);
+    if (list) {
       setPlants(list);
       setPlantId((current) => current || list[0]?.id || "");
     }
@@ -52,20 +51,19 @@ export function AlarmsPage() {
     setLoading(true);
     setError("");
     try {
-      const [rulesResponse, eventsResponse, devicesResponse, notifyRolesResponse, logbookResponse] = await Promise.all([
-        api(`/api/v1/plants/${plantId}/alarms/rules`),
-        api(`/api/v1/plants/${plantId}/alarms/events`),
-        api(`/api/v1/plants/${plantId}/devices`),
-        api(`/api/v1/plants/${plantId}/alarms/notify-roles`),
-        api(`/api/v1/plants/${plantId}/alarms/logbook`),
+      const messages = { 403: "บัญชีนี้ไม่มีสิทธิ์ดู Alarm ของโรงไฟฟ้านี้", default: "ไม่สามารถโหลดข้อมูล Alarm ได้" };
+      const [rules, events, devices, notifyRoles, logbook] = await Promise.all([
+        apiJson<AlarmRule[]>(`/api/v1/plants/${plantId}/alarms/rules`, { messages }),
+        apiJson<AlarmEvent[]>(`/api/v1/plants/${plantId}/alarms/events`, { messages }),
+        apiJson<Device[]>(`/api/v1/plants/${plantId}/devices`).catch(() => []),
+        apiJson<AlarmNotifyRole[]>(`/api/v1/plants/${plantId}/alarms/notify-roles`).catch(() => []),
+        apiJson<EventLogbookEntry[]>(`/api/v1/plants/${plantId}/alarms/logbook`).catch(() => []),
       ]);
-      if (rulesResponse.status === 403 || eventsResponse.status === 403) throw new Error("บัญชีนี้ไม่มีสิทธิ์ดู Alarm ของโรงไฟฟ้านี้");
-      if (!rulesResponse.ok || !eventsResponse.ok) throw new Error("ไม่สามารถโหลดข้อมูล Alarm ได้");
-      setRules((await rulesResponse.json()) as AlarmRule[]);
-      setEvents((await eventsResponse.json()) as AlarmEvent[]);
-      setLogbook(logbookResponse.ok ? (await logbookResponse.json()) as EventLogbookEntry[] : []);
-      setDevices(devicesResponse.ok ? (await devicesResponse.json()) as Device[] : []);
-      setNotifyRoles(notifyRolesResponse.ok ? (await notifyRolesResponse.json()) as AlarmNotifyRole[] : []);
+      setRules(rules);
+      setEvents(events);
+      setLogbook(logbook);
+      setDevices(devices);
+      setNotifyRoles(notifyRoles);
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -97,37 +95,33 @@ export function AlarmsPage() {
 
   async function deleteRule(rule: AlarmRule) {
     if (!window.confirm(`ลบกฎแจ้งเตือน “${rule.label}”?`)) return;
-    const response = await api(`/api/v1/plants/${plantId}/alarms/rules/${encodeURIComponent(rule.id)}`, {
-      method: "DELETE",
-      headers: { "X-CSRF-Token": csrfToken() },
-    });
-    if (response.ok) { toast.success(`ลบกฎ "${rule.label}" แล้ว`); await loadAlarms(); }
-    else setError("ไม่สามารถลบกฎแจ้งเตือนได้");
+    try {
+      await apiJson(`/api/v1/plants/${plantId}/alarms/rules/${encodeURIComponent(rule.id)}`, { method: "DELETE", messages: { default: "ไม่สามารถลบกฎแจ้งเตือนได้" } });
+    } catch (cause) { setError(errorMessage(cause)); return; }
+    toast.success(`ลบกฎ "${rule.label}" แล้ว`); await loadAlarms();
   }
 
   async function acknowledge(event: AlarmEvent) {
-    const response = await api(`/api/v1/plants/${plantId}/alarms/events/${event.id}/ack`, {
-      method: "POST",
-      headers: { "X-CSRF-Token": csrfToken() },
-      body: JSON.stringify({ note: "" }),
-    });
-    if (response.ok) { toast.success("Acknowledge alarm แล้ว"); await loadAlarms(); }
-    else setError("ไม่สามารถ Acknowledge Alarm ได้");
+    try {
+      await apiJson(`/api/v1/plants/${plantId}/alarms/events/${event.id}/ack`, { method: "POST", body: { note: "" }, messages: { default: "ไม่สามารถ Acknowledge Alarm ได้" } });
+    } catch (cause) { setError(errorMessage(cause)); return; }
+    toast.success("Acknowledge alarm แล้ว"); await loadAlarms();
   }
 
   async function createLogbookEntry(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const response = await api(`/api/v1/plants/${plantId}/alarms/logbook`, {
-      method: "POST",
-      headers: { "X-CSRF-Token": csrfToken() },
-      body: JSON.stringify({
-        deviceId: String(form.get("deviceId") || ""), eventType: String(form.get("eventType") || "NOTE"),
-        category: String(form.get("category") || ""), title: String(form.get("title") || ""),
-        startsAt: new Date(String(form.get("startsAt"))).toISOString(), note: String(form.get("note") || ""), source: "MANUAL",
-      }),
-    });
-    if (!response.ok) { setError(response.status === 403 ? "บัญชีนี้ไม่มีสิทธิ์เพิ่ม Event Logbook" : "ไม่สามารถบันทึก Event Logbook ได้"); return; }
+    try {
+      await apiJson(`/api/v1/plants/${plantId}/alarms/logbook`, {
+        method: "POST",
+        body: {
+          deviceId: String(form.get("deviceId") || ""), eventType: String(form.get("eventType") || "NOTE"),
+          category: String(form.get("category") || ""), title: String(form.get("title") || ""),
+          startsAt: new Date(String(form.get("startsAt"))).toISOString(), note: String(form.get("note") || ""), source: "MANUAL",
+        },
+        messages: { 403: "บัญชีนี้ไม่มีสิทธิ์เพิ่ม Event Logbook", default: "ไม่สามารถบันทึก Event Logbook ได้" },
+      });
+    } catch (cause) { setError(errorMessage(cause)); return; }
     toast.success("บันทึก Event Logbook แล้ว");
     event.currentTarget.reset();
     await loadAlarms();
@@ -362,13 +356,11 @@ function AlarmRuleEditor({ plantId, rule, devices, notifyRoles, onClose, onSaved
       const body = rule
         ? { label, conditions: conditionsPayload, severity, isActive, alarmDelaySeconds, notifyRoleId: notifyRoleValue }
         : { deviceId, label, conditions: conditionsPayload, severity, alarmDelaySeconds, notifyRoleId: notifyRoleValue };
-      const response = await api(rule ? `/api/v1/plants/${plantId}/alarms/rules/${encodeURIComponent(rule.id)}` : `/api/v1/plants/${plantId}/alarms/rules`, {
+      await apiJson(rule ? `/api/v1/plants/${plantId}/alarms/rules/${encodeURIComponent(rule.id)}` : `/api/v1/plants/${plantId}/alarms/rules`, {
         method: rule ? "PUT" : "POST",
-        headers: { "X-CSRF-Token": csrfToken() },
-        body: JSON.stringify(body),
+        body,
+        messages: { 403: "บัญชีนี้ไม่มีสิทธิ์บันทึกกฎแจ้งเตือนนี้", default: "ข้อมูลไม่ถูกต้องหรือไม่สามารถบันทึกได้" },
       });
-      if (response.status === 403) throw new Error("บัญชีนี้ไม่มีสิทธิ์บันทึกกฎแจ้งเตือนนี้");
-      if (!response.ok) throw new Error("ข้อมูลไม่ถูกต้องหรือไม่สามารถบันทึกได้");
       onSaved();
     } catch (cause) {
       setError(errorMessage(cause));

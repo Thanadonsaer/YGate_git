@@ -3,7 +3,7 @@
 import { ArchiveX, ArrowDownToLine, ArrowLeft, ArrowRight, ArrowUpToLine, CheckCircle2, FileUp, Loader2, Pencil, Plus, RefreshCw, RotateCcw, Save, Search, Settings2, Trash2, X } from "lucide-react";
 import { Checkbox, FormMessage, StatusTag, TextInput } from "../../components/ui/form";
 import { type ReactNode, FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { api, errorMessage, csrfToken } from "../../lib/api";
+import { api, apiJson, errorMessage, csrfToken } from "../../lib/api";
 import { inputClass } from "../../components/ui";
 import { cn } from "../../lib/cn";
 import type { CreatedMiddlewareGateway, ImportMiddlewareConfigResult, MiddlewareConfigSnapshot, MiddlewareConnection, MiddlewareGateway, MiddlewarePatch, Plant } from "../../lib/types";
@@ -79,12 +79,9 @@ export function MiddlewaresPage({ defaultOrganizationId }: { defaultOrganization
     setLoading(true);
     setError("");
     try {
-      const response = await api("/api/v1/admin/middlewares");
-      if (response.status === 403) throw new Error("บัญชีนี้ไม่มีสิทธิ์จัดการ Middleware");
-      if (!response.ok) throw new Error("ไม่สามารถโหลดรายการ Middleware ได้");
-      setGateways((await response.json()) as MiddlewareGateway[]);
-      const patchesResponse = await api("/api/v1/admin/middleware-patches");
-      if (patchesResponse.ok) setBatchPatches((await patchesResponse.json()) as MiddlewarePatch[]);
+      setGateways(await apiJson<MiddlewareGateway[]>("/api/v1/admin/middlewares", { messages: { 403: "บัญชีนี้ไม่มีสิทธิ์จัดการ Middleware", default: "ไม่สามารถโหลดรายการ Middleware ได้" } }));
+      const patches = await apiJson<MiddlewarePatch[]>("/api/v1/admin/middleware-patches").catch(() => undefined);
+      if (patches) setBatchPatches(patches);
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -97,8 +94,8 @@ export function MiddlewaresPage({ defaultOrganizationId }: { defaultOrganization
   useEffect(() => {
     if (!batchJob || batchJob.status !== "running") return;
     const timer = window.setInterval(async () => {
-      const response = await api(`/api/v1/admin/middleware-update-jobs/${encodeURIComponent(batchJob.id)}`);
-      if (response.ok) setBatchJob((await response.json()) as MiddlewareUpdateJob);
+      const next = await apiJson<MiddlewareUpdateJob>(`/api/v1/admin/middleware-update-jobs/${encodeURIComponent(batchJob.id)}`).catch(() => undefined);
+      if (next) setBatchJob(next);
     }, 1500);
     return () => window.clearInterval(timer);
   }, [batchJob]);
@@ -116,17 +113,18 @@ export function MiddlewaresPage({ defaultOrganizationId }: { defaultOrganization
 
   async function setGatewayActive(gateway: MiddlewareGateway, isActive: boolean) {
     if (!isActive && !window.confirm(`ปิดใช้งาน Middleware "${gateway.name}"? Gateway นี้จะเชื่อมต่อ realtime ไม่ได้ทันที`)) return;
-    const response = await api(`/api/v1/admin/middlewares/${encodeURIComponent(gateway.id)}`, {
-      method: "PUT",
-      headers: { "X-CSRF-Token": csrfToken() },
-      body: JSON.stringify({
-        name: gateway.name, siteName: gateway.siteName, autoOnboard: gateway.autoOnboard, isActive,
-        pollIntervalSeconds: gateway.pollIntervalSeconds, commandTimeoutSeconds: gateway.commandTimeoutSeconds,
-        idleHeartbeatSeconds: gateway.idleHeartbeatSeconds, apiPollingEnabled: gateway.apiPollingEnabled,
-      }),
-    });
-    if (response.ok) { toast.success(isActive ? `เปิดใช้งาน "${gateway.name}" แล้ว` : `ปิดใช้งาน "${gateway.name}" แล้ว`); await loadGateways(); }
-    else setError(response.status === 403 ? "บัญชีนี้ไม่มีสิทธิ์เปลี่ยนสถานะ Middleware" : "ไม่สามารถเปลี่ยนสถานะ Middleware ได้");
+    try {
+      await apiJson(`/api/v1/admin/middlewares/${encodeURIComponent(gateway.id)}`, {
+        method: "PUT",
+        body: {
+          name: gateway.name, siteName: gateway.siteName, autoOnboard: gateway.autoOnboard, isActive,
+          pollIntervalSeconds: gateway.pollIntervalSeconds, commandTimeoutSeconds: gateway.commandTimeoutSeconds,
+          idleHeartbeatSeconds: gateway.idleHeartbeatSeconds, apiPollingEnabled: gateway.apiPollingEnabled,
+        },
+        messages: { 403: "บัญชีนี้ไม่มีสิทธิ์เปลี่ยนสถานะ Middleware", default: "ไม่สามารถเปลี่ยนสถานะ Middleware ได้" },
+      });
+    } catch (cause) { setError(errorMessage(cause)); return; }
+    toast.success(isActive ? `เปิดใช้งาน "${gateway.name}" แล้ว` : `ปิดใช้งาน "${gateway.name}" แล้ว`); await loadGateways();
   }
 
   function toggleSelected(id: string) {
@@ -158,12 +156,14 @@ export function MiddlewaresPage({ defaultOrganizationId }: { defaultOrganization
     // Deletes by id from the shared middleware_client row, so the same endpoint
     // the old API Keys page used still applies here — see platform-api's
     // hardDeleteAPIKeyHandler / HardDeleteAPIKey.
-    const response = await api(`/api/v1/admin/api-keys/${encodeURIComponent(gateway.id)}`, {
-      method: "DELETE",
-      headers: { "X-CSRF-Token": csrfToken(), "X-Hard-Delete-Confirm": expected },
-    });
-    if (response.ok) { toast.success(`ลบ Middleware "${gateway.name}" ถาวรแล้ว`); await loadGateways(); }
-    else setError(response.status === 403 ? "เฉพาะ System Admin เท่านั้นที่ลบ Middleware ถาวรได้" : "ไม่สามารถลบ Middleware ถาวรได้");
+    try {
+      await apiJson(`/api/v1/admin/api-keys/${encodeURIComponent(gateway.id)}`, {
+        method: "DELETE",
+        headers: { "X-Hard-Delete-Confirm": expected },
+        messages: { 403: "เฉพาะ System Admin เท่านั้นที่ลบ Middleware ถาวรได้", default: "ไม่สามารถลบ Middleware ถาวรได้" },
+      });
+    } catch (cause) { setError(errorMessage(cause)); return; }
+    toast.success(`ลบ Middleware "${gateway.name}" ถาวรแล้ว`); await loadGateways();
   }
 
   if (selected) {
@@ -278,17 +278,14 @@ function MiddlewareEditor({ gateway, defaultOrganizationId, onClose, onSaved }: 
     try {
       const pollIntervalSeconds = Number(pollIntervalMinutes) * 60;
       const idleHeartbeatSeconds = Number(idleHeartbeatMinutes) * 60;
-      const response = await api(gateway ? `/api/v1/admin/middlewares/${encodeURIComponent(gateway.id)}` : "/api/v1/admin/middlewares", {
+      const saved = await apiJson<CreatedMiddlewareGateway>(gateway ? `/api/v1/admin/middlewares/${encodeURIComponent(gateway.id)}` : "/api/v1/admin/middlewares", {
         method: gateway ? "PUT" : "POST",
-        headers: { "X-CSRF-Token": csrfToken() },
-        body: JSON.stringify(
-          gateway
-            ? { name, siteName, autoOnboard, isActive, pollIntervalSeconds, commandTimeoutSeconds: Number(commandTimeoutSeconds), idleHeartbeatSeconds, apiPollingEnabled }
-            : { organizationId, name, siteName, autoOnboard, pollIntervalSeconds, commandTimeoutSeconds: Number(commandTimeoutSeconds), idleHeartbeatSeconds, apiPollingEnabled },
-        ),
+        body: gateway
+          ? { name, siteName, autoOnboard, isActive, pollIntervalSeconds, commandTimeoutSeconds: Number(commandTimeoutSeconds), idleHeartbeatSeconds, apiPollingEnabled }
+          : { organizationId, name, siteName, autoOnboard, pollIntervalSeconds, commandTimeoutSeconds: Number(commandTimeoutSeconds), idleHeartbeatSeconds, apiPollingEnabled },
+        messages: { 409: "ชื่อ Middleware นี้มีอยู่แล้ว", 403: "บัญชีนี้ไม่มีสิทธิ์จัดการ Middleware", default: "ไม่สามารถบันทึก Middleware ได้" },
       });
-      if (!response.ok) throw new Error(response.status === 409 ? "ชื่อ Middleware นี้มีอยู่แล้ว" : response.status === 403 ? "บัญชีนี้ไม่มีสิทธิ์จัดการ Middleware" : "ไม่สามารถบันทึก Middleware ได้");
-      onSaved(gateway ? undefined : ((await response.json()) as CreatedMiddlewareGateway));
+      onSaved(gateway ? undefined : saved);
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -549,9 +546,8 @@ function MiddlewareConfigEditor({ gateway, onBack, canManageGateway, canManagePl
   useEffect(() => {
     if (!stageJob || stageJob.status !== "running") return;
     const timer = window.setInterval(async () => {
-      const response = await api(`/api/v1/admin/middleware-update-jobs/${encodeURIComponent(stageJob.id)}`);
-      if (!response.ok) return;
-      const next = (await response.json()) as MiddlewareUpdateJob;
+      const next = await apiJson<MiddlewareUpdateJob>(`/api/v1/admin/middleware-update-jobs/${encodeURIComponent(stageJob.id)}`).catch(() => undefined);
+      if (!next) return;
       setStageJob(next);
       if (next.status !== "running") setStaging(false);
     }, 1500);
@@ -562,22 +558,20 @@ function MiddlewareConfigEditor({ gateway, onBack, canManageGateway, canManagePl
     setLoading(true);
     setError("");
     try {
-      const [configResponse, plantsResponse, allPlantsResponse, patchesResponse, gatewaysResponse] = await Promise.all([
-        api(`/api/v1/admin/middlewares/${encodeURIComponent(gateway.id)}/config`),
-        api(`/api/v1/admin/middlewares/${encodeURIComponent(gateway.id)}/plants`),
-        api("/api/v1/plants"),
-        api("/api/v1/admin/middleware-patches"),
-        api("/api/v1/admin/middlewares"),
+      const messages = { default: "ไม่สามารถโหลดข้อมูล Middleware ได้" };
+      const [config, plants, everyPlant, patches, gateways] = await Promise.all([
+        apiJson<MiddlewareConfigSnapshot>(`/api/v1/admin/middlewares/${encodeURIComponent(gateway.id)}/config`, { messages }),
+        apiJson<Plant[]>(`/api/v1/admin/middlewares/${encodeURIComponent(gateway.id)}/plants`, { messages }),
+        apiJson<Plant[]>("/api/v1/plants", { messages }),
+        apiJson<MiddlewarePatch[]>("/api/v1/admin/middleware-patches").catch(() => undefined),
+        apiJson<MiddlewareGateway[]>("/api/v1/admin/middlewares").catch(() => undefined),
       ]);
-      if (!configResponse.ok || !plantsResponse.ok || !allPlantsResponse.ok) throw new Error("ไม่สามารถโหลดข้อมูล Middleware ได้");
-      setSnapshot((await configResponse.json()) as MiddlewareConfigSnapshot);
-      setAssignedPlants((await plantsResponse.json()) as Plant[]);
-      setAllPlants((await allPlantsResponse.json()) as Plant[]);
-      if (patchesResponse.ok) setPatches((await patchesResponse.json()) as MiddlewarePatch[]);
-      if (gatewaysResponse.ok) {
-        const current = ((await gatewaysResponse.json()) as MiddlewareGateway[]).find((item) => item.id === gateway.id);
-        if (current) setLiveGateway(current);
-      }
+      setSnapshot(config);
+      setAssignedPlants(plants);
+      setAllPlants(everyPlant);
+      if (patches) setPatches(patches);
+      const current = gateways?.find((item) => item.id === gateway.id);
+      if (current) setLiveGateway(current);
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -593,9 +587,9 @@ function MiddlewareConfigEditor({ gateway, onBack, canManageGateway, canManagePl
     const deadline = Date.now() + 30000;
     while (Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 2000));
-      const response = await api("/api/v1/admin/middlewares");
-      if (!response.ok) continue;
-      const current = ((await response.json()) as MiddlewareGateway[]).find((item) => item.id === gateway.id);
+      const gateways = await apiJson<MiddlewareGateway[]>("/api/v1/admin/middlewares").catch(() => undefined);
+      if (!gateways) continue;
+      const current = gateways.find((item) => item.id === gateway.id);
       if (current) setLiveGateway(current);
       if (current?.softwareVersion === target) return true;
     }
@@ -607,12 +601,11 @@ function MiddlewareConfigEditor({ gateway, onBack, canManageGateway, canManagePl
     setPending(true);
     setError("");
     try {
-      const response = await api(`/api/v1/admin/middlewares/${encodeURIComponent(gateway.id)}/plants`, {
+      await apiJson(`/api/v1/admin/middlewares/${encodeURIComponent(gateway.id)}/plants`, {
         method: "POST",
-        headers: { "X-CSRF-Token": csrfToken() },
-        body: JSON.stringify({ plantId: addPlantId }),
+        body: { plantId: addPlantId },
+        messages: { default: "ไม่สามารถมอบหมาย Plant ได้ (Plant นี้อาจถูกมอบหมายให้ Middleware อื่นแล้ว)" },
       });
-      if (!response.ok) throw new Error("ไม่สามารถมอบหมาย Plant ได้ (Plant นี้อาจถูกมอบหมายให้ Middleware อื่นแล้ว)");
       toast.success(`มอบหมาย Plant ให้ ${gateway.name} แล้ว`);
       setAddPlantId("");
       await load();
@@ -628,11 +621,7 @@ function MiddlewareConfigEditor({ gateway, onBack, canManageGateway, canManagePl
     setPending(true);
     setError("");
     try {
-      const response = await api(`/api/v1/admin/middlewares/${encodeURIComponent(gateway.id)}/plants/${encodeURIComponent(plant.id)}`, {
-        method: "DELETE",
-        headers: { "X-CSRF-Token": csrfToken() },
-      });
-      if (!response.ok) throw new Error("ไม่สามารถเอา Plant ออกได้");
+      await apiJson(`/api/v1/admin/middlewares/${encodeURIComponent(gateway.id)}/plants/${encodeURIComponent(plant.id)}`, { method: "DELETE", messages: { default: "ไม่สามารถเอา Plant ออกได้" } });
       toast.success(`เอา "${plant.name}" ออกจาก ${gateway.name} แล้ว`);
       await load();
     } catch (cause) {
@@ -647,13 +636,10 @@ function MiddlewareConfigEditor({ gateway, onBack, canManageGateway, canManagePl
     setImporting(true);
     setError("");
     try {
-      const response = await api(`/api/v1/admin/middlewares/${encodeURIComponent(gateway.id)}/import-config`, {
+      const result = await apiJson<ImportMiddlewareConfigResult>(`/api/v1/admin/middlewares/${encodeURIComponent(gateway.id)}/import-config`, {
         method: "POST",
-        headers: { "X-CSRF-Token": csrfToken() },
+        messages: { 504: "Middleware ไม่ตอบสนองภายในเวลาที่กำหนด", default: "ไม่สามารถดึง Config จาก Middleware ได้" },
       });
-      if (response.status === 504) throw new Error("Middleware ไม่ตอบสนองภายในเวลาที่กำหนด");
-      if (!response.ok) throw new Error("ไม่สามารถดึง Config จาก Middleware ได้");
-      const result = (await response.json()) as ImportMiddlewareConfigResult;
       toast.success(
         `Import สำเร็จ: ${result.deviceModelsCreated} Model ใหม่, ${result.deviceModelsReused} Model เดิม, ${result.registerMetadataUpserted} Register, ${result.devicesCreated} Device ใหม่, ${result.devicesUpdated} Device อัปเดต IP/Port`
         + `${result.registerMetadataSkipped > 0 ? `, ข้าม ${result.registerMetadataSkipped} Register ที่ import ไม่ได้` : ""}`
@@ -672,12 +658,10 @@ function MiddlewareConfigEditor({ gateway, onBack, canManageGateway, canManagePl
     setPushing(true);
     setError("");
     try {
-      const response = await api(`/api/v1/admin/middlewares/${encodeURIComponent(gateway.id)}/push-config`, {
+      const result = await apiJson<{ plantCount: number; deviceCount: number; deviceSetCount: number; delivered: boolean }>(`/api/v1/admin/middlewares/${encodeURIComponent(gateway.id)}/push-config`, {
         method: "POST",
-        headers: { "X-CSRF-Token": csrfToken() },
+        messages: { default: "ไม่สามารถส่ง Config ไปที่ Middleware ได้" },
       });
-      if (!response.ok) throw new Error("ไม่สามารถส่ง Config ไปที่ Middleware ได้");
-      const result = (await response.json()) as { plantCount: number; deviceCount: number; deviceSetCount: number; delivered: boolean };
       if (result.deviceCount === 0) {
         toast.error(
           result.plantCount === 0
