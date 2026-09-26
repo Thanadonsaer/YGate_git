@@ -6,13 +6,26 @@ package gatewayhub
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 )
 
 // ErrOffline is returned when the target gateway has no live connection.
 var ErrOffline = errors.New("gateway is offline")
+
+// RejectedError is a command.result that came back ok:false.
+type RejectedError struct {
+	Kind   string
+	Reason string // the gateway's own error text
+}
+
+func (e *RejectedError) Error() string {
+	return "gateway rejected " + e.Kind + ": " + e.Reason
+}
 
 type conn struct {
 	out chan []byte
@@ -109,13 +122,51 @@ func (h *Hub) PushConfig(gatewayID string, payload []byte) bool {
 	}
 }
 
-// RunCommand sends payload to gatewayID and blocks until a matching
-// command.result is resolved, ctx is done, or the gateway is offline.
-func (h *Hub) RunCommand(ctx context.Context, gatewayID, commandID string, payload []byte) (json.RawMessage, error) {
-	return h.RunCommandWithProgress(ctx, gatewayID, commandID, payload, nil)
+// Call sends a command.request of kind to gatewayID and waits for its
+// command.result, returning the result's data.
+//
+// fields are merged into the request frame next to type/commandId/kind (for
+// example "connectionId", or "data" for commands that nest their arguments);
+// progress, when non-nil, receives command.progress frames. It owns the whole
+// ADR-0005 envelope so callers never build or parse it:
+//   - ErrOffline: no live connection
+//   - ctx.Err(): nothing came back in time
+//   - *RejectedError: ok:false
+func (h *Hub) Call(ctx context.Context, gatewayID, kind string, fields map[string]any, progress func(json.RawMessage)) (json.RawMessage, error) {
+	var id [16]byte
+	_, _ = rand.Read(id[:])
+	commandID := hex.EncodeToString(id[:])
+	frame := map[string]any{}
+	for k, v := range fields {
+		frame[k] = v
+	}
+	frame["type"], frame["commandId"], frame["kind"] = "command.request", commandID, kind
+	payload, err := json.Marshal(frame)
+	if err != nil {
+		return nil, fmt.Errorf("encode %s command: %w", kind, err)
+	}
+	raw, err := h.run(ctx, gatewayID, commandID, payload, progress)
+	if err != nil {
+		return nil, err
+	}
+	var result struct {
+		Ok    bool            `json:"ok"`
+		Data  json.RawMessage `json:"data"`
+		Error string          `json:"error"`
+	}
+	if err = json.Unmarshal(raw, &result); err != nil {
+		return nil, fmt.Errorf("decode %s result: %w", kind, err)
+	}
+	if !result.Ok {
+		if result.Error == "" {
+			result.Error = "no reason given"
+		}
+		return nil, &RejectedError{Kind: kind, Reason: result.Error}
+	}
+	return result.Data, nil
 }
 
-func (h *Hub) RunCommandWithProgress(ctx context.Context, gatewayID, commandID string, payload []byte, progress func(json.RawMessage)) (json.RawMessage, error) {
+func (h *Hub) run(ctx context.Context, gatewayID, commandID string, payload []byte, progress func(json.RawMessage)) (json.RawMessage, error) {
 	h.mu.Lock()
 	c := h.conns[gatewayID]
 	h.mu.Unlock()

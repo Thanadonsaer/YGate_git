@@ -21,12 +21,14 @@ func (s *Service) MiddlewarePlants(ctx context.Context, principal auth.Principal
 	if err != nil {
 		return nil, ErrMiddlewareNotFound
 	}
-	allowed, err := s.queries.HasUserPermission(ctx, dbgen.HasUserPermissionParams{UserID: principal.UserID, Action: "read", ResourceType: "middleware_plant"})
-	if err != nil {
-		return nil, fmt.Errorf("check middleware plant read permission: %w", err)
+	var organizationID pgtype.UUID
+	if err = s.pool.QueryRow(ctx, `SELECT organization_id FROM auth.middleware_client WHERE id=$1`, id).Scan(&organizationID); errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrMiddlewareNotFound
+	} else if err != nil {
+		return nil, fmt.Errorf("lookup middleware organization: %w", err)
 	}
-	if !allowed {
-		return nil, ErrForbidden
+	if err = authorize(ctx, s.pool, principal, "read", "middleware_plant", organizationID, pgtype.UUID{}); err != nil {
+		return nil, err
 	}
 	rows, err := s.pool.Query(ctx, `
 SELECT p.id, p.organization_id, o.name, p.code, p.name, p.timezone, p.latitude, p.longitude,

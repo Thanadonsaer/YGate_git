@@ -148,18 +148,7 @@ SELECT p.id, p.organization_id, o.name AS organization_name,
 FROM plant.plant p
 JOIN organization o ON o.id = p.organization_id
 WHERE p.id = $1
-  AND EXISTS (
-      SELECT 1 FROM auth.user_role ur
-      JOIN auth.role r ON r.id = ur.role_id
-      JOIN auth.role_permission rp ON rp.role_id = ur.role_id
-      JOIN auth.permission pm ON pm.id = rp.permission_id
-      WHERE ur.user_id = $2
-        AND pm.action = $3 AND pm.resource_type = 'plant'
-        AND (r.organization_id IS NULL OR r.organization_id = ur.organization_id)
-        AND (rp.organization_id IS NULL OR rp.organization_id = ur.organization_id)
-        AND (ur.organization_id IS NULL OR ur.organization_id = p.organization_id)
-        AND (ur.plant_id IS NULL OR ur.plant_id = p.id)
-  )
+  AND auth.has_permission($2, $3, 'plant', p.organization_id, p.id)
 LIMIT 1
 `
 
@@ -224,18 +213,7 @@ SELECT p.id, p.organization_id, o.name AS organization_name,
 FROM plant.plant p
 JOIN organization o ON o.id = p.organization_id
 WHERE p.id = $1
-  AND EXISTS (
-      SELECT 1 FROM auth.user_role ur
-      JOIN auth.role r ON r.id = ur.role_id
-      JOIN auth.role_permission rp ON rp.role_id = ur.role_id
-      JOIN auth.permission pm ON pm.id = rp.permission_id
-      WHERE ur.user_id = $2
-        AND pm.action = 'update' AND pm.resource_type = 'plant'
-        AND (r.organization_id IS NULL OR r.organization_id = ur.organization_id)
-        AND (rp.organization_id IS NULL OR rp.organization_id = ur.organization_id)
-        AND (ur.organization_id IS NULL OR ur.organization_id = p.organization_id)
-        AND (ur.plant_id IS NULL OR ur.plant_id = p.id)
-  )
+  AND auth.has_permission($2, 'update', 'plant', p.organization_id, p.id)
 LIMIT 1
 FOR UPDATE OF p
 `
@@ -302,19 +280,7 @@ func (q *Queries) GetOrganizationName(ctx context.Context, organizationID pgtype
 }
 
 const hasOrganizationPermission = `-- name: HasOrganizationPermission :one
-SELECT EXISTS (
-    SELECT 1 FROM auth.user_role ur
-    JOIN auth.role r ON r.id = ur.role_id
-    JOIN auth.role_permission rp ON rp.role_id = ur.role_id
-    JOIN auth.permission pm ON pm.id = rp.permission_id
-    WHERE ur.user_id = $1
-      AND pm.action = $2
-      AND pm.resource_type = $3
-      AND (r.organization_id IS NULL OR r.organization_id = ur.organization_id)
-      AND (rp.organization_id IS NULL OR rp.organization_id = ur.organization_id)
-      AND ur.plant_id IS NULL
-      AND (ur.organization_id IS NULL OR ur.organization_id = $4)
-)::boolean
+SELECT auth.has_permission($1, $2, $3, $4, NULL)::boolean
 `
 
 type HasOrganizationPermissionParams struct {
@@ -372,18 +338,7 @@ SELECT p.id, p.organization_id, o.name AS organization_name,
        p.lifecycle_status, p.is_active, p.alarm_email_enabled, p.alarm_notify_role_id, p.created_at, p.updated_at
 FROM plant.plant p
 JOIN organization o ON o.id = p.organization_id
-WHERE EXISTS (
-    SELECT 1 FROM auth.user_role ur
-    JOIN auth.role r ON r.id = ur.role_id
-    JOIN auth.role_permission rp ON rp.role_id = ur.role_id
-    JOIN auth.permission pm ON pm.id = rp.permission_id
-    WHERE ur.user_id = $1
-      AND pm.action = 'read' AND pm.resource_type = 'plant'
-      AND (r.organization_id IS NULL OR r.organization_id = ur.organization_id)
-      AND (rp.organization_id IS NULL OR rp.organization_id = ur.organization_id)
-      AND (ur.organization_id IS NULL OR ur.organization_id = p.organization_id)
-      AND (ur.plant_id IS NULL OR ur.plant_id = p.id)
-)
+WHERE auth.has_permission($1, 'read', 'plant', p.organization_id, p.id)
 ORDER BY o.name, p.name, p.id
 LIMIT 200
 `

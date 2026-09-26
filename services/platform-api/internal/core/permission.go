@@ -28,22 +28,33 @@ func (s *Service) requireOrganizationPermission(ctx context.Context, q *dbgen.Qu
 	return nil
 }
 
-func hasGlobalPermissionQuery(ctx context.Context, querier rowQuerier, principal auth.Principal, action, resource string) (bool, error) {
+// hasPermission is the one permission check: the scope is set by which ids
+// are valid -- org+plant, org only (plant roles never count), or neither
+// (global roles only). The rule itself lives in SQL, auth.has_permission
+// (migration 000055), which list queries also call per row.
+func hasPermission(ctx context.Context, querier rowQuerier, principal auth.Principal, action, resource string, organizationID, plantID pgtype.UUID) (bool, error) {
 	var allowed bool
-	err := querier.QueryRow(ctx, `
-SELECT EXISTS (
-    SELECT 1 FROM auth.user_role ur
-    JOIN auth.role r ON r.id = ur.role_id
-    JOIN auth.role_permission rp ON rp.role_id = ur.role_id
-    JOIN auth.permission pm ON pm.id = rp.permission_id
-    WHERE ur.user_id = $1
-      AND ur.organization_id IS NULL
-      AND pm.action = $2
-      AND pm.resource_type = $3
-      AND r.organization_id IS NULL
-      AND rp.organization_id IS NULL
-)`, principal.UserID, action, resource).Scan(&allowed)
-	return allowed, err
+	err := querier.QueryRow(ctx, `SELECT auth.has_permission($1, $2, $3, $4, $5)`, principal.UserID, action, resource, organizationID, plantID).Scan(&allowed)
+	if err != nil {
+		return false, fmt.Errorf("check %s %s permission: %w", resource, action, err)
+	}
+	return allowed, nil
+}
+
+// authorize is hasPermission that fails with ErrForbidden.
+func authorize(ctx context.Context, querier rowQuerier, principal auth.Principal, action, resource string, organizationID, plantID pgtype.UUID) error {
+	allowed, err := hasPermission(ctx, querier, principal, action, resource, organizationID, plantID)
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return ErrForbidden
+	}
+	return nil
+}
+
+func hasGlobalPermissionQuery(ctx context.Context, querier rowQuerier, principal auth.Principal, action, resource string) (bool, error) {
+	return hasPermission(ctx, querier, principal, action, resource, pgtype.UUID{}, pgtype.UUID{})
 }
 
 func (s *Service) requireGlobalPermission(ctx context.Context, principal auth.Principal, action, resource string) error {

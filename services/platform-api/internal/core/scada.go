@@ -341,7 +341,7 @@ SELECT s.id, s.organization_id, s.plant_id, p.code, p.name, s.name,
 FROM scada.scada_screen s
 JOIN plant.plant p ON p.organization_id=s.organization_id AND p.id=s.plant_id
 WHERE ($2::uuid IS NULL OR s.plant_id=$2)
-  AND EXISTS (`+scadaPermissionExistsSQL+`)
+  AND `+scadaPermissionSQL+`
 ORDER BY p.name, s.name
 LIMIT 200`, principal.UserID, filter, "view")
 	if err != nil {
@@ -626,17 +626,7 @@ func (s *Service) HardDeleteScadaScreen(ctx context.Context, principal auth.Prin
 	return commitHardDelete(ctx, tx, "scada screen")
 }
 
-const scadaPermissionExistsSQL = `
-SELECT 1 FROM auth.user_role ur
-JOIN auth.role r ON r.id=ur.role_id
-JOIN auth.role_permission rp ON rp.role_id=ur.role_id
-JOIN auth.permission pm ON pm.id=rp.permission_id
-WHERE ur.user_id=$1
-  AND pm.action=$3 AND pm.resource_type='scada_screen'
-  AND (r.organization_id IS NULL OR r.organization_id=ur.organization_id)
-  AND (rp.organization_id IS NULL OR rp.organization_id=ur.organization_id)
-  AND (ur.organization_id IS NULL OR ur.organization_id=s.organization_id)
-  AND (ur.plant_id IS NULL OR ur.plant_id=s.plant_id)`
+const scadaPermissionSQL = `auth.has_permission($1, $3, 'scada_screen', s.organization_id, s.plant_id)`
 
 func authorizedScadaPlant(ctx context.Context, querier rowQuerier, principal auth.Principal, plantID pgtype.UUID, action string) (pgtype.UUID, string, string, error) {
 	var organizationID pgtype.UUID
@@ -645,17 +635,7 @@ func authorizedScadaPlant(ctx context.Context, querier rowQuerier, principal aut
 SELECT p.organization_id, p.code, p.name
 FROM plant.plant p
 WHERE p.id=$2
-  AND EXISTS (
-      SELECT 1 FROM auth.user_role ur
-      JOIN auth.role r ON r.id=ur.role_id
-      JOIN auth.role_permission rp ON rp.role_id=ur.role_id
-      JOIN auth.permission pm ON pm.id=rp.permission_id
-      WHERE ur.user_id=$1 AND pm.action=$3 AND pm.resource_type='scada_screen'
-        AND (r.organization_id IS NULL OR r.organization_id=ur.organization_id)
-        AND (rp.organization_id IS NULL OR rp.organization_id=ur.organization_id)
-        AND (ur.organization_id IS NULL OR ur.organization_id=p.organization_id)
-        AND (ur.plant_id IS NULL OR ur.plant_id=p.id)
-  )
+  AND auth.has_permission($1, $3, 'scada_screen', p.organization_id, p.id)
 FOR UPDATE OF p`, principal.UserID, plantID, action).Scan(&organizationID, &code, &name)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return pgtype.UUID{}, "", "", ErrScadaNotFound
@@ -672,7 +652,7 @@ SELECT s.id, s.organization_id, s.plant_id, p.code, p.name, s.name, s.draft_desi
        s.draft_version, s.published_version, s.updated_at
 FROM scada.scada_screen s
 JOIN plant.plant p ON p.organization_id=s.organization_id AND p.id=s.plant_id
-WHERE s.id=$2 AND EXISTS (` + scadaPermissionExistsSQL + `)`
+WHERE s.id=$2 AND ` + scadaPermissionSQL
 	if lock {
 		query += " FOR UPDATE OF s"
 	}
@@ -743,17 +723,7 @@ func (s *Service) fillScadaCapabilities(ctx context.Context, querier rowQuerier,
 func hasScadaScopePermission(ctx context.Context, querier rowQuerier, principal auth.Principal, organizationID, plantID pgtype.UUID, action string) (bool, error) {
 	var allowed bool
 	err := querier.QueryRow(ctx, `
-SELECT EXISTS (
-    SELECT 1 FROM auth.user_role ur
-    JOIN auth.role r ON r.id=ur.role_id
-    JOIN auth.role_permission rp ON rp.role_id=ur.role_id
-    JOIN auth.permission pm ON pm.id=rp.permission_id
-    WHERE ur.user_id=$1 AND pm.action=$2 AND pm.resource_type='scada_screen'
-      AND (r.organization_id IS NULL OR r.organization_id=ur.organization_id)
-      AND (rp.organization_id IS NULL OR rp.organization_id=ur.organization_id)
-      AND (ur.organization_id IS NULL OR ur.organization_id=$3)
-      AND (ur.plant_id IS NULL OR ur.plant_id=$4)
-)`, principal.UserID, action, organizationID, plantID).Scan(&allowed)
+SELECT auth.has_permission($1, $2, 'scada_screen', $3, $4)`, principal.UserID, action, organizationID, plantID).Scan(&allowed)
 	if err != nil {
 		return false, fmt.Errorf("check scada %s permission: %w", action, err)
 	}

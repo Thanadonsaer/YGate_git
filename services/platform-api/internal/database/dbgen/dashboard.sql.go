@@ -263,6 +263,13 @@ const listDashboardPlantStatus = `-- name: ListDashboardPlantStatus :many
 SELECT p.id AS plant_id, p.code, p.name, p.timezone, p.is_active,
        count(d.id)::bigint AS device_count,
        count(d.id) FILTER (WHERE d.is_active)::bigint AS active_device_count,
+       -- Freshness is measured on received_at -- when the platform's pull from the
+       -- Middleware actually brought the row in -- NOT observed_at, which is the
+       -- device's own collectTime and therefore only as trustworthy as the device
+       -- clock. And "reporting" means reporting *now*: a device whose last delivery
+       -- is older than stale_before counts as stale, not reporting. Without that
+       -- second filter a plant silent for days still had reporting_device_count > 0,
+       -- so it read DEGRADED forever instead of falling through to OFFLINE.
        count(tl.received_at) FILTER (WHERE d.is_active AND tl.received_at >= $1)::bigint AS reporting_device_count,
        count(tl.received_at) FILTER (WHERE d.is_active AND tl.received_at < $1)::bigint AS stale_device_count,
        count(d.id) FILTER (WHERE d.is_active AND tl.received_at IS NULL)::bigint AS offline_device_count,
@@ -271,18 +278,7 @@ FROM plant.plant p
 LEFT JOIN plant.device d ON d.organization_id = p.organization_id AND d.plant_id = p.id
 LEFT JOIN telemetry.raw_register_reading_latest tl
        ON tl.organization_id = d.organization_id AND tl.device_id = d.id
-WHERE EXISTS (
-    SELECT 1 FROM auth.user_role ur
-    JOIN auth.role r ON r.id = ur.role_id
-    JOIN auth.role_permission rp ON rp.role_id = ur.role_id
-    JOIN auth.permission pm ON pm.id = rp.permission_id
-    WHERE ur.user_id = $2
-      AND pm.action = 'read' AND pm.resource_type = 'device'
-      AND (r.organization_id IS NULL OR r.organization_id = ur.organization_id)
-      AND (rp.organization_id IS NULL OR rp.organization_id = ur.organization_id)
-      AND (ur.organization_id IS NULL OR ur.organization_id = p.organization_id)
-      AND (ur.plant_id IS NULL OR ur.plant_id = p.id)
-)
+WHERE auth.has_permission($2, 'read', 'device', p.organization_id, p.id)
 GROUP BY p.id, p.code, p.name, p.timezone, p.is_active
 ORDER BY p.name, p.code, p.id
 LIMIT 200

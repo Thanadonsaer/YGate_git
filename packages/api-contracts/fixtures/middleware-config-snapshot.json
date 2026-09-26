@@ -1,0 +1,50 @@
+{
+  "version": 7,
+  "brands": [{"brandId": 1, "brandName": "Huawei", "brandDescription": "Inverters"}],
+  "deviceSets": [{
+    "deviceSetId": 10,
+    "brandId": 1,
+    "brandName": "Huawei",
+    "devTypeId": 1,
+    "devType": "Inverter",
+    "devModel": "SUN2000",
+    "addressMode": "ONE_BASED",
+    "byteOrder": "BIG_ENDIAN",
+    "wordOrder": "HIGH_LOW",
+    "maxBlockSize": 30,
+    "addresses": [{
+      "addressId": 5,
+      "deviceSetId": 10,
+      "functionCode": 3,
+      "register": 32080,
+      "description": "Active power",
+      "canonicalKey": "active_power",
+      "sourceTag": "reg32080",
+      "factor": 0.001,
+      "offset": 1,
+      "dataType": "I32",
+      "length": 2,
+      "wordOrder": "HIGH_LOW",
+      "sourceUnit": "kW",
+      "remark": "total",
+      "enabled": true
+    }]
+  }],
+  "connections": [{
+    "connectionId": 100,
+    "connectionName": "VT1-INV-01",
+    "host": "192.168.1.10",
+    "port": 502,
+    "unitId": 3,
+    "deviceSetId": 10,
+    "devDn": "INV-01",
+    "deviceName": "Inverter 01",
+    "plantCode": "VT1",
+    "plantName": "Plant VT1",
+    "enabled": true
+  }],
+  "plants": [{"plantCode": "VT1", "plantName": "Plant VT1"}],
+  "sendIntervalSeconds": 60,
+  "apiPollingEnabled": true,
+  "idleHeartbeatSeconds": 30
+}

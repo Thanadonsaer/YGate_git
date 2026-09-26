@@ -343,42 +343,18 @@ func (s *Service) runMiddlewareLifecycleCommand(ctx context.Context, principal a
 		return fmt.Errorf("lookup middleware: %w", err)
 	}
 
-	commandID, err := newUUID()
-	if err != nil {
-		return err
-	}
-	body := map[string]any{"type": "command.request", "commandId": uuidString(commandID), "kind": kind}
-	for k, v := range extra {
-		body[k] = v
-	}
-	payload, _ := json.Marshal(body)
 	// update.stage can take an unbounded amount of time because the gateway
 	// downloads the patch over the site's link. The batch endpoint runs this
 	// operation outside the browser request, so do not impose a server-side
 	// deadline that turns a slow but healthy Plant into a false failure.
-	timeout := 15 * time.Second
 	runCtx := ctx
-	var cancel context.CancelFunc
 	if kind != "update.stage" {
-		runCtx, cancel = context.WithTimeout(ctx, timeout)
+		var cancel context.CancelFunc
+		runCtx, cancel = context.WithTimeout(ctx, 15*time.Second)
 		defer cancel()
 	}
-	raw, err := s.hub.RunCommandWithProgress(runCtx, uuidString(mwUUID), uuidString(commandID), payload, progress)
-	if errors.Is(err, context.DeadlineExceeded) {
-		return fmt.Errorf("middleware command timed out: %w", ErrMiddlewareCommandNAK)
-	}
-	if err != nil {
-		return ErrMiddlewareOffline
-	}
-	var envelope struct {
-		Ok    bool   `json:"ok"`
-		Error string `json:"error"`
-	}
-	if err = json.Unmarshal(raw, &envelope); err != nil {
-		return fmt.Errorf("decode command result: %w", err)
-	}
-	if !envelope.Ok {
-		return fmt.Errorf("middleware %s failed: %s: %w", kind, envelope.Error, ErrMiddlewareCommandNAK)
+	if _, err = s.hub.Call(runCtx, uuidString(mwUUID), kind, extra, progress); err != nil {
+		return middlewareCallError(kind, err)
 	}
 
 	correlationID, err := newUUID()

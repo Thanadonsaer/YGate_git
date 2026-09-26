@@ -208,18 +208,7 @@ func (s *Service) DeviceModels(ctx context.Context, principal auth.Principal) ([
 SELECT dm.id, dm.organization_id, dm.manufacturer, dm.model, dm.device_type, dm.source_type_id,
        dm.register_profile_id, dm.is_active, dm.created_at, dm.updated_at
 FROM plant.device_model dm
-WHERE EXISTS (
-    SELECT 1 FROM auth.user_role ur
-    JOIN auth.role r ON r.id = ur.role_id
-    JOIN auth.role_permission rp ON rp.role_id = ur.role_id
-    JOIN auth.permission pm ON pm.id = rp.permission_id
-    WHERE ur.user_id=$1
-      AND pm.action='read' AND pm.resource_type='device_model'
-      AND (r.organization_id IS NULL OR r.organization_id = ur.organization_id)
-      AND (rp.organization_id IS NULL OR rp.organization_id = ur.organization_id)
-      AND ur.plant_id IS NULL
-      AND (ur.organization_id IS NULL OR ur.organization_id = dm.organization_id)
-)
+WHERE auth.has_permission($1, 'read', 'device_model', dm.organization_id, NULL)
 ORDER BY dm.manufacturer, dm.device_type, dm.model
 LIMIT 500`, principal.UserID)
 	if err != nil {
@@ -847,18 +836,7 @@ func authorizedDeviceScopeQuery(ctx context.Context, querier rowQuerier, princip
 SELECT d.organization_id, d.plant_id
 FROM plant.device d
 WHERE d.id=$1 AND d.plant_id=$2
-  AND EXISTS (
-      SELECT 1 FROM auth.user_role ur
-      JOIN auth.role r ON r.id = ur.role_id
-      JOIN auth.role_permission rp ON rp.role_id = ur.role_id
-      JOIN auth.permission pm ON pm.id = rp.permission_id
-      WHERE ur.user_id = $3
-        AND pm.action = $4 AND pm.resource_type = 'device'
-        AND (r.organization_id IS NULL OR r.organization_id = ur.organization_id)
-        AND (rp.organization_id IS NULL OR rp.organization_id = ur.organization_id)
-        AND (ur.organization_id IS NULL OR ur.organization_id = d.organization_id)
-        AND (ur.plant_id IS NULL OR ur.plant_id = d.plant_id)
-  )
+  AND auth.has_permission($3, $4, 'device', d.organization_id, d.plant_id)
 LIMIT 1`
 	if lock {
 		query += " FOR UPDATE OF d"
@@ -884,18 +862,7 @@ func authorizedDeviceModelScopeQuery(ctx context.Context, querier rowQuerier, pr
 SELECT dm.organization_id
 FROM plant.device_model dm
 WHERE dm.id=$1
-  AND EXISTS (
-      SELECT 1 FROM auth.user_role ur
-      JOIN auth.role r ON r.id = ur.role_id
-      JOIN auth.role_permission rp ON rp.role_id = ur.role_id
-      JOIN auth.permission pm ON pm.id = rp.permission_id
-      WHERE ur.user_id=$2
-        AND pm.action=$3 AND pm.resource_type='device_model'
-        AND (r.organization_id IS NULL OR r.organization_id = ur.organization_id)
-        AND (rp.organization_id IS NULL OR rp.organization_id = ur.organization_id)
-        AND (ur.organization_id IS NULL OR ur.organization_id = dm.organization_id)
-        AND ur.plant_id IS NULL
-  )
+  AND auth.has_permission($2, $3, 'device_model', dm.organization_id, NULL)
 LIMIT 1`, modelID, principal.UserID, action).Scan(&organizationID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return pgtype.UUID{}, ErrNotFound
@@ -1139,18 +1106,7 @@ SELECT d.id, d.organization_id, d.plant_id, d.external_id, d.name, d.device_mode
 FROM plant.device d
 JOIN plant.device_model dm ON dm.id = d.device_model_id
 WHERE d.id=$1 AND d.plant_id=$2
-  AND EXISTS (
-      SELECT 1 FROM auth.user_role ur
-      JOIN auth.role r ON r.id = ur.role_id
-      JOIN auth.role_permission rp ON rp.role_id = ur.role_id
-      JOIN auth.permission pm ON pm.id = rp.permission_id
-      WHERE ur.user_id = $3
-        AND pm.action = 'update' AND pm.resource_type = 'device'
-        AND (r.organization_id IS NULL OR r.organization_id = ur.organization_id)
-        AND (rp.organization_id IS NULL OR rp.organization_id = ur.organization_id)
-        AND (ur.organization_id IS NULL OR ur.organization_id = d.organization_id)
-        AND (ur.plant_id IS NULL OR ur.plant_id = d.plant_id)
-  )
+  AND auth.has_permission($3, 'update', 'device', d.organization_id, d.plant_id)
 LIMIT 1
 FOR UPDATE OF d`, deviceID, plantID, userID)
 	return scanDeviceRow(row)

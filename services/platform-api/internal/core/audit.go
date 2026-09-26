@@ -58,18 +58,7 @@ WHERE al.occurred_at > COALESCE((
     FROM audit_log marker
     WHERE marker.action='audit.cleared' AND marker.organization_id IS NULL
 ), '-infinity'::timestamptz)
-AND EXISTS (
-    SELECT 1 FROM auth.user_role ur
-    JOIN auth.role r ON r.id = ur.role_id
-    JOIN auth.role_permission rp ON rp.role_id = ur.role_id
-    JOIN auth.permission pm ON pm.id = rp.permission_id
-    WHERE ur.user_id = $1
-      AND pm.action = 'read' AND pm.resource_type = 'audit'
-      AND (r.organization_id IS NULL OR r.organization_id = ur.organization_id)
-      AND (rp.organization_id IS NULL OR rp.organization_id = ur.organization_id)
-      AND ur.plant_id IS NULL
-      AND (ur.organization_id IS NULL OR ur.organization_id = al.organization_id)
-)
+AND auth.has_permission($1, 'read', 'audit', al.organization_id, NULL)
 ORDER BY al.occurred_at DESC, al.id DESC
 LIMIT $2`, principal.UserID, limit)
 	if err != nil {

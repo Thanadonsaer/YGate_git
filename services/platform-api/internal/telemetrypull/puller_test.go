@@ -268,7 +268,7 @@ func mustMarshal(v any) json.RawMessage {
 
 // Decodes a command frame the way modbus-api-middleware's realtimeclient does
 // (`Data json.RawMessage`, then Unmarshal into the command's request struct).
-// Before commandPayload existed, `data` went out base64-encoded as a JSON
+// Before commandData existed, `data` went out base64-encoded as a JSON
 // string, both decodes below failed, and the Middleware silently used its
 // fallbacks -- batchSize 20 for every drain, and an empty id list for every ack.
 func TestCommandPayloadNestsDataAsObjectForMiddleware(t *testing.T) {
@@ -287,6 +287,14 @@ func TestCommandPayloadNestsDataAsObjectForMiddleware(t *testing.T) {
 			t.Fatalf("command frame = %+v", msg)
 		}
 		return msg.Data
+	}
+
+	// The frame gatewayhub.Call builds from commandData's fields.
+	commandPayload := func(commandID, kind string, data any) []byte {
+		frame := commandData(data)
+		frame["type"], frame["commandId"], frame["kind"] = "command.request", commandID, kind
+		b, _ := json.Marshal(frame)
+		return b
 	}
 
 	var drain struct {

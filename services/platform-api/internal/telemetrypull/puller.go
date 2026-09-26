@@ -8,9 +8,8 @@ package telemetrypull
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"log"
 	"time"
 
@@ -96,12 +95,6 @@ func waitForPullSchedule(ctx context.Context, at time.Time) bool {
 	}
 }
 
-type commandResult struct {
-	Ok    bool            `json:"ok"`
-	Data  json.RawMessage `json:"data"`
-	Error string          `json:"error"`
-}
-
 type plantLog struct {
 	Code string `json:"code"`
 	Name string `json:"name"`
@@ -166,27 +159,14 @@ func pullOnce(ctx context.Context, hub *gatewayhub.Hub, ingest Ingester, client 
 	// nothing a later succeeded/failed/empty row doesn't already say.
 	drainCtx, cancel := context.WithTimeout(ctx, commandTimeout)
 	defer cancel()
-	commandID := newCommandID()
-	raw, err := hub.RunCommand(drainCtx, gatewayID, commandID,
-		commandPayload(commandID, "telemetry.drain", map[string]any{"batchSize": drainBatchSize}))
+	data, err := hub.Call(drainCtx, gatewayID, "telemetry.drain", commandData(map[string]any{"batchSize": drainBatchSize}), nil)
 	if err != nil {
 		log.Printf("telemetry pull: drain %s failed: %v", gatewayID, err)
-		audit("middleware.pull.failed", map[string]any{"stage": "drain", "error": err.Error()})
-		return
-	}
-	var result commandResult
-	if err = json.Unmarshal(raw, &result); err != nil {
-		log.Printf("telemetry pull: decode drain result for %s failed: %v", gatewayID, err)
-		audit("middleware.pull.failed", map[string]any{"stage": "drain_decode", "error": err.Error()})
-		return
-	}
-	if !result.Ok {
-		log.Printf("telemetry pull: drain %s rejected: %s", gatewayID, result.Error)
-		audit("middleware.pull.failed", map[string]any{"stage": "drain", "error": result.Error})
+		audit("middleware.pull.failed", map[string]any{"stage": "drain", "error": commandErrorText(err)})
 		return
 	}
 	var drained drainedBatch
-	if err = json.Unmarshal(result.Data, &drained); err != nil {
+	if err = json.Unmarshal(data, &drained); err != nil {
 		log.Printf("telemetry pull: decode drained batch for %s failed: %v", gatewayID, err)
 		audit("middleware.pull.failed", map[string]any{"stage": "batch_decode", "error": err.Error()})
 		return
@@ -230,27 +210,12 @@ func pullOnce(ctx context.Context, hub *gatewayhub.Hub, ingest Ingester, client 
 
 	ackCtx, cancelAck := context.WithTimeout(ctx, commandTimeout)
 	defer cancelAck()
-	ackCommandID := newCommandID()
-	ackPayload := commandPayload(ackCommandID, "telemetry.ack", map[string]any{"ids": drained.IDs})
-	ackRaw, err := hub.RunCommand(ackCtx, gatewayID, ackCommandID, ackPayload)
+	// A command that reached the Gateway and came back `ok:false` is still a
+	// failed ack: the rows stay PENDING and redeliver forever, so every later
+	// pull is pure duplicates -- Call reports it as an error like any other.
 	ackErr := ""
-	switch {
-	case err != nil:
-		ackErr = err.Error()
-	default:
-		// A command that reached the Gateway and came back `ok:false` is still
-		// a failed ack: the rows stay PENDING and redeliver forever, so every
-		// later pull is pure duplicates. Only the transport error was being
-		// checked, which made that failure mode completely silent.
-		var ackResult commandResult
-		if decodeErr := json.Unmarshal(ackRaw, &ackResult); decodeErr != nil {
-			ackErr = "decode ack result: " + decodeErr.Error()
-		} else if !ackResult.Ok {
-			ackErr = ackResult.Error
-			if ackErr == "" {
-				ackErr = "gateway rejected the acknowledgement"
-			}
-		}
+	if _, err = hub.Call(ackCtx, gatewayID, "telemetry.ack", commandData(map[string]any{"ids": drained.IDs}), nil); err != nil {
+		ackErr = commandErrorText(err)
 	}
 	if ackErr != "" {
 		log.Printf("telemetry pull: ack for %s failed: %s (rows will redeliver next tick)", gatewayID, ackErr)
@@ -258,8 +223,7 @@ func pullOnce(ctx context.Context, hub *gatewayhub.Hub, ingest Ingester, client 
 	}
 }
 
-// commandPayload builds a command.request frame with data nested as a JSON
-// object.
+// commandData nests data as a JSON object under the request frame's "data".
 //
 // The nesting is the whole point: the Middleware decodes `data` into a
 // json.RawMessage and unmarshals it into the command's own request struct.
@@ -270,17 +234,17 @@ func pullOnce(ctx context.Context, hub *gatewayhub.Hub, ingest Ingester, client 
 // used 20 (which is why every pull moved exactly 20 readings no matter what
 // drainBatchSize said), and telemetry.ack saw an empty id list. Wrapping in
 // json.RawMessage is what keeps it an object on the wire.
-func commandPayload(commandID, kind string, data any) []byte {
+func commandData(data any) map[string]any {
 	encoded, _ := json.Marshal(data)
-	payload, _ := json.Marshal(map[string]any{
-		"type": "command.request", "commandId": commandID, "kind": kind,
-		"data": json.RawMessage(encoded),
-	})
-	return payload
+	return map[string]any{"data": json.RawMessage(encoded)}
 }
 
-func newCommandID() string {
-	var b [8]byte
-	_, _ = rand.Read(b[:])
-	return hex.EncodeToString(b[:])
+// commandErrorText is what the pull audit rows record: the gateway's own
+// reason for an ok:false reply, the transport error otherwise.
+func commandErrorText(err error) string {
+	var rejected *gatewayhub.RejectedError
+	if errors.As(err, &rejected) {
+		return rejected.Reason
+	}
+	return err.Error()
 }

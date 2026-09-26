@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/netip"
 	"strings"
 	"time"
@@ -19,6 +20,7 @@ import (
 
 	"ygate/platform-api/internal/auth"
 	"ygate/platform-api/internal/database/dbgen"
+	"ygate/platform-api/internal/gatewayhub"
 )
 
 var (
@@ -131,12 +133,15 @@ type MiddlewareConnection struct {
 	Host           string `json:"host"`
 	Port           int    `json:"port"`
 	UnitID         int    `json:"unitId,omitempty"`
-	DeviceSetID    int64  `json:"deviceSetId"`
-	DevDn          string `json:"devDn,omitempty"`
-	DeviceName     string `json:"deviceName,omitempty"`
-	PlantCode      string `json:"plantCode,omitempty"`
-	PlantName      string `json:"plantName,omitempty"`
-	Enabled        bool   `json:"enabled"`
+	// SlaveID is only read on import: a Middleware older than the unitId
+	// field exports its unit as slaveId alone.
+	SlaveID     int    `json:"slaveId,omitempty"`
+	DeviceSetID int64  `json:"deviceSetId"`
+	DevDn       string `json:"devDn,omitempty"`
+	DeviceName  string `json:"deviceName,omitempty"`
+	PlantCode   string `json:"plantCode,omitempty"`
+	PlantName   string `json:"plantName,omitempty"`
+	Enabled     bool   `json:"enabled"`
 }
 
 type MiddlewarePlant struct {
@@ -331,6 +336,9 @@ func (s *Service) importFromSnapshot(ctx context.Context, principal auth.Princip
 				ModbusDataType:     normalizeModbusDataType(addr.DataType),
 			}, sourceIP)
 			if err != nil {
+				// ponytail: best-effort per row (each write is its own tx);
+				// one import tx needs *InTx variants of the public writers.
+				log.Printf("import middleware %s: skip register %s on %s: %v", middlewareID, addressKey, resolvedModelName[ds.DeviceSetID], err)
 				result.RegisterMetadataSkipped++
 				continue
 			}
@@ -361,6 +369,9 @@ func (s *Service) importFromSnapshot(ctx context.Context, principal auth.Princip
 	// Connections that land on the same Plant.
 	deviceIDByExternalID := make(map[string]map[string]string)
 	for _, conn := range snapshot.Connections {
+		if conn.UnitID <= 0 {
+			conn.UnitID = conn.SlaveID
+		}
 		result.ConnectionsFound = append(result.ConnectionsFound, ImportedConnectionSummary{
 			Host: conn.Host, Port: conn.Port, UnitID: conn.UnitID, DeviceModel: resolvedModelName[conn.DeviceSetID],
 		})
@@ -405,6 +416,7 @@ func (s *Service) importFromSnapshot(ctx context.Context, principal auth.Princip
 			if _, err := s.UpdateDevice(ctx, principal, plantID, deviceID, UpdateDeviceInput{
 				Name: name, DeviceModelID: modelID, ModbusHost: conn.Host, ModbusPort: port, ModbusUnitID: int32(conn.UnitID), IsActive: conn.Enabled,
 			}, sourceIP); err != nil {
+				log.Printf("import middleware %s: skip device update %s: %v", middlewareID, externalID, err)
 				result.DevicesSkipped++
 				continue
 			}
@@ -414,6 +426,7 @@ func (s *Service) importFromSnapshot(ctx context.Context, principal auth.Princip
 				ExternalID: externalID, Name: name, DeviceModelID: modelID, ModbusHost: conn.Host, ModbusPort: port, ModbusUnitID: int32(conn.UnitID),
 			}, sourceIP)
 			if err != nil {
+				log.Printf("import middleware %s: skip device create %s: %v", middlewareID, externalID, err)
 				result.DevicesSkipped++
 				continue
 			}
@@ -443,18 +456,7 @@ SELECT mc.id, mc.organization_id, o.name, mc.name, mc.site_name, mc.key_prefix, 
 	       mc.auto_onboard, mc.is_active, mc.config_version, mc.config_applied_version, mc.poll_interval_seconds, mc.command_timeout_seconds, mc.idle_heartbeat_seconds, mc.api_polling_enabled, mc.last_seen_at, mc.created_at, mc.updated_at
 FROM auth.middleware_client mc
 JOIN organization o ON o.id = mc.organization_id
-WHERE EXISTS (
-    SELECT 1 FROM auth.user_role ur
-    JOIN auth.role r ON r.id = ur.role_id
-    JOIN auth.role_permission rp ON rp.role_id = ur.role_id
-    JOIN auth.permission pm ON pm.id = rp.permission_id
-    WHERE ur.user_id = $1
-      AND pm.action = 'read' AND pm.resource_type = 'middleware_client'
-      AND (r.organization_id IS NULL OR r.organization_id = ur.organization_id)
-      AND (rp.organization_id IS NULL OR rp.organization_id = ur.organization_id)
-      AND ur.plant_id IS NULL
-      AND (ur.organization_id IS NULL OR ur.organization_id = mc.organization_id)
-)
+WHERE auth.has_permission($1, 'read', 'middleware_client', mc.organization_id, NULL)
 ORDER BY o.name, mc.name
 LIMIT 200`, principal.UserID)
 	if err != nil {
@@ -619,21 +621,18 @@ func (s *Service) MiddlewareConfig(ctx context.Context, principal auth.Principal
 	if err != nil {
 		return MiddlewareConfigSnapshot{}, ErrMiddlewareNotFound
 	}
-	allowed, err := s.queries.HasUserPermission(ctx, dbgen.HasUserPermissionParams{UserID: principal.UserID, Action: "read", ResourceType: "middleware_config"})
-	if err != nil {
-		return MiddlewareConfigSnapshot{}, fmt.Errorf("check middleware config read permission: %w", err)
-	}
-	if !allowed {
-		return MiddlewareConfigSnapshot{}, ErrForbidden
-	}
 	var raw []byte
 	var version int64
-	err = s.pool.QueryRow(ctx, `SELECT config_snapshot, config_version FROM auth.middleware_client WHERE id=$1`, id).Scan(&raw, &version)
+	var organizationID pgtype.UUID
+	err = s.pool.QueryRow(ctx, `SELECT organization_id, config_snapshot, config_version FROM auth.middleware_client WHERE id=$1`, id).Scan(&organizationID, &raw, &version)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return MiddlewareConfigSnapshot{}, ErrMiddlewareNotFound
 	}
 	if err != nil {
 		return MiddlewareConfigSnapshot{}, fmt.Errorf("get middleware config: %w", err)
+	}
+	if err = authorize(ctx, s.pool, principal, "read", "middleware_config", organizationID, pgtype.UUID{}); err != nil {
+		return MiddlewareConfigSnapshot{}, err
 	}
 	snapshot := MiddlewareConfigSnapshot{Version: version, Brands: []MiddlewareBrand{}, DeviceSets: []MiddlewareDeviceSet{}, Connections: []MiddlewareConnection{}, Plants: []MiddlewarePlant{}}
 	if len(raw) > 0 {
@@ -648,47 +647,62 @@ func (s *Service) MiddlewareConfig(ctx context.Context, principal auth.Principal
 // RunMiddlewareCommand relays a connect-test/read-now command for deviceID
 // to whichever Middleware currently serves its Plant, and waits (up to 15s)
 // for the result.
-func (s *Service) RunMiddlewareCommand(ctx context.Context, principal auth.Principal, deviceID, kind string) (json.RawMessage, error) {
+func (s *Service) RunMiddlewareCommand(ctx context.Context, principal auth.Principal, plantID, deviceID, kind string) (json.RawMessage, error) {
 	devUUID, err := parseUUID(deviceID)
 	if err != nil {
-		return nil, ErrMiddlewareNotFound
+		return nil, ErrNotFound
 	}
-	allowed, err := s.queries.HasUserPermission(ctx, dbgen.HasUserPermissionParams{UserID: principal.UserID, Action: "read", ResourceType: "middleware_config"})
+	plantUUID, err := parseUUID(plantID)
 	if err != nil {
-		return nil, fmt.Errorf("check middleware command permission: %w", err)
+		return nil, ErrNotFound
 	}
-	if !allowed {
-		return nil, ErrForbidden
-	}
+	var organizationID pgtype.UUID
 	var middlewareID pgtype.UUID
 	err = s.pool.QueryRow(ctx, `
-SELECT mp.middleware_client_id
+SELECT d.organization_id, mp.middleware_client_id
 FROM plant.device d
-JOIN middleware_gateway.middleware_plant mp ON mp.plant_id = d.plant_id
-WHERE d.id=$1`, devUUID).Scan(&middlewareID)
+LEFT JOIN middleware_gateway.middleware_plant mp ON mp.plant_id = d.plant_id
+WHERE d.id=$1 AND d.plant_id=$2`, devUUID, plantUUID).Scan(&organizationID, &middlewareID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrMiddlewareOffline
+		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("resolve device middleware: %w", err)
 	}
-	commandID, err := newUUID()
-	if err != nil {
+	if err = authorize(ctx, s.pool, principal, "read", "middleware_config", organizationID, plantUUID); err != nil {
 		return nil, err
 	}
-	payload, _ := json.Marshal(map[string]any{
-		"type": "command.request", "commandId": uuidString(commandID), "kind": kind, "connectionId": wireID(devUUID),
-	})
-	runCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	result, err := s.hub.RunCommand(runCtx, uuidString(middlewareID), uuidString(commandID), payload)
-	if errors.Is(err, context.DeadlineExceeded) {
-		return nil, fmt.Errorf("middleware command timed out: %w", ErrMiddlewareCommandNAK)
-	}
-	if err != nil {
+	if !middlewareID.Valid {
 		return nil, ErrMiddlewareOffline
 	}
-	return result, nil
+	runCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	// The browser renders {ok, data, error} next to the device, so a gateway
+	// that answered ok:false is a test result to show, not a request failure.
+	data, err := s.hub.Call(runCtx, uuidString(middlewareID), kind, map[string]any{"connectionId": wireID(devUUID)}, nil)
+	var rejected *gatewayhub.RejectedError
+	if errors.As(err, &rejected) {
+		return json.Marshal(map[string]any{"ok": false, "error": rejected.Reason})
+	}
+	if err != nil {
+		return nil, middlewareCallError(kind, err)
+	}
+	return json.Marshal(map[string]any{"ok": true, "data": data})
+}
+
+// middlewareCallError maps gatewayhub.Call's errors onto core's.
+func middlewareCallError(kind string, err error) error {
+	var rejected *gatewayhub.RejectedError
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return fmt.Errorf("middleware %s timed out: %w", kind, ErrMiddlewareCommandNAK)
+	case errors.As(err, &rejected):
+		return fmt.Errorf("middleware %s failed: %s: %w", kind, rejected.Reason, ErrMiddlewareCommandNAK)
+	case errors.Is(err, gatewayhub.ErrOffline):
+		return ErrMiddlewareOffline
+	default:
+		return err
+	}
 }
 
 // ImportMiddlewareConfig sends a config-export command.request to
@@ -711,33 +725,14 @@ func (s *Service) ImportMiddlewareConfig(ctx context.Context, principal auth.Pri
 		return ImportMiddlewareConfigResult{}, err
 	}
 
-	commandID, err := newUUID()
-	if err != nil {
-		return ImportMiddlewareConfigResult{}, err
-	}
-	payload, _ := json.Marshal(map[string]any{"type": "command.request", "commandId": uuidString(commandID), "kind": "config-export"})
 	runCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	raw, err := s.hub.RunCommand(runCtx, uuidString(mwUUID), uuidString(commandID), payload)
-	if errors.Is(err, context.DeadlineExceeded) {
-		return ImportMiddlewareConfigResult{}, fmt.Errorf("middleware command timed out: %w", ErrMiddlewareCommandNAK)
-	}
+	data, err := s.hub.Call(runCtx, uuidString(mwUUID), "config-export", nil, nil)
 	if err != nil {
-		return ImportMiddlewareConfigResult{}, ErrMiddlewareOffline
-	}
-	var envelope struct {
-		Ok    bool            `json:"ok"`
-		Data  json.RawMessage `json:"data"`
-		Error string          `json:"error"`
-	}
-	if err = json.Unmarshal(raw, &envelope); err != nil {
-		return ImportMiddlewareConfigResult{}, fmt.Errorf("decode command result: %w", err)
-	}
-	if !envelope.Ok {
-		return ImportMiddlewareConfigResult{}, fmt.Errorf("middleware config-export failed: %s: %w", envelope.Error, ErrMiddlewareCommandNAK)
+		return ImportMiddlewareConfigResult{}, middlewareCallError("config-export", err)
 	}
 	var snapshot MiddlewareConfigSnapshot
-	if err = json.Unmarshal(envelope.Data, &snapshot); err != nil {
+	if err = json.Unmarshal(data, &snapshot); err != nil {
 		return ImportMiddlewareConfigResult{}, fmt.Errorf("decode config-export response: %w", err)
 	}
 	return s.importFromSnapshot(ctx, principal, uuidString(mwOrgID), middlewareID, snapshot, sourceIP)

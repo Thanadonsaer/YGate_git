@@ -8,47 +8,74 @@ import (
 	"time"
 )
 
-func TestRunCommandOfflineReturnsErrOffline(t *testing.T) {
+func TestCallOfflineReturnsErrOffline(t *testing.T) {
 	h := New()
-	_, err := h.RunCommand(context.Background(), "unknown-gateway", "cmd-1", []byte(`{}`))
+	_, err := h.Call(context.Background(), "unknown-gateway", "readNow", nil, nil)
 	if !errors.Is(err, ErrOffline) {
-		t.Fatalf("RunCommand() err=%v want ErrOffline", err)
+		t.Fatalf("Call() err=%v want ErrOffline", err)
 	}
 }
 
-func TestRunCommandTimesOutWhenNobodyResolves(t *testing.T) {
+func TestCallTimesOutWhenNobodyResolves(t *testing.T) {
 	h := New()
-	out, resolve, unregister := h.Register("gw-1")
+	out, _, unregister := h.Register("gw-1")
 	defer unregister()
-	_ = resolve
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
-	go func() { <-out }() // drain the payload so RunCommand's send doesn't block
+	go func() { <-out }() // drain the payload so Call's send doesn't block
 
-	_, err := h.RunCommand(ctx, "gw-1", "cmd-1", []byte(`{}`))
+	_, err := h.Call(ctx, "gw-1", "readNow", nil, nil)
 	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("RunCommand() err=%v want DeadlineExceeded", err)
+		t.Fatalf("Call() err=%v want DeadlineExceeded", err)
 	}
 }
 
-func TestRunCommandResolvesWhenReaderRepliesWithMatchingCommandID(t *testing.T) {
-	h := New()
+// fakeGateway answers the next command.request on gw-1 with reply, and
+// hands back the request frame it saw.
+func fakeGateway(t *testing.T, h *Hub, reply string) (<-chan map[string]any, func()) {
+	t.Helper()
 	out, resolve, unregister := h.Register("gw-1")
+	seen := make(chan map[string]any, 1)
+	go func() {
+		var frame map[string]any
+		if err := json.Unmarshal(<-out, &frame); err != nil {
+			t.Error(err)
+		}
+		seen <- frame
+		resolve(frame["commandId"].(string), json.RawMessage(reply))
+	}()
+	return seen, unregister
+}
+
+func TestCallBuildsEnvelopeAndReturnsData(t *testing.T) {
+	h := New()
+	seen, unregister := fakeGateway(t, h, `{"ok":true,"data":{"value":7}}`)
 	defer unregister()
 
-	go func() {
-		<-out // pretend to be the gateway receiving the command
-		resolve("cmd-1", json.RawMessage(`{"ok":true}`))
-	}()
-
-	result, err := h.RunCommand(context.Background(), "gw-1", "cmd-1", []byte(`{}`))
+	data, err := h.Call(context.Background(), "gw-1", "readNow", map[string]any{"connectionId": 3}, nil)
 	if err != nil {
-		t.Fatalf("RunCommand() unexpected err=%v", err)
+		t.Fatalf("Call() unexpected err=%v", err)
 	}
-	if string(result) != `{"ok":true}` {
-		t.Fatalf("RunCommand() result=%s want {\"ok\":true}", result)
+	if string(data) != `{"value":7}` {
+		t.Fatalf("Call() data=%s", data)
+	}
+	frame := <-seen
+	if frame["type"] != "command.request" || frame["kind"] != "readNow" || frame["connectionId"] != float64(3) || frame["commandId"] == "" {
+		t.Fatalf("request frame=%v", frame)
+	}
+}
+
+func TestCallRejectedCarriesGatewayReason(t *testing.T) {
+	h := New()
+	_, unregister := fakeGateway(t, h, `{"ok":false,"error":"modbus timeout"}`)
+	defer unregister()
+
+	_, err := h.Call(context.Background(), "gw-1", "readNow", nil, nil)
+	var rejected *RejectedError
+	if !errors.As(err, &rejected) || rejected.Reason != "modbus timeout" || rejected.Kind != "readNow" {
+		t.Fatalf("Call() err=%v want RejectedError with reason", err)
 	}
 }
 

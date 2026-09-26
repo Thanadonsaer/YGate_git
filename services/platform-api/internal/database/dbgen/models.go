@@ -124,24 +124,25 @@ type AuthEmailVerificationToken struct {
 }
 
 type AuthMiddlewareClient struct {
-	ID                   pgtype.UUID
-	OrganizationID       pgtype.UUID
-	Name                 string
-	KeyPrefix            string
-	KeyHash              []byte
-	AutoOnboard          bool
-	IsActive             bool
-	LastSeenAt           pgtype.Timestamptz
-	CreatedAt            pgtype.Timestamptz
-	UpdatedAt            pgtype.Timestamptz
-	SiteName             string
-	ConfigVersion        int64
-	ConfigAppliedVersion int64
-	ConfigSnapshot       []byte
-	SoftwareVersion      pgtype.Text
-	PollIntervalSeconds  int32
-	ApiPollingEnabled    bool
-	IdleHeartbeatSeconds int32
+	ID                    pgtype.UUID
+	OrganizationID        pgtype.UUID
+	Name                  string
+	KeyPrefix             string
+	KeyHash               []byte
+	AutoOnboard           bool
+	IsActive              bool
+	LastSeenAt            pgtype.Timestamptz
+	CreatedAt             pgtype.Timestamptz
+	UpdatedAt             pgtype.Timestamptz
+	SiteName              string
+	ConfigVersion         int64
+	ConfigAppliedVersion  int64
+	ConfigSnapshot        []byte
+	SoftwareVersion       pgtype.Text
+	PollIntervalSeconds   int32
+	ApiPollingEnabled     bool
+	IdleHeartbeatSeconds  int32
+	CommandTimeoutSeconds int32
 }
 
 type AuthPasswordRecoveryAttempt struct {
@@ -410,6 +411,7 @@ type PlantRegisterProfileAddress struct {
 	MappingMode        string
 	CreatedAt          pgtype.Timestamptz
 	UpdatedAt          pgtype.Timestamptz
+	BitInterpretation  string
 }
 
 type PlantRegisterValueMapping struct {

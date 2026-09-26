@@ -25,18 +25,7 @@ LEFT JOIN plant.device d ON d.organization_id = p.organization_id AND d.plant_id
 -- relation -- its analyzer cannot resolve lateral aliases written inline here.
 LEFT JOIN telemetry.raw_register_reading_latest tl
        ON tl.organization_id = d.organization_id AND tl.device_id = d.id
-WHERE EXISTS (
-    SELECT 1 FROM auth.user_role ur
-    JOIN auth.role r ON r.id = ur.role_id
-    JOIN auth.role_permission rp ON rp.role_id = ur.role_id
-    JOIN auth.permission pm ON pm.id = rp.permission_id
-    WHERE ur.user_id = sqlc.arg(user_id)
-      AND pm.action = 'read' AND pm.resource_type = 'device'
-      AND (r.organization_id IS NULL OR r.organization_id = ur.organization_id)
-      AND (rp.organization_id IS NULL OR rp.organization_id = ur.organization_id)
-      AND (ur.organization_id IS NULL OR ur.organization_id = p.organization_id)
-      AND (ur.plant_id IS NULL OR ur.plant_id = p.id)
-)
+WHERE auth.has_permission(sqlc.arg(user_id), 'read', 'device', p.organization_id, p.id)
 GROUP BY p.id, p.code, p.name, p.timezone, p.is_active
 ORDER BY p.name, p.code, p.id
 LIMIT 200;

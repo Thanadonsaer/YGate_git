@@ -330,8 +330,11 @@ func updateRegisterMetadataHandler(service *core.Service) func(http.ResponseWrit
 // core.Service.RunMiddlewareCommand for how the Middleware is resolved.
 func deviceCommandHandler(service *core.Service, kind string) func(http.ResponseWriter, *http.Request, auth.Principal) {
 	return func(w http.ResponseWriter, r *http.Request, principal auth.Principal) {
-		result, err := service.RunMiddlewareCommand(r.Context(), principal, r.PathValue("deviceId"), kind)
+		result, err := service.RunMiddlewareCommand(r.Context(), principal, r.PathValue("plantId"), r.PathValue("deviceId"), kind)
 		switch {
+		case errors.Is(err, core.ErrNotFound):
+			http.Error(w, "device not found", http.StatusNotFound)
+			return
 		case errors.Is(err, core.ErrMiddlewareOffline):
 			http.Error(w, "middleware gateway is offline", http.StatusServiceUnavailable)
 			return
